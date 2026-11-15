@@ -1,4 +1,4 @@
-//! `qb-link` — QBNex's own linker/loader for native program code (D15).
+//! `qb-link` — QBNex's own linker/loader for native program code.
 //!
 //! Cranelift (`cranelift-object`) turns a program into an object file
 //! (COFF on Windows, ELF on Linux, Mach-O on macOS). [`link`] lays its
@@ -8,8 +8,8 @@
 //! next to its program. At start-up [`load`] copies the image into
 //! executable memory and patches the runtime addresses of that very process.
 //!
-//! So no external linker, no C toolchain and no code generation at run
-//! time: the program's machine code was produced when it was built.
+//! There is no code generation at run time: the program's machine code was
+//! produced when it was built.
 //! Supported relocations: 64-bit absolute, 32-bit PC-relative (x86-64) and
 //! the AArch64 26-bit call.
 

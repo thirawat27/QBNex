@@ -1,4 +1,4 @@
-//! D15 final: programs linked by rust-lld with the qb-native runtime library
+//! Programs linked by rust-lld with the qb-native runtime library
 //! into standard executables give the VM's output.
 //!
 //! Needs a native kit (`QBNEX_NATIVE_KIT`, built by `scripts/native-kit.ps1`);

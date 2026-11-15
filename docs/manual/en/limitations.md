@@ -3,8 +3,7 @@
 [Manual index](../README.md) · [ภาษาไทย](../th/limitations.md)
 
 QBNex compiles BASIC to QIR and runs it with the Rust runner `qb-exec`.
-There is no C or C++ compiler anywhere in the pipeline. This page lists
-what that means for programs written for QB64. Each item was checked
+This page lists what that means for programs written for QB64. Each item was checked
 against the code. Intentional changes and fixed QB64 bugs are on
 [Differences from QB64 and QBasic](differences.md).
 
@@ -13,8 +12,7 @@ against the code. Intentional changes and fixed QB64 bugs are on
 - **Building QBNex needs the Rust toolchain.** `scripts/setup_win.cmd`
   (and `setup_lnx.sh`, `setup_osx.command`) build the runner with `cargo`
   and stop with "cargo was not found" otherwise. Setting
-  `QBNEX_QB_EXEC` to a prebuilt `qb-exec` skips that step. No MinGW or other
-  C compiler is needed.
+  `QBNEX_QB_EXEC` to a prebuilt `qb-exec` skips that step.
 - **Building BASIC programs needs nothing else.** A built QBNex (or the
   release bundle) compiles programs without Rust installed: the compiler
   copies the prebuilt runner from `crates/engine/exec/bin/<os>/` and appends
@@ -59,8 +57,8 @@ starts in under 0.1 s.
 ## DECLARE LIBRARY
 
 Calls go from the runner straight to machine code through `crates/engine/ffi`
-(Win64, SysV x86-64 and AArch64 calling conventions). Without a C
-compiler:
+(Win64, SysV x86-64 and AArch64 calling conventions). Nothing is compiled
+or linked into the program, so:
 
 - **C and C++ sources and headers cannot be used.** QB64 compiled a
   header (`name.h`) or C/C++ source next to `DECLARE LIBRARY "name"`
@@ -113,7 +111,7 @@ compiler:
   A function that is not found raises error 453 when it is first called.
 - **Types.** Integers of every size, SINGLE, DOUBLE, `_OFFSET`, strings
   (passed as a pointer to their bytes) and BYREF arguments (passed as an
-  address) work. Not supported: `_FLOAT` arguments or results (D-112),
+  address) work. Not supported: `_FLOAT` arguments or results,
   C functions with a variable number of arguments, and callbacks from C
   into BASIC.
 
@@ -169,7 +167,7 @@ it returns at once. Without a game controller `STICK` returns 128 and `STRIG` 0.
 equal to the x87 unit. `EXP`, `LOG` and `^` with a non-integer exponent
 use the x87 unit on x86/x86-64. On other CPUs they use a software version
 that differs from the x87 unit on about 3% of inputs, by at most 1 unit
-in the last place (D-111). Code using `_FLOAT` is not JIT-compiled, so
+in the last place. Code using `_FLOAT` is not JIT-compiled, so
 it runs slower than SINGLE and DOUBLE code.
 
 ## Statements that are not supported, or behave differently

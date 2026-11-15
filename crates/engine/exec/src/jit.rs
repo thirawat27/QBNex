@@ -934,7 +934,7 @@ pub(crate) fn lower_full(m: &bc::Module, hosts: &Hosts) -> mir::Module {
     mm
 }
 
-/// Native image of program `m` for this executable (AOT, D15).
+/// Native image of program `m` for this executable (AOT).
 pub(crate) fn build_image(m: &bc::Module, hosts: &Hosts) -> Result<Vec<u8>, String> {
     if !qb_jit::host_supported() {
         return Err("no native code generator for this machine".into());
@@ -947,7 +947,7 @@ pub(crate) fn build_image(m: &bc::Module, hosts: &Hosts) -> Result<Vec<u8>, Stri
     Ok(out)
 }
 
-/// Object file for a standard linker (D15 final): the program's functions,
+/// Object file for a standard linker: the program's functions,
 /// the QIR text `src` and the entry table (`qb_jit::aot::NativeEntry`).
 pub(crate) fn build_object(m: &bc::Module, src: &[u8], hosts: &Hosts) -> Result<Vec<u8>, String> {
     if !qb_jit::host_supported() {

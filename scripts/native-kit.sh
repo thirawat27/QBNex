@@ -1,5 +1,5 @@
 #!/usr/bin/env sh
-# Builds the QBNex native kit on Linux or macOS (D15 final): libqb_native.a
+# Builds the QBNex native kit on Linux or macOS: libqb_native.a
 # (crate qb-native), rust-lld from the active Rust toolchain and kit.txt with
 # the linker command (ld.lld / ld64.lld flavor). Result: $1 (default
 # target/release/native). Use it with

@@ -3493,7 +3493,7 @@ DIM SHARED incRangeFrom AS LONG, incRangeTo AS LONG, incRangeSkip AS LONG, incRa
             GotHeader:
         END IF
 
-        'There is no C/C++ compile step: a header whose functions are not in a library the
+        'Headers are never compiled: a header whose functions are not in a library the
         'program can load (inline functions, macros) cannot be called. Say so now instead of
         'failing with error 453 when the program runs.
         IF LEN(headername$) <> 0 AND LEN(libname$) = 0 THEN

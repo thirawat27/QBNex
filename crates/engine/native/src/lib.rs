@@ -1,4 +1,4 @@
-//! `qb-native` — runtime library of native QBNex executables (D15 final).
+//! `qb-native` — runtime library of native QBNex executables.
 //!
 //! `qb-exec build --native-link` compiles a program into an object file
 //! (`qb_jit::aot::compile_native_object`): its functions `qb_func_<i>`, the
@@ -14,7 +14,7 @@
 //! - every runtime symbol native code imports (`qb_host_<i>`, `qb_vm_op`,
 //!   `qb_jit_*`; feature `native-syms` of qb-exec / qb-jit);
 //! - on Windows, the few C runtime pieces Rust code expects (`crt.rs`), so
-//!   no C runtime library, MSVC or MinGW is needed to link.
+//!   the program links without a C runtime library (`/nodefaultlib`).
 
 use std::io::{BufWriter, Write};
 

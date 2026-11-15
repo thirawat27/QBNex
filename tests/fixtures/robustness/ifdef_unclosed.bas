@@ -1,3 +1,3 @@
-' $IF without $END IF (R14)
+' $IF without $END IF
 $IF WIN THEN
 PRINT 1

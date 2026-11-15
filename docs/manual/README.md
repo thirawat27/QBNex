@@ -2,11 +2,11 @@
 
 QBNex compiles QBasic, QuickBASIC 4.5 and QB64 programs. The compiler
 translates them to QIR, a small intermediate language, which the Rust
-runner `qb-exec` runs (VM + JIT). No C or C++ compiler is involved.
+runner `qb-exec` runs (VM + JIT).
 
 QBNex คอมไพล์โปรแกรม QBasic, QuickBASIC 4.5 และ QB64 โดยแปลเป็น QIR
 ซึ่งเป็นภาษากลางขนาดเล็ก แล้วให้ runner ภาษา Rust ชื่อ `qb-exec` รัน
-(VM + JIT) ไม่ต้องใช้คอมไพเลอร์ C หรือ C++
+(VM + JIT)
 
 This manual describes the current QBNex release; `qb --version` shows the
 installed one. คู่มือนี้อธิบาย QBNex รุ่นปัจจุบัน ดูรุ่นที่ติดตั้งด้วย `qb --version`
@@ -35,5 +35,5 @@ Each feature in this manual carries one of these labels. ฟีเจอร์�
   The editor tools may already know the words. ออกแบบแล้ว (syntax
   กำหนดแล้ว) แต่ยังไม่อยู่ในคอมไพเลอร์ เครื่องมือ editor อาจรู้จักคำเหล่านี้แล้ว
 
-Developer reference (QIR format, deviation IDs, FFI, 3D API) lives in [`docs/dev`](../dev/README.md).
-เอกสารอ้างอิงสำหรับนักพัฒนา (format QIR, รหัส deviation, FFI, 3D API) อยู่ใน [`docs/dev`](../dev/README.md)
+Developer reference (QIR format, deviations from QB64, FFI, 3D API) lives in [`docs/dev`](../dev/README.md).
+เอกสารอ้างอิงสำหรับนักพัฒนา (format QIR, จุดที่ต่างจาก QB64, FFI, 3D API) อยู่ใน [`docs/dev`](../dev/README.md)

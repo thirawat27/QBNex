@@ -1,9 +1,9 @@
 @echo off
-rem QBNex setup (QIR pipeline, D10/D15b): no MinGW, no C/C++ toolchain.
+rem QBNex setup (QIR pipeline).
 rem
 rem   1. builds the QIR runner qb-exec with the Rust toolchain only
 rem   2. turns the bootstrap compiler bootstrap\qbnex.qir into qb-stage0.exe
-rem      (runner + QIR payload, D15b; QBNEX_QIR_PACK=native adds a native image
+rem      (runner + QIR payload; QBNEX_QIR_PACK=native adds a native image
 rem       with `qb-exec build`)
 rem   3. stage0 compiles compiler\qbnex.bas into qb.exe through QIR
 rem
@@ -21,7 +21,7 @@ rem   QBNEX_CI            1 = no pause at the end or after an error
 setlocal enableextensions
 cd /d "%~dp0.."
 
-echo QBNex Setup ^(QIR pipeline, no C/C++ toolchain^)
+echo QBNex Setup ^(QIR pipeline^)
 echo.
 
 rem defaults first: the QBNEX_QB_EXEC branch below skips the runner build

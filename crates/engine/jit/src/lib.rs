@@ -1,7 +1,7 @@
 //! `qb-jit` — Cranelift JIT tier for QBNex.
 //!
 //! Compiles MIR functions (typed, block-structured; see [`mir`]) to native
-//! code in memory: no linker, no C compiler. The VM stays the first tier;
+//! code in memory. The VM stays the first tier;
 //! [`tier::Tiering`] decides when a function or loop is hot enough to compile,
 //! and every exit of native code (error, event, unsupported construct) hands
 //! the exact frame state back to the VM at a known pc (see [`ctx`]).

@@ -1,6 +1,6 @@
 $CONSOLE:ONLY
 ' Main-module code before and after a DECLARE LIBRARY block must run in
-' source order and share the same variables (legacy defect L-00).
+' source order and share the same variables (a legacy defect).
 x = 1
 PRINT "before"; x
 DECLARE LIBRARY

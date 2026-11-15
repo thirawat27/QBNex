@@ -1,5 +1,5 @@
 $CONSOLE:ONLY
-' R7: _LOADIMAGE through the Rust decoders. Each file is written from DATA, loaded as
+' _LOADIMAGE through the Rust decoders. Each file is written from DATA, loaded as
 ' 32bpp (every pixel printed; JPEG only by size, it is lossy) and as 8bpp with (256) and
 ' without (257) palette remapping.
 DIM SHARED nfiles AS INTEGER

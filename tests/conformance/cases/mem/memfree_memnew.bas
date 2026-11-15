@@ -1,6 +1,6 @@
 $CONSOLE:ONLY
 ' _MEMFREE of a _MEMNEW block. Legacy freed the buffer twice and corrupted the
-' heap (L-09, exit 0xC0000374); the Rust runtime frees it once (D-07).
+' heap (exit 0xC0000374); the Rust runtime frees it once.
 DIM m AS _MEM
 m = _MEMNEW(16)
 _MEMFILL m, m.OFFSET, 16, 65 AS _UNSIGNED _BYTE

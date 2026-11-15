@@ -1,9 +1,8 @@
 //! `DECLARE LIBRARY` and `DECLARE DYNAMIC LIBRARY` for the QIR backend.
 //!
-//! QB64 compiles a prototype for every declared function with a C++ compiler
-//! and links the library. QBNex has no C compiler, so the runner
-//! resolves symbols at run time and calls them through hand-written call
-//! thunks (`global_asm!`, no libffi, no C):
+//! QB64 compiles a prototype for every declared function and links the
+//! library. The runner instead resolves symbols at run time and calls them
+//! through hand-written call thunks (`global_asm!`, no libffi):
 //!
 //! - [`Library::open_dynamic`] finds the library file the way QB64
 //!   does for `DECLARE DYNAMIC LIBRARY "name"` (and for

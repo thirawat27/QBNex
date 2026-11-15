@@ -518,7 +518,7 @@ fn chain_file(common: &[u8]) -> Option<std::path::PathBuf> {
 /// RUN file$ / CHAIN: the program `cmd` replaces this one. Unix: the process
 /// becomes it (`exec`, through the shell as SHELL does). Windows: this program
 /// releases its files, audio and window, waits for it and ends with its exit
-/// code (the old C++ runtime started it and ended at once; waiting keeps the console
+/// code (rather than starting it and ending at once: waiting keeps the console
 /// output in order and the exit code for whoever started this program).
 fn run_program(vm: &mut dyn Host<'_>, cmd: &str, exe: &str) -> R<()> {
     let found = std::path::Path::new(exe).is_file() || (cfg!(windows) && std::path::Path::new(&format!("{exe}.exe")).is_file());

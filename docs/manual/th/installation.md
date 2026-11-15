@@ -42,8 +42,8 @@ Windows ควรยกเว้นโฟลเดอร์นี้จากก
 
 ## Build จาก source
 
-ทุกระบบปฏิบัติการต้องมี [Rust](https://rustup.rs) (`cargo`) และไม่ต้องใช้
-คอมไพเลอร์ C หรือ C++ เลย ตัวคอมไพเลอร์เขียนด้วย BASIC แปลเป็น QIR
+ทุกระบบปฏิบัติการต้องมี [Rust](https://rustup.rs) (`cargo`)
+ตัวคอมไพเลอร์เขียนด้วย BASIC แปลเป็น QIR
 (รูปแบบกลางที่เป็นข้อความ) แล้วรันด้วย runner ภาษา Rust ชื่อ `qb-exec`
 
 ### Windows
@@ -65,7 +65,6 @@ sh scripts/setup_lnx.sh
 Fedora ใช้ `gcc alsa-lib-devel systemd-devel libxkbcommon-devel libX11-devel
 pkgconf-pkg-config` ส่วน Arch ใช้ `gcc alsa-lib systemd-libs libxkbcommon
 libx11 pkgconf` โดย `gcc` เป็นแค่ linker ของระบบที่ Rust ใช้บน Linux
-ไม่มีการคอมไพล์ source ภาษา C หรือ C++
 
 โปรแกรมที่เปิดหน้าต่างต้องมีไลบรารีคีย์บอร์ดของ X11 ตอนรันด้วย คือ
 `libxkbcommon-x11-0` บน Debian/Ubuntu และ `libxkbcommon-x11` บน Fedora กับ Arch

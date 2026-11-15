@@ -88,7 +88,7 @@ The user manual is in [`docs/manual`](docs/manual/README.md), in English and Tha
 
 Where this README and the manual disagree, the manual is the current one.
 
-Developer reference (QIR format, deviation IDs `L-xx`/`D-xx`, `DECLARE LIBRARY` and `_FLOAT`,
+Developer reference (QIR format, deviations from QB64, `DECLARE LIBRARY` and `_FLOAT`,
 3D API design): [`docs/dev`](docs/dev/README.md). Building, testing and contributing:
 [CONTRIBUTING.md](CONTRIBUTING.md). Release history: [CHANGELOG.md](CHANGELOG.md).
 เอกสารอ้างอิงสำหรับนักพัฒนาอยู่ที่ [`docs/dev`](docs/dev/README.md) และวิธี build/ทดสอบ/ร่วมพัฒนาอยู่ใน
@@ -147,7 +147,7 @@ Developer reference (QIR format, deviation IDs `L-xx`/`D-xx`, `DECLARE LIBRARY` 
 **QBNex** is a modern QBasic/QuickBASIC compiler. It translates BASIC source code into QIR, a
 text intermediate language, and packages it with a Rust runner into a standalone executable for
 Windows, Linux, and macOS. It started as a refactor of QB64 into a CLI-driven compiler without the
-IDE. There is no C or C++ anywhere in the pipeline: the runner and runtime are Rust
+IDE. The runner and runtime are Rust
 crates (`crates/`), the QIR runs on a register VM, and hot loops are compiled to native code with
 Cranelift.
 
@@ -175,7 +175,7 @@ Repository: https://github.com/thirawat27/QBNex
 - **Execution**
   - Self-hosting compiler written in QBNex BASIC
   - BASIC is translated to QIR and run by a Rust VM with a Cranelift JIT for hot code
-  - Standalone executables (runner + program); no C/C++ toolchain is needed to build programs
+  - Standalone executables (runner + program)
   - Native executables linked with `rust-lld` (Preview, needs the native kit)
   - Windows x64, Linux and macOS
 
@@ -205,7 +205,7 @@ Repository: https://github.com/thirawat27/QBNex
 
 ## System Requirements
 
-QBNex needs no C or C++ compiler. The compiler is written in BASIC, translated to
+The compiler is written in BASIC, translated to
 QIR (`bootstrap/qbnex.qir`) and run by the Rust runner `qb-exec`; every compiled program
 is a copy of that runner with its own QIR appended.
 
@@ -2028,7 +2028,7 @@ The compiler is BASIC and compiles itself:
 1. **Bootstrap**: `bootstrap/qbnex.qir` (the compiler, already translated to QIR) is packed into the runner `qb-exec`, giving the stage-0 compiler `qb-stage0`
 2. **Self-hosting**: stage 0 compiles `compiler/qbnex.bas` and its modules into `qb` / `qb.exe`; `scripts/selfhost_fixpoint.*` checks that the next generations produce the same QIR and that it equals `bootstrap/qbnex.qir` (the Windows build of the compiler, so only Windows compares against it; elsewhere set `QBNEX_FIXPOINT_BOOTSTRAP=0`)
 3. **Code generation**: the compiler translates BASIC into QIR
-4. **Packaging**: the output is the runner with the program's QIR appended (no C/C++ compiler or linker)
+4. **Packaging**: the output is the runner with the program's QIR appended
 5. **Runtime**: `qb-exec` runs the QIR with the Rust runtime crates
 
 `compiler/qbnex.bas` is the main orchestrator; most of the compiler lives in
@@ -2115,7 +2115,7 @@ QBNex/
 - **VM / JIT**: `crates/engine/exec/src/vm.rs`, native code in `crates/engine/jit`
 - **Runtime**: `crates/runtime/core`, `crates/runtime/audio`, `crates/runtime/gpu`, `crates/runtime/ext`
 - **Editor tools**: `crates/tools/fmt`, `crates/tools/lsp`, `crates/tools/dap`, and `packaging/vscode`
-- **Behaviour changes**: a conformance case in `tests/conformance/cases`; an intentional difference from QB64 gets a `D-xx` entry in `docs/dev/deviations.md`; user-visible changes go into `docs/manual` (en and th) and [CHANGELOG.md](CHANGELOG.md)
+- **Behaviour changes**: a conformance case in `tests/conformance/cases`; an intentional difference from QB64 gets an entry in `docs/dev/deviations.md`; user-visible changes go into `docs/manual` (en and th) and [CHANGELOG.md](CHANGELOG.md)
 
 ### Continuous Integration and Releases
 

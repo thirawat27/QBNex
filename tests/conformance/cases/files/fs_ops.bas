@@ -1,5 +1,5 @@
 $CONSOLE:ONLY
-' Error paths (75/76/53) are not covered here (the old C++ runtime hung in its
+' Error paths (75/76/53) are not covered here (the legacy runtime hung in its
 ' MessageBox on them).
 ' MKDIR / CHDIR / _CWD$ / NAME / KILL with wildcards / RMDIR / _FILEEXISTS / _DIREXISTS
 d$ = "conf_fsops_dir"

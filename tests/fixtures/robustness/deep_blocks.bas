@@ -1,4 +1,4 @@
-' 1001 nested IF blocks: a clean error, not error 9 (R14)
+' 1001 nested IF blocks: a clean error, not error 9
 IF 1 THEN
 IF 1 THEN
 IF 1 THEN

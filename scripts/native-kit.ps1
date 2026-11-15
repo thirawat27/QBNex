@@ -1,4 +1,4 @@
-# Builds the QBNex native kit (D15 final): qb_native.lib (crate qb-native),
+# Builds the QBNex native kit: qb_native.lib (crate qb-native),
 # rust-lld from the active Rust toolchain and import libraries generated from
 # the system DLLs. Result: <Out>\kit.txt etc. Use it with
 #   $env:QBNEX_NATIVE_KIT = <Out>   or copy <Out> to native\ next to qb-exec.exe

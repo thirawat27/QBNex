@@ -52,7 +52,7 @@ exit code 0 แปลว่าคอมไพล์ผ่าน diagnostic จ�
 
 คอมไพเลอร์จะเขียน QIR (ภาษากลางของ QBNex, `docs/dev/qir.md`)
 แล้วต่อท้ายไว้ในสำเนาของ runner ภาษา Rust ที่ build ไว้แล้ว
-(`crates/engine/exec/bin/<os>/qb-exec`) โดยไม่มีการเรียกคอมไพเลอร์ C/C++ หรือ
+(`crates/engine/exec/bin/<os>/qb-exec`) โดยไม่มีการเรียก
 linker เลย runner จะแปลง QIR เป็น bytecode รันบน register VM และคอมไพล์
 loop ที่ทำงานบ่อยเป็นโค้ดเครื่องด้วย Cranelift (`QB_JIT=off|eager|<threshold>`)
 ถ้าโปรแกรมใช้คำสั่งที่ QIR back end ยังไม่รองรับ การ build จะหยุดพร้อมข้อความ

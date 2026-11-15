@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Regenerates the image corpus used by qb-runtime's image tests (R7).
+"""Regenerates the image corpus used by qb-runtime's image tests.
 
 Run from anywhere: python make_corpus.py  (needs Pillow for the JPEG/GIF files;
 everything else is written by the small encoders below so that the corpus

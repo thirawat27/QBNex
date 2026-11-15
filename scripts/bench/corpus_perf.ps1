@@ -14,7 +14,7 @@
 
   Variants: vm (QB_JIT=off), jit (default: tier up after 1000 ticks),
   eager (QB_JIT=eager: whole module compiled before the first statement),
-  native (standard executable linked by rust-lld, D15).
+  native (standard executable linked by rust-lld).
 
 .EXAMPLE
   pwsh scripts\bench\corpus_perf.ps1 -Qb .\qb.exe -Runs 3

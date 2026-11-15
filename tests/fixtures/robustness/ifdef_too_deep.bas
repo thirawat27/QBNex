@@ -1,4 +1,4 @@
-' 256 nested $IF blocks (R14)
+' 256 nested $IF blocks
 $IF WIN THEN
 $IF WIN THEN
 $IF WIN THEN

@@ -4,7 +4,7 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
-description = "D15: in-house linker/loader for QBNex native code. Turns a Cranelift object into a relocatable image and loads it into executable memory (no external linker, no C toolchain)."
+description = "In-house linker/loader for QBNex native code. Turns a Cranelift object into a relocatable image and loads it into executable memory."
 publish = false
 
 [lib]

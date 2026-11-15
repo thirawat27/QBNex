@@ -1,9 +1,9 @@
 #!/bin/sh
-# QBNex setup (QIR pipeline, D10/D15b): no C/C++ toolchain. Linux and macOS.
+# QBNex setup (QIR pipeline). Linux and macOS.
 #
 #   1. builds the QIR runner qb-exec with the Rust toolchain only
 #   2. turns the bootstrap compiler bootstrap/qbnex.qir into ./qb-stage0
-#      (runner + QIR payload, D15b; QBNEX_QIR_PACK=native adds a native image
+#      (runner + QIR payload; QBNEX_QIR_PACK=native adds a native image
 #       with `qb-exec build`)
 #   3. stage0 compiles compiler/qbnex.bas into ./qb through QIR
 #
@@ -15,7 +15,7 @@ set -eu
 ROOT="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
 cd "$ROOT"
 
-echo "QBNex Setup (QIR pipeline, no C/C++ toolchain)"
+echo "QBNex Setup (QIR pipeline)"
 
 case "$(uname -s)" in
   Darwin) OSDIR=macos ;;

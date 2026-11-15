@@ -4,7 +4,7 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
-description = "Cranelift JIT tier for QBNex programs. Compiles typed functions/loops to native code at run time (no linker, no C compiler)."
+description = "Cranelift JIT tier for QBNex programs. Compiles typed functions/loops to native code at run time."
 publish = false
 
 [lib]

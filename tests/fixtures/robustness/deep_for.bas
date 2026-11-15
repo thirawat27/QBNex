@@ -1,4 +1,4 @@
-' 1001 nested FOR loops (R14)
+' 1001 nested FOR loops
 FOR i1 = 1 TO 1
 FOR i2 = 1 TO 1
 FOR i3 = 1 TO 1

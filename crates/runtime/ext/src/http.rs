@@ -27,7 +27,7 @@ pub fn request(_method: &str, _url: &str, _headers: &str, _body: &[u8], _timeout
 }
 
 /// TLS through rustls with the RustCrypto provider (pure Rust: no ring or
-/// aws-lc, so building QBNex needs no C compiler) and the Mozilla roots.
+/// aws-lc) and the Mozilla roots.
 #[cfg(not(target_arch = "wasm32"))]
 fn tls_config(extra_roots: Option<&[u8]>) -> ureq::tls::TlsConfig {
     use std::sync::{Arc, OnceLock};

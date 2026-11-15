@@ -1,4 +1,4 @@
-' R12a: SCREEN 0 cell buffer, PRINT layout, LOCATE/CSRLIN/POS, VIEW PRINT, CLS,
+' SCREEN 0 cell buffer, PRINT layout, LOCATE/CSRLIN/POS, VIEW PRINT, CLS,
 ' control characters and SCREEN(); the screen page is read back with SCREEN().
 $CONSOLE
 SCREEN 0

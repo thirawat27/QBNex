@@ -1,4 +1,4 @@
-//! D15: programs compiled ahead of time (native image built with
+//! Programs compiled ahead of time (native image built with
 //! cranelift-object + qb-link, loaded at start-up) give the VM's results.
 
 use std::path::Path;

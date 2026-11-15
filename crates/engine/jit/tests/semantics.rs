@@ -595,7 +595,7 @@ fn rust_lld() -> Option<std::path::PathBuf> {
     p.is_file().then_some(p)
 }
 
-/// D15 final for Linux and macOS: the native object (program + entry table)
+/// Linux and macOS: the native object (program + entry table)
 /// of every ELF and Mach-O target is position-independent and accepted by
 /// the system linker (rust-lld as ld.lld / ld64.lld). Runtime symbols are
 /// left undefined here; linking the real executables runs in CI

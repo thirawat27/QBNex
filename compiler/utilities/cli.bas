@@ -313,8 +313,8 @@ FUNCTION ParseCMDLineArgs$ ()
             SYSTEM
         CASE "-c", "-x", "-p", "-z"
             'QB64 switches that change nothing here (compiling is what qb always does,
-            'it always prints to the console, nothing is precompiled and there is no C++
-            'step): not in the help, but accepted so old build scripts keep working
+            'it always prints to the console and nothing is precompiled): not in the help,
+            'but accepted so old build scripts keep working
             cmdlineswitch = -1
         CASE "-o"
             IF LEN(COMMAND$(i + 1)) = 0 THEN

@@ -3,8 +3,8 @@
 //! - INPUT a$, b, c reads one line; values missing from it are empty / 0, the
 //!   next INPUT reads the next line
 //! - at the end of stdin INPUT and LINE INPUT give empty values instead of
-//!   error 62 "Input past end of file" (Q4)
-//! - INPUT$(n) without a file number reads the keyboard / stdin, not error 52 (Q5)
+//!   error 62 "Input past end of file"
+//! - INPUT$(n) without a file number reads the keyboard / stdin, not error 52
 
 use std::io::Write;
 use std::process::{Command, Stdio};

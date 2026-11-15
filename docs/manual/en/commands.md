@@ -52,8 +52,8 @@ Run the executable you built: `hello.exe` or `./hello`.
 
 The compiler writes QIR (the QBNex intermediate representation,
 `docs/dev/qir.md`) and appends it to a copy of the prebuilt Rust
-runner `crates/engine/exec/bin/<os>/qb-exec`. No C or C++ compiler and no linker
-run. The runner lowers QIR to bytecode, runs it on a register VM and
+runner `crates/engine/exec/bin/<os>/qb-exec`. No linker runs.
+The runner lowers QIR to bytecode, runs it on a register VM and
 compiles hot loops to native code with Cranelift
 (`QB_JIT=off|eager|<threshold>`). A statement the QIR back end does not
 cover yet stops the build with `QIR: unsupported: line N: ...`.

@@ -1,7 +1,7 @@
 $CONSOLE:ONLY
 '$IMPORT:'qbnex'
 ' Monolithic stdlib helpers: collections, strings, paths, JSON/CSV builders,
-' dates, results and the class registry (fixes found in the R13 audit).
+' dates, results and the class registry (fixes found in an audit of the stdlib).
 DIM l AS QBNex_List
 List_Init l
 List_Add l, "a": List_Add l, "": List_Add l, "c,d"

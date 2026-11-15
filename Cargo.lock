@@ -3766,7 +3766,7 @@ checksum = "d55d956fa96f5ec02be2e13af0e20391a5aa83d6a074e3ad368959d0fab299ea"
 
 [[package]]
 name = "qb-audio"
-version = "2.0.0-preview.3"
+version = "2.0.0-preview.4"
 dependencies = [
  "cpal",
  "qb-float80",
@@ -3777,7 +3777,7 @@ dependencies = [
 
 [[package]]
 name = "qb-dap"
-version = "2.0.0-preview.3"
+version = "2.0.0-preview.4"
 dependencies = [
  "getrandom 0.3.4",
  "qb-exec",
@@ -3790,7 +3790,7 @@ dependencies = [
 
 [[package]]
 name = "qb-exec"
-version = "2.0.0-preview.3"
+version = "2.0.0-preview.4"
 dependencies = [
  "qb-audio",
  "qb-ext",
@@ -3804,7 +3804,7 @@ dependencies = [
 
 [[package]]
 name = "qb-ext"
-version = "2.0.0-preview.3"
+version = "2.0.0-preview.4"
 dependencies = [
  "base64 0.23.1",
  "chrono",
@@ -3824,18 +3824,18 @@ dependencies = [
 
 [[package]]
 name = "qb-ffi"
-version = "2.0.0-preview.3"
+version = "2.0.0-preview.4"
 
 [[package]]
 name = "qb-float80"
-version = "2.0.0-preview.3"
+version = "2.0.0-preview.4"
 dependencies = [
  "proptest",
 ]
 
 [[package]]
 name = "qb-fmt"
-version = "2.0.0-preview.3"
+version = "2.0.0-preview.4"
 dependencies = [
  "proptest",
  "qb-syntax",
@@ -3843,7 +3843,7 @@ dependencies = [
 
 [[package]]
 name = "qb-gpu"
-version = "2.0.0-preview.3"
+version = "2.0.0-preview.4"
 dependencies = [
  "bytemuck",
  "glam",
@@ -3856,11 +3856,11 @@ dependencies = [
 
 [[package]]
 name = "qb-ir"
-version = "2.0.0-preview.3"
+version = "2.0.0-preview.4"
 
 [[package]]
 name = "qb-jit"
-version = "2.0.0-preview.3"
+version = "2.0.0-preview.4"
 dependencies = [
  "cranelift-codegen",
  "cranelift-frontend",
@@ -3874,7 +3874,7 @@ dependencies = [
 
 [[package]]
 name = "qb-link"
-version = "2.0.0-preview.3"
+version = "2.0.0-preview.4"
 dependencies = [
  "object",
  "region 4.0.1",
@@ -3882,7 +3882,7 @@ dependencies = [
 
 [[package]]
 name = "qb-lsp"
-version = "2.0.0-preview.3"
+version = "2.0.0-preview.4"
 dependencies = [
  "lsp-server",
  "lsp-types",
@@ -3894,7 +3894,7 @@ dependencies = [
 
 [[package]]
 name = "qb-native"
-version = "2.0.0-preview.3"
+version = "2.0.0-preview.4"
 dependencies = [
  "qb-exec",
  "qb-jit",
@@ -3902,7 +3902,7 @@ dependencies = [
 
 [[package]]
 name = "qb-runtime"
-version = "2.0.0-preview.3"
+version = "2.0.0-preview.4"
 dependencies = [
  "ab_glyph_rasterizer",
  "arboard",
@@ -3928,7 +3928,7 @@ dependencies = [
 
 [[package]]
 name = "qb-setup"
-version = "2.0.0-preview.3"
+version = "2.0.0-preview.4"
 dependencies = [
  "eframe",
  "image",
@@ -3942,14 +3942,14 @@ dependencies = [
 
 [[package]]
 name = "qb-syntax"
-version = "2.0.0-preview.3"
+version = "2.0.0-preview.4"
 dependencies = [
  "proptest",
 ]
 
 [[package]]
 name = "qb-web"
-version = "2.0.0-preview.3"
+version = "2.0.0-preview.4"
 dependencies = [
  "qb-audio",
  "qb-exec",
@@ -3958,7 +3958,7 @@ dependencies = [
 
 [[package]]
 name = "qbnex-conformance"
-version = "2.0.0-preview.3"
+version = "2.0.0-preview.4"
 
 [[package]]
 name = "quick-error"

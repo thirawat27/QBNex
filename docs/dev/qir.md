@@ -28,7 +28,7 @@ Canonical text = output ของ `qb_ir::print` (parse กลับได้ mo
 | `i64` `u64` | `_INTEGER64`, `_UNSIGNED _INTEGER64` | 8 |
 | `f32` | `SINGLE` | 4 |
 | `f64` | `DOUBLE` | 8 |
-| `f80` | `_FLOAT` (x87 80-bit; D12: ต้องตรงทุก bit) | 32 (เหมือน QB64) |
+| `f80` | `_FLOAT` (x87 80-bit; ต้องตรงทุก bit) | 32 (เหมือน QB64) |
 | `str` | `STRING` ความยาวแปรผัน — handle; executor เป็นเจ้าของ bytes | 8 |
 | `ptr` | address ของ storage (`_OFFSET` ใช้ `i64`/`u64`) | 8 |
 
@@ -272,4 +272,4 @@ endfunc
 
 ## 10. สิ่งที่จะเพิ่มใน v1.x (compatible)
 
-events (`ON TIMER/KEY` + `line` poll), `CHAIN`/`COMMON`, `_MEM` ops, `DECLARE LIBRARY` call thunk (R11d), binary encoding + cache. ทุกอย่างเพิ่มเป็น op/builtin/meta ใหม่ ไม่เปลี่ยนความหมายของของเดิม
+events (`ON TIMER/KEY` + `line` poll), `CHAIN`/`COMMON`, `_MEM` ops, `DECLARE LIBRARY` call thunk, binary encoding + cache. ทุกอย่างเพิ่มเป็น op/builtin/meta ใหม่ ไม่เปลี่ยนความหมายของของเดิม

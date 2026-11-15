@@ -1,6 +1,6 @@
 # 3D API ระดับสูง (`_MESH` / `_CAMERA` / `_LIGHT`)
 
-สถานะ: ชั้น GPU (`qb_gpu::scene`), runtime (`qb_runtime::scene3d`, C ABI `qb_3d_*`), QIR (`qb_ir` table + `qb-exec` `rt/scene3d.rs`) และ keyword ใน compiler (`compiler/subs_functions/subs_functions.bas`) มีแล้วพร้อม test. backend C++ ถูกลบแล้ว เส้นทางที่ใช้จริงคือ QIR อย่างเดียว.
+สถานะ: ชั้น GPU (`qb_gpu::scene`), runtime (`qb_runtime::scene3d`, C ABI `qb_3d_*`), QIR (`qb_ir` table + `qb-exec` `rt/scene3d.rs`) และ keyword ใน compiler (`compiler/subs_functions/subs_functions.bas`) มีแล้วพร้อม test.
 คู่มือผู้ใช้: [`docs/manual/en/graphics-3d.md`](../manual/en/graphics-3d.md). โค้ด: `crates/runtime/gpu`, `crates/runtime/core/src/scene3d.rs`.
 
 ## เป้าหมาย
@@ -53,11 +53,11 @@ f% = _GPU3D                  ' -1 เมื่อมี GPU และวาด 3
 - พิกัดโลกแบบ right-handed, +Y ขึ้น, กล้องมองไป −Z เมื่อไม่ได้ตั้ง (ตรงกับ `_MAPTRIANGLE` 3D)
 - `_DRAW3D` เข้าคิว (เหมือนคำสั่ง hardware เดิม) และวาดตอน `_DISPLAY`; ลำดับในคิว = ลำดับที่วาด
 - แสงสูงสุด 8 ดวงที่เปิดอยู่ (`MAX_LIGHTS`); เกินนั้นดวงหลังถูกข้าม
-- shading: Lambert diffuse + ambient (ไม่มี specular ใน G4; PBR เต็มรอ G5 shader)
+- shading: Lambert diffuse + ambient (ไม่มี specular ในตัว; แสงแบบอื่นเขียนเองได้ด้วย `_SHADER`)
   - `colour = base × texture × (ambient + Σ max(n·l, 0) × light × intensity × atten)`
   - point light: `atten = 1 / (1 + (d/range)²)` (range ≤ 0 = 1/d²) ไม่มีจุดตัดคม
 - alpha: base/texture alpha < 1 ผสมแบบ alpha blend; ไม่ sort ตามระยะ (ผู้ใช้วาดของทึบก่อน)
-- glTF: อ่าน node tree ของ scene เริ่มต้น (transform สะสม), primitive แบบ triangles, POSITION/NORMAL/TEXCOORD_0, index, `baseColorFactor` + `baseColorTexture`; ข้าม skin/animation/morph/KHR extension (G6+)
+- glTF: อ่าน node tree ของ scene เริ่มต้น (transform สะสม), primitive แบบ triangles, POSITION/NORMAL/TEXCOORD_0, index, `baseColorFactor` + `baseColorTexture`; ข้าม skin/animation/morph/KHR extension
 
 ## ชั้น implementation
 
@@ -88,7 +88,7 @@ ambient อย่างเดียว, depth ระหว่างสอง mod
 - error: handle ผิด = 258, argument ผิด = 5 (`_LIGHT` kind ผิดก็ 5)
 - keyword ทั้งหมดอยู่ใน `compiler/subs_functions/subs_functions.bas` และ `crates/compiler/syntax/src/keywords.rs` (LSP/formatter) แล้ว
 
-## G5 — `_SHADER` (WGSL ของผู้ใช้)
+## `_SHADER` (WGSL ของผู้ใช้)
 
 ```basic
 sh& = _SHADER(wgsl$)            ' -1 เมื่อ compile ไม่ผ่าน; _SHADERERROR$ บอกเหตุผล
@@ -112,9 +112,9 @@ struct ShadeIn {
 
 ตรวจด้วย naga (parse + validate) ตอน `_SHADER` จึงได้ข้อความ error ที่อ่านง่ายพร้อมบรรทัด/คอลัมน์ของผู้ใช้
 ไม่ใช่ panic ของ wgpu; ปัญหาที่ไม่ได้อยู่ในข้อความผู้ใช้ (เช่น `shade` คืนชนิดผิด) แจ้งเป็น line 0 พร้อมคำแนะนำ.
-ไม่มี feature `gpu`: เก็บ handle โดยไม่ตรวจ. Keyword มีเฉพาะเส้นทาง QIR (backend C++ ถูกลบแล้ว).
+ไม่มี feature `gpu`: เก็บ handle โดยไม่ตรวจ.
 
-## G6 — ประสิทธิภาพ
+## ประสิทธิภาพ
 
 `SceneRenderer` batch ต่อ frame: uniform ของทุก draw อยู่ใน buffer เดียว (dynamic offset), bind group ของ texture
 หนึ่งอันต่อ texture, เปลี่ยน pipeline/vertex buffer เฉพาะเมื่อต่างจาก draw ก่อนหน้า.

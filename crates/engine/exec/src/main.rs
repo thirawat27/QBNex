@@ -3,11 +3,11 @@
 //! - Packaged program: the compiler copies this executable and appends
 //!   `<QIR text><u64 LE length>QBNEXIR0`. At start-up the runner reads its own
 //!   file and runs the payload (VM + JIT).
-//! - Native program (D15): `qb-exec build program.qir -o program.exe` appends
+//! - Native program: `qb-exec build program.qir -o program.exe` appends
 //!   `<QIR text><native image><u64 QIR length><u64 image length>QBNEXAO1`;
 //!   the machine code was generated at build time, so nothing is compiled
 //!   when the program starts.
-//! - Native executable (D15 final, default when the native kit is present):
+//! - Native executable (default when the native kit is present):
 //!   `qb-exec build program.qir -o program.exe` compiles the program into an
 //!   object file and links it with rust-lld and the `qb-native` runtime
 //!   library into an ordinary executable (`qb_link::toolchain`). The two

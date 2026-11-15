@@ -1,4 +1,4 @@
-' R12a: text in a graphics mode (SCREEN 13): wrap, hold, scroll, CLS, SCREEN() glyph matching.
+' Text in a graphics mode (SCREEN 13): wrap, hold, scroll, CLS, SCREEN() glyph matching.
 $CONSOLE
 SCREEN 13
 COLOR 12

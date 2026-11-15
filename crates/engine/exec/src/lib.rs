@@ -71,15 +71,15 @@ pub fn compile(src: &str) -> Result<bytecode::Module, RunError> {
 }
 
 /// Compiles a QIR program ahead of time into a native image for this
-/// executable (D15): `qb-exec build` stores it next to the program, and
+/// executable: `qb-exec build` stores it next to the program, and
 /// [`run_ir_native`] runs it without any compilation at start-up.
 pub fn build_native(src: &str) -> Result<Vec<u8>, RunError> {
     let m = compile(src)?;
     jit::build_image(&m, &vm::vm_hosts()).map_err(RunError::load)
 }
 
-/// Compiles a QIR program into an object file for a standard linker (D15
-/// final): its functions, the program text and the `qb_native_entry` table.
+/// Compiles a QIR program into an object file for a standard linker: its
+/// functions, the program text and the `qb_native_entry` table.
 /// Linked with the `qb-native` runtime library it is a native executable.
 pub fn build_native_object(src: &str) -> Result<Vec<u8>, RunError> {
     let m = compile(src)?;

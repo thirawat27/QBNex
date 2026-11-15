@@ -61,7 +61,7 @@ windows-sys = { version = "0.61", features = [
 winit = "0.30"
 softbuffer = "0.4"
 # SUB _GL / _gl*: an OpenGL context on the program window; pure Rust
-# (WGL on Windows, EGL/GLX through dlopen on Linux, CGL on macOS), no C toolchain
+# (WGL on Windows, EGL/GLX through dlopen on Linux, CGL on macOS)
 glutin = "0.32"
 gilrs = { version = "0.11", default-features = false, features = ["xinput"] }
 # Present the window frame through the GPU (wgpu) when the feature is on;

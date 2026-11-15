@@ -4,7 +4,7 @@ version.workspace = true
 edition = "2024"
 license.workspace = true
 rust-version = "1.85"
-description = "DECLARE LIBRARY / DECLARE DYNAMIC LIBRARY for the QIR backend: run-time symbol lookup and call thunks, no C compiler."
+description = "DECLARE LIBRARY / DECLARE DYNAMIC LIBRARY for the QIR backend: run-time symbol lookup and call thunks."
 publish = false
 
 [lib]

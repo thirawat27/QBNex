@@ -1,6 +1,6 @@
 //! `scancode_lookup`, the scan code table: 10 columns per key (offset, scancode,
 //! ascii, shift, ctrl, alt, num, caps, shift+caps, shift+num). Generated from the
-//! table of the old C++ runtime.
+//! QB64 scan code table.
 
 pub(crate) static SCANCODE_LOOKUP: [i32; 5360] = [
     0, 0, 0, 0, 0, 0, 0, 0, 0, 0,

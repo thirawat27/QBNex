@@ -1,4 +1,4 @@
-//! Printer output for `_PRINTIMAGE` and buffered `LPRINT` (Windows only, D8).
+//! Printer output for `_PRINTIMAGE` and buffered `LPRINT` (Windows only).
 //!
 //! Same GDI call sequence as QB64. The page flow is written against the
 //! [`Device`] trait so the tests can check it call by call without a printer.

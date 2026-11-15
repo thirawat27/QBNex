@@ -95,8 +95,7 @@ These features provide OS-level access and should be used carefully with untrust
 
 ### External Dependencies
 
-Since 2.0 the runner and runtime are Rust crates; no C or C++ library is
-compiled into QBNex. The main third-party crates are:
+Since 2.0 the runner and runtime are Rust crates. The main third-party crates are:
 
 - **winit, softbuffer**: window and software presentation
 - **wgpu**: optional GPU presentation and 3D

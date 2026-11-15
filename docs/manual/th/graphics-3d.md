@@ -10,8 +10,7 @@
 `_LOADIMAGE` (รูปแบบไฟล์ที่ QB64 อ่านได้: PNG, JPEG, BMP, PCX ...),
 ฟอนต์ TrueType ด้วย `_LOADFONT`, palette, alpha blending, `_DISPLAY`,
 `_LIMIT`, คีย์บอร์ด เมาส์ และจอยเกม หน้าต่างใช้ winit กับ wgpu หรือ softbuffer
-ไม่ต้องมี OpenGL, FreeGLUT หรือ FreeType ผลลัพธ์ตรงกับ runtime C++ เดิม
-ทุกพิกเซลในเทสต์ conformance
+ไม่ต้องมี OpenGL, FreeGLUT หรือ FreeType
 
 ## สามเหลี่ยม 3 มิติ: `_MAPTRIANGLE` (ใช้ได้แล้ว)
 

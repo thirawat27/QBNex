@@ -1,4 +1,4 @@
-//! Ahead-of-time compilation (D15): the same code generator writes an
+//! Ahead-of-time compilation: the same code generator writes an
 //! object file instead of executable memory.
 //!
 //! - [`compile_object`]: functions only; `qb-link` turns the object into a

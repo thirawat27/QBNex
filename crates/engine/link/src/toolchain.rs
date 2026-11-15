@@ -1,4 +1,4 @@
-//! Native executables through the standard toolchain linker (D15 final).
+//! Native executables through the standard toolchain linker.
 //!
 //! `qb-exec build --native-link` writes the program's object file and runs
 //! `rust-lld` (the LLVM linker that ships with the Rust toolchain) on it and

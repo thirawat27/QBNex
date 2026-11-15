@@ -9,9 +9,7 @@ All QBasic and QB64 graphics run on the Rust runtime: `SCREEN` 0-2 and 7-13,
 `VIEW`/`WINDOW`, `GET`/`PUT`, `PCOPY`, `_PUTIMAGE`, `_LOADIMAGE` (the formats
 QB64 reads: PNG, JPEG, BMP, PCX, ...), TrueType fonts with `_LOADFONT`, palettes, alpha
 blending, `_DISPLAY`, `_LIMIT`, keyboard, mouse and gamepads. The window
-uses winit with wgpu or softbuffer; no OpenGL, FreeGLUT or FreeType is needed. The
-results are pixel-identical to the old C++ runtime in the conformance
-tests.
+uses winit with wgpu or softbuffer; no OpenGL, FreeGLUT or FreeType is needed.
 
 ## 3D triangles: `_MAPTRIANGLE` (Available)
 

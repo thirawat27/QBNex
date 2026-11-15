@@ -1,4 +1,4 @@
-' R12a: INPUT / LINE INPUT / INPUT$ from stdin ($CONSOLE:ONLY).
+' INPUT / LINE INPUT / INPUT$ from stdin ($CONSOLE:ONLY).
 $CONSOLE:ONLY
 INPUT a%, b$, c#
 PRINT a%; "["; b$; "]"; c#

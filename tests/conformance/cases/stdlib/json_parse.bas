@@ -1,6 +1,6 @@
 $CONSOLE:ONLY
 '$IMPORT:'json'
-' JSON (RFC 8259) parser, tree access and serializer (fixes L-17).
+' JSON (RFC 8259) parser, tree access and serializer (the legacy json.bas was a stub).
 Json_Init
 q$ = CHR$(34)
 

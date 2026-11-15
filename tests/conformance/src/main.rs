@@ -12,8 +12,8 @@
 //! passing the run fails with `XPASS`, so the marker gets removed when the bug
 //! is fixed. `--bless` never writes golden output for xfail cases.
 //!
-//! A `<name>.deviation` file marks an intentional difference from the old
-//! QB64-based C++ implementation (a defect of it that is fixed, or a QBNex
+//! A `<name>.deviation` file marks an intentional difference from QB64
+//! (a defect of it that is fixed, or a QBNex
 //! extension it did not have). Its `.out` is written by hand from QBasic
 //! semantics, so `--bless` leaves it alone.
 //!
@@ -317,8 +317,8 @@ fn run_program(opts: &Options, case: &Path, qb_args: &[String]) -> Result<(Vec<u
     let mut run = Command::new(&exe);
     run.current_dir(&opts.work).env("QBNEX_FB_CAPTURE", &capture).env("QBNEX_NO_ERROR_DIALOG", "1");
     // GUI programs run without a window; `<name>.input` is replayed as keyboard/mouse
-    // events (QBNEX_INPUT_SCRIPT, see crates/runtime/core/src/script.rs). An old
-    // C++-era qb.exe passed with --qb (an oracle build) ignores both variables.
+    // events (QBNEX_INPUT_SCRIPT, see crates/runtime/core/src/script.rs). An older
+    // qb.exe passed with --qb (an oracle build) ignores both variables.
     run.env("QBNEX_HEADLESS", "1");
     // the hooks of the runtime that exist for these cases (the local HTTP server of qb-ext)
     run.env("QBNEX_TEST_HOOKS", "1");
@@ -432,7 +432,7 @@ fn run_case(opts: &Options, case: &Path) -> Outcome {
         Outcome::Pass
     } else if !fb_path.exists() {
         // No frame golden: the case only checks stdout. Cases whose frames
-        // an old C++-era oracle build cannot produce (input scripts) have none.
+        // an older oracle build cannot produce (input scripts) have none.
         Outcome::Pass
     } else if expected_frames.is_empty() {
         Outcome::Fail(format!(

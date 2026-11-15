@@ -27,7 +27,7 @@
 '$IMPORT:'error.result'
 
 FUNCTION QBNex_StdLib_Version$ ()
-    QBNex_StdLib_Version = "2.0.0-preview.3"
+    QBNex_StdLib_Version = "2.0.0-preview.4"
 END FUNCTION
 
 FUNCTION QBNex_StdLib_Info$ ()

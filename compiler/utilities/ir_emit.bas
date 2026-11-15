@@ -6,8 +6,8 @@
 ' lowered by IrEval$, which walks the same element strings evaluate$ gets (after
 ' fixoperationorder) and applies the same operator rules (operatorusage), so
 ' values carry the same numeric type QB64 gives them. At the end the QIR is
-' packaged with the prebuilt runner crates/engine/exec/bin/<os>/qb-exec (no
-' C/C++ toolchain).
+' packaged with the prebuilt runner
+' crates/engine/exec/bin/<os>/qb-exec.
 
 '================================================================ output
 
@@ -1426,7 +1426,7 @@ FUNCTION IrRadix32$ (nm$, x$)
     IrRadix32$ = d$
 END FUNCTION
 
-'HEX$(x) with neg_size 0 (libqb radix_string): negative values take 4, 8 or 16 digits, -1 gives ""
+'HEX$(x) with neg_size 0: negative values take 4, 8 or 16 digits, -1 gives ""
 FUNCTION IrHex64$ (x$)
     DIM tmp$, l$, c$, r$, d$, y$
     l$ = "~H" + str2$(IrNew)
@@ -2766,7 +2766,7 @@ SUB IrFinish (src$, outExe$)
         SYSTEM 1
     END IF
 
-    ' D15 final: with the native kit next to the runner, link a standard
+    ' With the native kit next to the runner, link a standard
     ' executable (rust-lld + qb-native); else the runner with the QIR appended.
     kit$ = LEFT$(runner$, LEN(runner$) - LEN("qb-exec" + extension$)) + "native" + pathsep$ + "kit.txt"
     IF _FILEEXISTS(kit$) THEN

@@ -12,7 +12,7 @@ ARG QBNEX_UID=1000
 ARG QBNEX_GID=1000
 
 # Build dependencies: Rust, plus gcc only as the system linker that Rust uses
-# on Linux (no C/C++ source of QBNex is compiled)
+# on Linux.
 RUN apt-get update && apt-get install -y \
     gcc \
     libasound2-dev \

@@ -1,4 +1,4 @@
-' $IF / $ELSEIF / $ELSE / $END IF must compile (they hit an internal error before R14)
+' $IF / $ELSEIF / $ELSE / $END IF must compile (they used to hit an internal error)
 $IF WIN THEN
 PRINT "windows"
 $ELSEIF LINUX THEN

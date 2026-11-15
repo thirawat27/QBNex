@@ -1,5 +1,5 @@
 //! End to end: `.bas` -> `qb.exe --ir` (BASIC compiler) -> QIR appended to the
-//! prebuilt runner -> running program. No C++ compiler is involved.
+//! prebuilt runner -> running program.
 //!
 //! Needs `qb.exe` at the repository root (built by `scripts/setup_win.cmd`,
 //! `scripts/setup_lnx.sh` or `scripts/setup_osx.command`). Without it the tests
@@ -7,7 +7,7 @@
 //! compiler is built.
 //!
 //! Each program's output is compared with a `.out` golden next to it. Some
-//! goldens were recorded from the old C++ backend before the switch to QIR;
+//! goldens were recorded from the earlier back end before the switch to QIR;
 //! the others were written by hand from QBasic semantics. `--ir` is passed for
 //! old scripts' sake and changes nothing: QIR is the only back end.
 
@@ -108,13 +108,13 @@ fn spike_program_runs_and_matches_the_golden() {
     let expected = normalize(&std::fs::read(fixture("spike.out")).unwrap());
 
     let ir_out = compile_and_run(&qb, &src, &dir.join("spike_ir.exe"), &["--ir"]);
-    // the golden was recorded from the old C++ backend before the switch to QIR
+    // the golden was recorded from the earlier back end before the switch to QIR
     assert_eq!(ir_out, expected, "QIR output");
 }
 
 #[test]
 fn on_error_resume_next_works_in_main_module() {
-    // The old C++ backend could not compile this, so the expected
+    // The earlier back end could not compile this, so the expected
     // output is written by hand from QBasic semantics.
     let Some(qb) = qb() else { return };
     install_runner();
@@ -124,7 +124,7 @@ fn on_error_resume_next_works_in_main_module() {
     assert_eq!(out, expected);
 }
 
-/// Programs the old C++ backend could not run (ON ERROR in the main module,
+/// Programs the earlier back end could not run (ON ERROR in the main module,
 /// RESTORE to a label); they run correctly on QIR. The `.out` files were checked by hand against QBasic semantics.
 #[test]
 fn legacy_defect_cases_run_correctly_under_qir() {
@@ -169,7 +169,7 @@ fn ir_flag_rejects_unsupported_statement_with_line() {
     assert!(text.contains("line 5"), "message should name the line: {text}");
 }
 
-/// There is no C/C++ compile step: `DECLARE LIBRARY` naming a C header with no library
+/// Headers are never compiled: `DECLARE LIBRARY` naming a C header with no library
 /// beside it fails at compile time, with the header in the message. On Linux and macOS a
 /// missing static library is left to the run (system libraries resolve there).
 #[cfg(windows)]
@@ -319,7 +319,7 @@ fn declare_library_check_follows_the_runtime_search() {
 
 /// Language programs (INCLUDE, CONST, DEFxxx, UDTs, arrays, SUB/FUNCTION,
 /// STATIC, recursion, SELECT, loops, ON GOSUB, DATA, errors): the `.out`
-/// golden is the old C++ backend's output (recorded before the switch to QIR); QIR must
+/// golden is the earlier back end's output (recorded before the switch to QIR); QIR must
 /// match it.
 #[test]
 fn language_programs_match_the_cpp_golden() {

@@ -44,8 +44,8 @@ files, `sha256sum -c SHA256SUMS.txt --ignore-missing` checks them.
 
 ## Building from source
 
-You need [Rust](https://rustup.rs) (`cargo`) on every platform. No C or C++
-compiler is used: the compiler is written in BASIC, translated to QIR (a
+You need [Rust](https://rustup.rs) (`cargo`) on every platform. The compiler
+is written in BASIC, translated to QIR (a
 text intermediate form) and run by the Rust runner `qb-exec`.
 
 ### Windows
@@ -66,8 +66,7 @@ sh scripts/setup_lnx.sh
 
 Fedora: `gcc alsa-lib-devel systemd-devel libxkbcommon-devel libX11-devel
 pkgconf-pkg-config`; Arch: `gcc alsa-lib systemd-libs libxkbcommon libx11
-pkgconf`. `gcc` is only the system linker Rust uses on Linux; no C or C++
-source is compiled.
+pkgconf`. `gcc` is only the system linker Rust uses on Linux.
 
 Programs that open a window also need the X11 keyboard library at run time:
 `libxkbcommon-x11-0` on Debian/Ubuntu, `libxkbcommon-x11` on Fedora and Arch

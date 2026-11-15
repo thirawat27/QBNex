@@ -7,10 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [2.0.0] - 2026-11-13
 
-QBNex 2.0 has no C or C++ left: programs are compiled to QIR and run by a Rust
-runtime. Old QBasic/QB64 programs compile and behave as before, except for the
-fixes listed in `docs/manual/en/differences.md`. This entry collects every change
-made after 1.0.4.
+In QBNex 2.0, programs are compiled to QIR and run by a Rust runtime. Old
+QBasic/QB64 programs compile and behave as before, except for the in `docs/manual/en/differences.md`. This entry collects every change made after
+1.0.4.
 
 Pre-releases from this section: `2.0.0-preview` (2026-11-13), `2.0.0-preview.2`
 (2026-11-14), which adds the fixes of two audits of the compiler, runtime, tools and
@@ -18,6 +17,8 @@ installer, and CI checks of the GPU paths, a real window and the installer on Li
 macOS and Windows, and `2.0.0-preview.3` (2026-11-15). A third audit added the fixes
 marked so below and removed code nothing used (about 1,900 lines of the compiler and the
 Rust crates); `2.0.0-preview.3` adds the items marked "In 2.0.0-preview.3".
+`2.0.0-preview.4` (2026-11-15) adds the items marked "In 2.0.0-preview.4": GPU 3D in
+the standard builds, faster 3D drawing and `qb --help` options that do what they say.
 
 ### Changed
 
@@ -25,8 +26,8 @@ Rust crates); `2.0.0-preview.3` adds the items marked "In 2.0.0-preview.3".
 
 - The compiler emits QIR (the QBNex intermediate representation) instead of C++. A compiled program is the Rust runner `qb-exec` with the program's QIR appended: QIR is lowered to bytecode, run on a register VM, and hot loops are compiled to native code with Cranelift.
 - The whole runtime (screen, graphics, fonts, images, sound, files, network, `_MEM`, `_FLOAT`, `DECLARE LIBRARY` calls) is Rust (`crates/runtime/core`, `qb-audio`, `qb-float80`, `qb-ffi`, `qb-gpu`); no OpenGL, FreeGLUT, FreeType, miniaudio or zlib is linked. Behaviour was checked against the old runtime with conformance and differential tests.
-- The compiler no longer builds any C++ text. Messages that named the C++ compiler or a C type now describe the QIR build: "Cannot find C type to return array data" is now "Unsupported array element type". `$EXEICON`, `$VERSIONINFO` and `$CHECKING:OFF` are accepted and have no effect (see the limitations page).
-- Native executables (preview): with the native kit next to the runner, the compiler links ordinary executables through `rust-lld` and the `qb-native` library, still without a C/C++ toolchain.
+- Messages that named the C++ compiler or a C type now describe the QIR build: "Cannot find C type to return array data" is now "Unsupported array element type". `$EXEICON`, `$VERSIONINFO` and `$CHECKING:OFF` are accepted and have no effect (see the limitations page).
+- Native executables (preview): with the native kit next to the runner, the compiler links ordinary executables through `rust-lld` and the `qb-native` library.
 - `-z`, `-p` and `--ir` are accepted for old scripts and change nothing. `--emit-ir` (or an `-o` name ending in `.qir`) writes the program's QIR text, for `qb-web`.
 - `-s` shows and sets `exewithsource` (save the executable next to the source) and `debuginfo` (kept for old scripts, no effect). Settings live in `target/qb-config.ini`.
 
@@ -44,7 +45,7 @@ Rust crates); `2.0.0-preview.3` adds the items marked "In 2.0.0-preview.3".
 
 #### Build, repository and CI
 
-- No MinGW, g++ or CMake: `scripts/setup_win.cmd`, `scripts/setup_lnx.sh` and `scripts/setup_osx.command` build `qb-exec` with cargo, pack the bootstrap compiler `bootstrap/qbnex.qir` into `qb-stage0`, and let it compile `compiler/qbnex.bas` into `qb`. `internal/` is gone. `scripts/selfhost_fixpoint.*` checks that the compiler rebuilds itself to the same QIR.
+- `scripts/setup_win.cmd`, `scripts/setup_lnx.sh` and `scripts/setup_osx.command` build `qb-exec` with cargo, pack the bootstrap compiler `bootstrap/qbnex.qir` into `qb-stage0`, and let it compile `compiler/qbnex.bas` into `qb`. `internal/` is gone. `scripts/selfhost_fixpoint.*` checks that the compiler rebuilds itself to the same QIR.
 - Reorganized the repository: compiler sources moved from `source/` to `compiler/`; the runtime is a Cargo workspace in `crates/` (`compiler/`, `engine/`, `runtime/`, `tools/`, `web/`); tests live under `tests/` (`smoke/`, `fixtures/`, `conformance/`, `docs/`); setup scripts moved to `scripts/`, Docker files to `docker/`, the VS Code extension to `packaging/vscode/`.
 - Rust 1.100.0 is the required toolchain (`rust-toolchain.toml`, `rust-version`). All crates share the workspace version (2.0.0).
 - CI is one workflow (`ci.yml`: audit, build, clippy, tests, smoke, conformance, self-host fixpoint, native executables on Linux, macOS and Windows x64) plus `release.yml`, and `docs.yml` compiles the BASIC examples of the README and the manual; they run with read-only repository permissions.
@@ -52,7 +53,7 @@ Rust crates); `2.0.0-preview.3` adds the items marked "In 2.0.0-preview.3".
 - Release bundles include `qb-fmt`, `qb-lsp` and `qb-dap`, next to the one-file installers.
 - The Windows installer has the QBNex icon and version information (description, file and product version, product name, copyright, language), written as a resource file by its build script and linked without a resource compiler.
 - CI also runs the GPU tests on a software adapter (Mesa lavapipe on Linux, WARP on Windows), a compiled program in a real X11 window under Xvfb (`tests/smoke/window_smoke.sh`: the drawing on screen, a key press), and the one-file installer on Linux, macOS and Windows (install over a folder with the user's files, compile and run a program with it, install again, uninstall: `.github/scripts/installer_check.*`).
-- Developer documents are `docs/dev` (QIR format, deviation IDs, FFI, 3D API); the port journal and planning notes were removed.
+- Developer documents are `docs/dev` (QIR format, legacy defects and deviations, FFI, 3D API); the port journal and planning notes were removed.
 
 #### License
 
@@ -69,6 +70,15 @@ Rust crates); `2.0.0-preview.3` adds the items marked "In 2.0.0-preview.3".
 - Compiler: `$IF`/`$END IF` no longer close the BASIC block that is open, so a block may open in a `$IF` branch and close after `$END IF`, or the reverse; `$IF THEN` / `$ELSEIF THEN` with no condition, `END SUB`/`EXIT SUB` inside a FUNCTION (and the reverse) and a typed `CONST` whose value does not fit its type are compile errors; a leading unary plus is accepted (`x = +5`); `$INCLUDE` names are matched ignoring letter case on Linux and macOS when the exact name does not exist; `$IMPORT` lines inside `$INCLUDE` files are hoisted like those of the main file; the compiler no longer rewrites `target/qb-config.ini` on every start.
 - stdlib: `'qbnex'` imports its modules instead of holding a copy of them, and combines with any of them in any order; collections have no fixed limit on lists or items (it was 256 lists) and item access is constant time; `JsonFree` gives a document's values back and a failed `JSON_Parse%` keeps nothing; `UrlParts` fields are variable-length and an invalid port is reported by the new `UrlLastError$`.
 - Speed: `INPUT #`, `LINE INPUT #` and `INPUT$` of files read ahead (`LINE INPUT` of a 5 MB file: 1.45 s to 0.05 s); built-in calls are resolved once at load (PRINT loops about 30% faster) and one-argument math functions (`SQR`, `SIN`, `INT`, `ABS`, ...) skip the name dispatch (a `SQR` loop runs about 3 times faster); fewer allocations per array-element access, string-element access and `READ`; faster native start-up; `_PRINTWIDTH` and PRINT with proportional `_LOADFONT` fonts use a glyph cache; `VAL` of extremely long digit strings is fast and still correctly rounded.
+
+#### In 2.0.0-preview.4
+
+- The setup scripts build `qb-exec` with the `gpu` feature, so the release bundles and every packaged program draw `_DRAW3D`, `_LOADMODEL`, `_MESH*` and `_SHADER` with wgpu (Vulkan, DX12, Metal) and show the window through the GPU; `QBNEX_GPU=0` builds without it. With only a software adapter the window keeps the software presenter; with no adapter or `QB_GPU=off` 3D draws nothing and `_GPU3D` returns 0; a GPU error is printed once and turns 3D off instead of ending the program.
+- 3D `_MAPTRIANGLE` is queued and drawn on the GPU in batches, with a depth buffer kept on the GPU per image; the software renderer still draws without a hardware adapter, after a GPU error and for images handed out by `_MEMIMAGE`. The native kit builds `qb-native` with GPU 3D too.
+- 3D speed: the `_DRAW3D` layer keeps its target and readback buffers between frames (about 330 to 1000 fps at 800x600); `_MAPTRIANGLE` skips the builtin name lookup and reuses its GPU buffers; the 3D layer and batched `_MAPTRIANGLE` share one GPU device (half the GPU memory); the software triangle rasterizer finds each row's span from the edges and works in runs of 16 pixels, with bit-identical pixels and depth (a large textured mesh: 1289 to 619 ms per frame).
+- `qb --help`: `-s:<name>=value` saves the setting without printing the help, `-d` shows the source lines around a diagnostic, `-k` hides detail notes also with `-Werror`, `-w` prints warnings on their own lines and ends with a warning count, `-i`, `-g` and `-s` show more, and `-m` works anywhere on the line. `-c`, `-x`, `-p`, `-z` and `--ir` change nothing and are no longer listed, but are still accepted.
+- `DECLARE LIBRARY` and `DECLARE DYNAMIC LIBRARY` are checked at compile time with the same search order the runner uses to load the library.
+- `examples/showcase`: eight runnable programs shown in the README (among them `life.bas`, Conway's Game of Life), and `shapes3d.bas` (six 3D shapes drawn with `_DRAW3D` or `_MAPTRIANGLE` 3D).
 
 ### Added
 
@@ -91,8 +101,8 @@ Rust crates); `2.0.0-preview.3` adds the items marked "In 2.0.0-preview.3".
 
 #### Graphics, window and sound
 
-- 3D API (preview): `_LOADMODEL`, `_MESH*`, `_DRAW3D`, `_CAMERA`, `_LIGHT`, `_AMBIENT`, `_CLEAR3D`, `_GPU3D` and user WGSL shaders (`_SHADER`, `_SHADERPARAM`, `_MESHSHADER`), drawn with wgpu by a runtime built with the `gpu` feature; without a GPU the statements run and draw nothing. `_MAPTRIANGLE` 3D keeps its software renderer.
-- `SUB _GL` and the `_gl*` functions run on a real OpenGL context (WGL, EGL/GLX, CGL; an offscreen one when headless); `QB_GL=off` turns it off (D-14).
+- 3D API (preview): `_LOADMODEL`, `_MESH*`, `_DRAW3D`, `_CAMERA`, `_LIGHT`, `_AMBIENT`, `_CLEAR3D`, `_GPU3D` and user WGSL shaders (`_SHADER`, `_SHADERPARAM`, `_MESHSHADER`), drawn with wgpu by a runtime built with the `gpu` feature; without a GPU the statements run and draw nothing. `_MAPTRIANGLE` 3D is drawn on the GPU in batches when a hardware adapter is present, else by the software renderer.
+- `SUB _GL` and the `_gl*` functions run on a real OpenGL context (WGL, EGL/GLX, CGL; an offscreen one when headless); `QB_GL=off` turns it off.
 - The QB64 keywords the QIR back end did not compile yet now compile and run: `_RESIZE`/`$RESIZE`, `_WINDOWHASFOCUS`, `_WINDOWHANDLE`, file drop, `_FPS`, `_ICON`, `_PRINTSTRING`, `_MEMIMAGE`, `_SCREENIMAGE`, `_SCREENCLICK`, `_SCREENPRINT`, `_MOUSEMOVE`, mouse pipes, `_DEVICES` and the device functions with `STICK` and `STRIG`, `_MAPUNICODE`, `LOCK`/`UNLOCK`, console input, cursor and font, `SHELL` with `_HIDE` and `_DONTWAIT`. QuickBASIC statements old programs still contain (`FRE`, `SETMEM`, `FILEATTR`, `IOCTL`, `PEN`, ...) compile and answer as a machine with plenty of memory and no light pen (see the limitations page).
 - Variable-length `STRING` fields in `TYPE`.
 - ALT+ENTER switches a window between windowed, stretched and square-pixel full screen; `_ALLOWFULLSCREEN` limits the modes or, with `_OFF`, leaves the keys to the program.

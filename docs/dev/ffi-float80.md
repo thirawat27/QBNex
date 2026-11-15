@@ -1,12 +1,9 @@
 # `qb-float80` and `qb-ffi` (API for the emitter and the VM)
 
-(Written during the port as phase R11; the "Legacy C++" column and the evidence
-notes describe the C++ build that was removed in 2.0.)
+Two Rust-only crates the QIR backend needs. Neither depends on a C library
+beyond the platform loader. Both use `edition = "2024"`.
 
-Two Rust-only crates the QIR backend needs. Neither depends on a C compiler or a
-C library beyond the platform loader. Both use `edition = "2024"` (D16).
-
-## `crates/runtime/float80` — `_FLOAT` (decision D12)
+## `crates/runtime/float80` — `_FLOAT`
 
 `qb_float80::F80` is the x87 80-bit extended format (`mant: u64` with explicit
 integer bit, `se: u16` sign + biased exponent; `from_bytes`/`to_bytes` give the
@@ -15,7 +12,7 @@ legacy MinGW build (FPU control word `0x037F`).
 
 ### What the VM calls for each BASIC operation
 
-| BASIC | Rust API | Legacy C++ it replaced |
+| BASIC | Rust API | Legacy function it replaced |
 | --- | --- | --- |
 | `a + b`, `-`, `*`, `/` on `_FLOAT` | `a + b` ... (`core::ops`) | x87 `fadd`... |
 | unary minus | `-a` | `fchs` |
@@ -48,24 +45,24 @@ and `scale` are public too.
   they run on the x87 unit (`x87::HARDWARE`), which makes `EXP` and `^` with a
   non-integer exponent identical to the legacy build on the same machine.
   On other targets (or with feature `soft-transcendentals`) a 120-bit software
-  version is used: **deviation D-111** (identical to the hardware for ~97% of
+  version is used, an intentional deviation (identical to the hardware for ~97% of
   inputs, never more than one ulp off; measured by the former `diff_float80` differential test). Integer
   exponents (`x ^ 2`) never use these primitives and are exact everywhere.
 
-Evidence (before the C++ backend was removed): a differential test against real
+Evidence: a former differential test against real
 MinGW `long double` ran 87,481,972 checks with 0 mismatches; its mutation run
 (reference at 53-bit precision) reported 573,263 mismatches.
 
-## `crates/engine/ffi` — `DECLARE LIBRARY` (decision D11)
+## `crates/engine/ffi` — `DECLARE LIBRARY`
 
 ```rust
 use qb_ffi::{Library, Signature, Ty, Value, call, find_default_symbol, find_header, header_error};
 ```
 
-### Emitter (R11a): what to check at compile time
+### Emitter: what to check at compile time
 
 - `DECLARE LIBRARY "spec"` (and `CUSTOMTYPE`/`STATIC`) that names a C
-  header is a compile error (**deviation D-110**). The BASIC compiler
+  header is a compile error (an intentional deviation). The BASIC compiler
   (`compiler/qbnex.bas`) looks for the header itself, with the file names of
   `find_header(spec, Some(source_dir))` (`name.h`, `name.hpp`, next to the
   path, then bare, and in `/usr/include` on Linux/macOS), and reports:
@@ -80,10 +77,10 @@ use qb_ffi::{Library, Signature, Ty, Value, call, find_default_symbol, find_head
   `SINGLE` F32, `DOUBLE` F64, `_OFFSET` Ptr; every `BYREF` parameter and
   `BYVAL x AS STRING` is Ptr (the VM passes the address of the variable / of the
   string bytes); `SUB` returns Void. `_FLOAT` parameters or results are a
-  compile error (**deviation D-112**: the C ABI of `long double` differs per
+  compile error (an intentional deviation: the C ABI of `long double` differs per
   compiler; legacy passed it through g++).
 
-### VM (R11b): run time
+### VM: run time
 
 - Bare `DECLARE LIBRARY`: `find_default_symbol(name)` (program, C runtime,
   kernel32/user32/gdi32/advapi32/shell32/ole32/oleaut32/comdlg32/winmm/ws2_32/

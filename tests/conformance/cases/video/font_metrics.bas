@@ -1,6 +1,6 @@
-' R7: _LOADFONT through the Rust font engine. The font (Noto Sans Symbols 2, OFL 1.1,
+' _LOADFONT through the Rust font engine. The font (Noto Sans Symbols 2, OFL 1.1,
 ' subset to 4 shapes; Copyright 2022 The Noto Project Authors) is written from DATA.
-' Only metrics are printed: they match FreeType exactly, glyph pixels may differ (D-R7-6).
+' Only metrics are printed: they match FreeType exactly, glyph pixels may differ.
 $CONSOLE
 _DEST _CONSOLE
 READ f$, size&

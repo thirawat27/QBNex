@@ -3,8 +3,8 @@
 [Manual index](../README.md) · [ภาษาไทย](../th/differences.md)
 
 QBNex started from QB64. Old programs should compile and give the same
-output; this page lists where they do not, and why. The IDs (D-xx)
-are explained, with their tests, in
+output; this page lists where they do not, and why. Each change is
+explained, with its tests, in
 [`docs/dev/deviations.md`](../../dev/deviations.md).
 
 ## The tool
@@ -14,36 +14,34 @@ are explained, with their tests, in
   switch of the QB64 IDE are not supported.
 - **Standard library and `'$IMPORT`** are QBNex additions
   ([stdlib](stdlib.md)). Imported modules are hoisted: their declarations go
-  before the program and their procedures after it (D-25).
-- **Source encoding:** CP437 files compile byte for byte, UTF-8 too (D-22).
+  before the program and their procedures after it.
+- **Source encoding:** CP437 files compile byte for byte, UTF-8 too.
 - **The runtime is Rust.** No OpenGL, FreeGLUT, FreeType, miniaudio or zlib
   is linked; behaviour was checked against the old runtime with differential
   tests (billions of compared results, 0 mismatches outside the items below).
 
 ## Intentional changes (bugs fixed on purpose)
 
-| ID | What changed |
-| --- | --- |
-| D-01 | `VAL("123E-2")` is `1.23` (QB64 gave `.000123`: the exponent sign was applied after normalising). |
-| D-02 | Rounding to integers (`CINT`, `CLNG`, assignment to integer variables) is round-half-even on every CPU (QB64 on ARM rounded half away from zero). |
-| D-03 | `VAL` reads 1000 significant digits exactly (QB64 overran a buffer past 256). |
-| D-04, D-05 | `STR$` of doubles needing more than 19 decimals prints the digits (QB64 printed ` .0f`); `STR$` of a non-finite SINGLE is ` 0`. |
-| D-29 | DOUBLE and `_FLOAT` values print like QBasic 4.5 and QB64 (`PRINT`, `STR$`, `PRINT #`, `WRITE`): at most 16 significant digits, no trailing zeros. `PRINT 2.5#` shows ` 2.5`. |
-| D-06 | Main-module code before the first SUB stays in the main module; `ON ERROR GOTO` handlers in the main module work. |
-| D-07 | `_MEMFREE` of a `_MEMNEW` block no longer frees twice (heap corruption in QB64). |
-| D-08, D-10, D-11, D-12, D-R12b-1, D-R12b-3 | Reads past buffers in QB64 (GET of strings, FILES, SHELL, stretched `_PUTIMAGE`, 2-bit GET, HEX$) now give defined results. |
-| D-09 | `SHELL` keeps window events paused for the whole waited call. |
-| D-18 | The millisecond clock is 64-bit everywhere (QB64 on Windows wrapped after 24.8 days). |
-| D-19, D-20 | `_CLIPBOARD$` and `_CLIPBOARDIMAGE` work on Linux and macOS too (UTF-8 clipboard: non-UTF-8 bytes become U+FFFD there). |
-| D-21 | `_OPENCLIENT` tries every IPv4 address of a host on every OS. |
-| D-22 | CP437 source files compile. |
-| D-23, D-24, D-26 | Compiler fixes: `CALL ABSOLUTE` wrappers, `PLAY ON/OFF/STOP` and `ON PLAY(n) GOSUB` compile and the PLAY event is raised, relational operators inside PRINT. |
-| D-66 | `PLAY "Nn"` plays the QBasic note (N0 is a rest), `PLAY(n)` counts notes, `SOUND f, 0` stops the sound, `PLAY "X" + VARPTR$(s$)` works, and `_SNDOPEN` with "VOL" or "SYNC" keeps `_MEMSOUND` working. |
-| D-60 | `SOUND`, `BEEP` and `PLAY` are heard and `PLAY(n)` counts down (QB64's synth was silent); in `MF` mode (the default) they wait until their notes have played, as in QBasic (QB64 never waited). |
-| D-R12b-5 | Integer `\` and `MOD` by zero raise error 11 as an ordinary error that `ON ERROR` and `TRY`/`CATCH` catch (QBasic 4.5); QB64 ended the program. |
-| D-R12b-2 | READ of decimal numbers into DOUBLE/`_FLOAT` is correctly rounded. |
-| D-R12b-4 | With redirected output or `QBNEX_NO_ERROR_DIALOG=1`, a runtime error prints one line to stderr and exits with code 1 instead of opening a dialog. |
-| D-R11b-1 | `PUT` to a TCP connection whose send buffer is full keeps the connection: the rest of the data is queued and sent, in order, by later network calls and `CLOSE` (QB64 dropped the connection and the data). |
+- `VAL("123E-2")` is `1.23` (QB64 gave `.000123`: the exponent sign was applied after normalising).
+- Rounding to integers (`CINT`, `CLNG`, assignment to integer variables) is round-half-even on every CPU (QB64 on ARM rounded half away from zero).
+- `VAL` reads 1000 significant digits exactly (QB64 overran a buffer past 256).
+- `STR$` of doubles needing more than 19 decimals prints the digits (QB64 printed ` .0f`); `STR$` of a non-finite SINGLE is ` 0`.
+- DOUBLE and `_FLOAT` values print like QBasic 4.5 and QB64 (`PRINT`, `STR$`, `PRINT #`, `WRITE`): at most 16 significant digits, no trailing zeros. `PRINT 2.5#` shows ` 2.5`.
+- Main-module code before the first SUB stays in the main module; `ON ERROR GOTO` handlers in the main module work.
+- `_MEMFREE` of a `_MEMNEW` block no longer frees twice (heap corruption in QB64).
+- Reads past buffers in QB64 (GET of strings, FILES, SHELL, stretched `_PUTIMAGE`, 2-bit GET, HEX$) now give defined results.
+- `SHELL` keeps window events paused for the whole waited call.
+- The millisecond clock is 64-bit everywhere (QB64 on Windows wrapped after 24.8 days).
+- `_CLIPBOARD$` and `_CLIPBOARDIMAGE` work on Linux and macOS too (UTF-8 clipboard: non-UTF-8 bytes become U+FFFD there).
+- `_OPENCLIENT` tries every IPv4 address of a host on every OS.
+- CP437 source files compile.
+- Compiler fixes: `CALL ABSOLUTE` wrappers, `PLAY ON/OFF/STOP` and `ON PLAY(n) GOSUB` compile and the PLAY event is raised, relational operators inside PRINT.
+- `PLAY "Nn"` plays the QBasic note (N0 is a rest), `PLAY(n)` counts notes, `SOUND f, 0` stops the sound, `PLAY "X" + VARPTR$(s$)` works, and `_SNDOPEN` with "VOL" or "SYNC" keeps `_MEMSOUND` working.
+- `SOUND`, `BEEP` and `PLAY` are heard and `PLAY(n)` counts down (QB64's synth was silent); in `MF` mode (the default) they wait until their notes have played, as in QBasic (QB64 never waited).
+- Integer `\` and `MOD` by zero raise error 11 as an ordinary error that `ON ERROR` and `TRY`/`CATCH` catch (QBasic 4.5); QB64 ended the program.
+- READ of decimal numbers into DOUBLE/`_FLOAT` is correctly rounded.
+- With redirected output or `QBNEX_NO_ERROR_DIALOG=1`, a runtime error prints one line to stderr and exits with code 1 instead of opening a dialog.
+- `PUT` to a TCP connection whose send buffer is full keeps the connection: the rest of the data is queued and sent, in order, by later network calls and `CLOSE` (QB64 dropped the connection and the data).
 
 ## QBasic behaviour kept on purpose
 
@@ -75,7 +73,7 @@ the default printer on Windows and through `lp` on Linux and macOS.
 ## Compiler and runtime
 
 - Programs are compiled to QIR and run by the Rust runner (see
-  [commands](commands.md#how-a-program-is-built)); no C++ is generated.
+  [commands](commands.md#how-a-program-is-built)).
   `-x` and `-z` change nothing (console output is always on); `-p`,
   `-s:debuginfo` and `--ir` are accepted and do nothing. `DECLARE LIBRARY`
   functions are called in shared libraries through `crates/engine/ffi` (see

@@ -35,7 +35,7 @@ Before contributing, familiarize yourself with:
 
 ### System Requirements
 
-**All platforms:** Git and the Rust toolchain (`cargo`, from https://rustup.rs). No C/C++ compiler is needed.
+**All platforms:** Git and the Rust toolchain (`cargo`, from https://rustup.rs).
 
 **For Linux:** `gcc` (only as the system linker Rust uses) and the development packages for
 ALSA, udev, xkbcommon and X11 with `pkg-config`:
@@ -137,8 +137,8 @@ Documentation improvements are always welcome:
 
 - **`docs/manual/en` and `docs/manual/th`**: the user manual. Change both languages together;
   each feature carries a status label (Available, Preview, Planned; see `docs/manual/README.md`).
-- **`docs/dev`**: developer reference (QIR format, deviation IDs, FFI, 3D API). An intentional
-  difference from QB64 gets a `D-xx` entry in `docs/dev/deviations.md`.
+- **`docs/dev`**: developer reference (QIR format, deviations from QB64, FFI, 3D API). An
+  intentional difference from QB64 gets an entry in `docs/dev/deviations.md`.
 - **README.md**: overview, usage and examples; where it and the manual disagree, the manual wins.
 - **CHANGELOG.md**: every user-visible change, under the version being prepared.
 - **Code comments**: clarity in complex sections.
