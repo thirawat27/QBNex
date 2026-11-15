@@ -13,11 +13,11 @@
 
 ## Showcase / ตัวอย่างผลงาน
 
-Every picture below is a real window of a program built with **QBNex 2.0**: the source is in
+Every picture below is a real window of a program built with **QBNex**: the source is in
 [`examples/showcase`](examples/showcase), compiled unchanged with `qb` and captured while it runs.
 No other tools drew or edited them. Try them yourself:
 
-ทุกภาพด้านล่างคือหน้าต่างจริงของโปรแกรมที่คอมไพล์ด้วย **QBNex 2.0** ซอร์สอยู่ใน
+ทุกภาพด้านล่างคือหน้าต่างจริงของโปรแกรมที่คอมไพล์ด้วย **QBNex** ซอร์สอยู่ใน
 [`examples/showcase`](examples/showcase) คอมไพล์ไปรันได้เลยตามคำสั่งนี้:
 
 ```bash
