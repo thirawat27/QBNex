@@ -11,6 +11,60 @@
 
 ---
 
+## Showcase / ตัวอย่างผลงาน
+
+Every picture below is a real window of a program built with **QBNex 2.0**: the source is in
+[`examples/showcase`](examples/showcase), compiled unchanged with `qb` and captured while it runs.
+No other tools drew or edited them. Try them yourself:
+
+ทุกภาพด้านล่างคือหน้าต่างจริงของโปรแกรมที่คอมไพล์ด้วย **QBNex 2.0** ซอร์สอยู่ใน
+[`examples/showcase`](examples/showcase) คอมไพล์ไปรันได้เลยตามคำสั่งนี้:
+
+```bash
+qb examples/showcase/raytrace.bas -o raytrace
+```
+
+<table>
+  <tr>
+    <td width="50%"><img src="assets/showcase/raytrace.png" alt="Ray tracer written in BASIC"></td>
+    <td width="50%"><img src="assets/showcase/starfighter.png" alt="Star Patrol, a playable shooter"></td>
+  </tr>
+  <tr>
+    <td><b>Ray tracer</b> (<a href="examples/showcase/raytrace.bas">raytrace.bas</a>)<br>Spheres, shadows, reflections and 2x2 anti-aliasing in about 100 lines. The pixel loops run through the Cranelift JIT, so a full 640x400 frame takes seconds, not minutes.</td>
+    <td><b>Games</b> (<a href="examples/showcase/starfighter.bas">starfighter.bas</a>)<br>A playable shooter: <code>_KEYDOWN</code> input, <code>_DISPLAY</code> double buffering, <code>_LIMIT</code> at 60 FPS, sprites from <code>DATA</code>, particles, <code>SOUND</code>, and an off-screen image drawn with <code>_PUTIMAGE</code>. It plays itself until you press Space.</td>
+  </tr>
+  <tr>
+    <td><img src="assets/showcase/dashboard.png" alt="Sales dashboard with charts"></td>
+    <td><img src="assets/showcase/textui.png" alt="DOS-style text user interface"></td>
+  </tr>
+  <tr>
+    <td><b>Business charts and reports</b> (<a href="examples/showcase/dashboard.bas">dashboard.bas</a>)<br>KPI cards, a bar chart with a least-squares trend line and a donut chart, from <code>DATA</code> statements (or a CSV read with <code>LINE INPUT</code>).</td>
+    <td><b>Classic text-mode applications</b> (<a href="examples/showcase/textui.bas">textui.bas</a>)<br>Menu bar, windows with drop shadows, a data table and a dialog, drawn with CP437 box characters and the 8x16 VGA font, just as QuickBASIC programs looked.</td>
+  </tr>
+  <tr>
+    <td><img src="assets/showcase/surface3d.png" alt="3D surface plot"></td>
+    <td><img src="assets/showcase/mandelbrot.png" alt="Mandelbrot set zoom"></td>
+  </tr>
+  <tr>
+    <td><b>Maths and science visualisation</b> (<a href="examples/showcase/surface3d.bas">surface3d.bas</a>)<br>A shaded 3D plot of z = sin(r)/r: perspective projection, a painter's-algorithm mesh and a triangle rasteriser, all in BASIC.</td>
+    <td><b>Fractals</b> (<a href="examples/showcase/mandelbrot.bas">mandelbrot.bas</a>)<br>A smooth-coloured zoom into the Mandelbrot set in double precision: 256,000 pixels at up to 600 iterations each.</td>
+  </tr>
+  <tr>
+    <td><img src="assets/showcase/fractal_tree.png" alt="Recursive fractal tree at sunset"></td>
+    <td valign="top"><b>Generative art and teaching</b> (<a href="examples/showcase/fractal_tree.bas">fractal_tree.bas</a>)<br>A recursive tree with blossoms over a per-pixel sunset gradient. Short enough to read in a lesson, and a good first look at recursion and trigonometry.</td>
+  </tr>
+</table>
+
+**What people use QBNex for / ใช้ QBNex ทำอะไรได้บ้าง**
+
+- **Run old QBasic and QuickBASIC code today**: build a standalone executable for Windows, Linux or macOS from a program written in 1991, with no DOSBox.
+- **Teaching programming**: the language is small and readable, and graphics are one line away (`SCREEN`, `LINE`, `CIRCLE`), so students see results at once.
+- **Retro and indie games**: keyboard, mouse and gamepad input, sprites, images, fonts, sound files and music, with a JIT fast enough for real-time loops.
+- **Tools, reports and automation**: files, JSON, regular expressions, ZIP, HTTP and TCP through the [standard library](#standard-library), and `SHELL` for the rest.
+- **Maths, science and art**: plots, simulations, fractals and generative pictures, with 64-bit and 80-bit floating point.
+
+---
+
 ## Documentation / เอกสาร
 
 The user manual is in [`docs/manual`](docs/manual/README.md), in English and Thai.
@@ -40,6 +94,7 @@ Developer reference (QIR format, deviation IDs `L-xx`/`D-xx`, `DECLARE LIBRARY` 
 
 ## Table of Contents
 
+- [Showcase / ตัวอย่างผลงาน](#showcase--ตัวอย่างผลงาน)
 - [Documentation / เอกสาร](#documentation--เอกสาร)
 - [About](#about)
 - [Features](#features)
