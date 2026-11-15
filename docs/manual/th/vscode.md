@@ -9,14 +9,16 @@
 ```bash
 cd packaging/vscode
 npm install
-npx vsce package                      # ได้ qbnex-2.0.0.vsix
-code --install-extension qbnex-2.0.0.vsix
+npx vsce package                      # ได้ qbnex-<version>.vsix
+code --install-extension qbnex-<version>.vsix
 ```
 
 ต้องมี `qb` (หรือตั้ง `qbnex.compilerPath`) และสำหรับความสามารถด้านภาษา
 ต้องมี `qb-lsp` กับ `qb-dap` (`cargo build --release -p qb-lsp -p qb-dap`
 แล้ววางไว้ใน `PATH` หรือตั้ง `qbnex.lsp.path` / `qbnex.dap.path` หรือแนบไป
-กับแพ็กเกจด้วย `npm run bundle-server` ก่อน package)
+กับแพ็กเกจด้วย `npm run bundle-server` ก่อน package) แพ็กเกจที่แนบ server
+ไปด้วยใช้ได้กับแพลตฟอร์มเดียว ให้ package ด้วย `npx vsce package --target win32-x64`
+(หรือ `linux-x64`, `darwin-arm64` ...)
 
 | ความสามารถ | ทำอย่างไร |
 | --- | --- |
@@ -27,7 +29,8 @@ code --install-extension qbnex-2.0.0.vsix
 | Hover, completion | keyword พร้อม syntax, procedure ของไลบรารีมาตรฐานพร้อมชื่อโมดูล, สัญลักษณ์ที่เขียนเอง |
 | จัดรูปแบบเมื่อบันทึก | เปิดเป็นค่าเริ่มต้นสำหรับไฟล์ QBasic (ปิดด้วย `"[qbasic]": {"editor.formatOnSave": false}`) |
 | `QBNex: Run` (Ctrl+F5, ปุ่ม play) | บันทึก คอมไพล์ด้วย `qb` แล้วรันใน terminal |
-| `QBNex: Compile` (Ctrl+Shift+B) | คอมไพล์ ผลลัพธ์อยู่ในแผง *QBNex* |
+| `QBNex: Compile` (Ctrl+Shift+B) | คอมไพล์ ผลลัพธ์อยู่ในแผง *QBNex* โดยปกติไฟล์ executable จะอยู่ข้างไฟล์ source ปรับ argument ได้ด้วย `qbnex.compileArgs` |
+| `QBNex: Restart Language Server` | เริ่ม `qb-lsp` ใหม่ (ถ้าตั้ง `qbnex.lsp.enabled: false` จะไม่เริ่มเลย) |
 | Debug (F5) | ดูด้านล่าง |
 
 ## Debugger

@@ -26,14 +26,19 @@ Windows ควรยกเว้นโฟลเดอร์นี้จากก
 ในตัวจัดการไฟล์ (Windows และ Linux)
 
 ถ้าแสดงหน้าต่างไม่ได้ (ไม่มีจอ, ใช้ผ่าน remote shell) ตัวติดตั้งจะถามในเทอร์มินัลแทน
-และ `--console` บังคับให้ถามในเทอร์มินัลเสมอ สำหรับสคริปต์: `qbnex-setup --yes`
-ติดตั้งโดยไม่ถาม (`/S`, `/SILENT`, `/VERYSILENT` ให้ผลเดียวกัน), `--dir <โฟลเดอร์>`
+และ `--console` บังคับให้ถามในเทอร์มินัลเสมอ ส่วน `--gui` บังคับให้เปิดหน้าต่างติดตั้งเสมอ
+สำหรับสคริปต์: `qbnex-setup --yes`
+ติดตั้งโดยไม่ถาม (`-y`, `/S`, `/SILENT`, `/VERYSILENT` ให้ผลเดียวกัน), `--dir <โฟลเดอร์>`
 (หรือ `/DIR=<โฟลเดอร์>`) เลือกที่ติดตั้งเอง, `--no-path` ไม่แก้ PATH, `--no-menu`
 ไม่เพิ่มรายการในเมนู, `--desktop` และ `--associate` เปิดงานที่เลือกเพิ่มได้
 และ `qbnex-setup --uninstall` (ตัวที่อยู่ในโฟลเดอร์ที่ติดตั้ง) ลบทุกอย่างที่ติดตั้งไป
-โดยไม่แตะไฟล์ที่คุณเพิ่มเอง ตัวติดตั้งและ `qb` ยังไม่ได้ลงลายเซ็นดิจิทัล Windows SmartScreen
+โดยไม่แตะไฟล์ที่คุณเพิ่มเอง (`--uninstall --yes` ลบโดยไม่ถาม) ส่วน `--version` และ
+`--help` พิมพ์เวอร์ชันและ switch ของตัวติดตั้ง ตัวติดตั้งและ `qb` ยังไม่ได้ลงลายเซ็นดิจิทัล Windows SmartScreen
 และ macOS Gatekeeper อาจเตือนก่อนเปิดครั้งแรก (macOS:
 `xattr -d com.apple.quarantine qbnex_<tag>_osx-setup`)
+
+แต่ละรุ่นมีไฟล์ `SHA256SUMS.txt` ด้วย ให้รัน
+`sha256sum -c SHA256SUMS.txt --ignore-missing` ในโฟลเดอร์ที่มีไฟล์ที่ดาวน์โหลดมาเพื่อตรวจไฟล์
 
 ## Build จาก source
 
@@ -94,7 +99,10 @@ sh scripts/setup_osx.command
 
 **executable แบบ native (ทดลอง):** `scripts/native-kit.ps1` (Windows) หรือ
 `scripts/native-kit.sh` จะ build native kit (`qb-native` กับ `rust-lld` ของ
-toolchain Rust) ถ้าคัดลอกไปไว้ที่ `crates/engine/exec/bin/<os>/native/`
+toolchain Rust) ไว้ที่ `target/release/native` (หรือโฟลเดอร์ที่ส่งเป็น argument แรก)
+`native-kit.sh` ต้องมีไฟล์สำหรับพัฒนาของไลบรารี C (`libc6-dev`) และของ libasound
+กับ libudev บน Linux และต้องมี Xcode command line tools บน macOS
+ถ้าคัดลอกไปไว้ที่ `crates/engine/exec/bin/<os>/native/`
 คอมไพเลอร์จะลิงก์ executable ปกติแทนการต่อ QIR ท้าย runner
 (ดู[คำสั่ง](commands.md))
 

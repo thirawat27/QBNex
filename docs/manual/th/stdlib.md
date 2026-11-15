@@ -24,7 +24,7 @@
 | `json` | JSON ตาม RFC 8259: parse, เข้าถึงข้อมูล, สร้าง, แปลงกลับเป็นข้อความ |
 | `url` | แยกส่วน URL, query string, การ encode, การ resolve ตาม RFC 3986 |
 | `ext.regex` | regular expression |
-| `ext.hash` | CRC32, MD5, SHA-1/256/512, Base64, hex |
+| `ext.hash` | CRC32, MD5, SHA-1/256/512 (`Hash_SHA512$`), Base64, Base64Url (`Base64Url_Encode$`), hex |
 | `ext.zip` | อ่าน แตก และสร้างไฟล์ zip |
 | `ext.http` | HTTP/HTTPS client (TLS เขียนด้วย Rust ล้วน) |
 | `ext.utf8` | string UTF-8 แบบนับเป็นตัวอักษร, ตัวพิมพ์ใหญ่เล็ก, normalization, แปลง CP437 |
@@ -34,11 +34,11 @@
 | `collections.list`, `.dictionary`, `.queue`, `.stack`, `.set` | collection เขียนด้วย BASIC (อิง TYPE) ไม่จำกัดจำนวน list หรือจำนวนรายการตายตัว |
 | `strings.text`, `strings.strbuilder` | ตัวช่วยจัดการข้อความ, string builder |
 | `io.path`, `io.csv`, `io.json` | path, แถว CSV, ตัวสร้าง JSON ขนาดเล็ก |
-| `math.numeric` | `Math_Min#`, `Math_Max#`, `Math_Clamp#`, `Math_Lerp#`, องศา/เรเดียน |
+| `math.numeric` | `Math_Min#`, `Math_Max#`, `Math_Clamp#`, `Math_Lerp#`, แปลงองศา/เรเดียนด้วย `Math_Deg2Rad#` / `Math_Rad2Deg#` |
 | `sys.env`, `sys.args`, `sys.datetime` | แพลตฟอร์ม, environment, argument, วันที่ |
 | `error.result` | ค่า Result ที่มีรหัส error และบริบท |
 | `oop.class`, `oop.interface` | registry ตอนรันที่ CLASS ใช้ |
-| `qbnex` | `collections`, `strings`, `io`, `sys`, `math`, `error` และ `oop` ใน import เดียว ส่วน `json`, `url` และ `ext.*` import เพิ่มคู่กันได้ `qbnex` import โมดูลเหล่านั้นทีละตัวตามชื่อ จึงใช้ร่วมกับการ import โมดูลใดก็ได้ในลำดับใดก็ได้ |
+| `qbnex` | `collections`, `strings`, `io`, `sys`, `math`, `error` และ `oop` ใน import เดียว ส่วน `json`, `url` และ `ext.*` import เพิ่มคู่กันได้ `qbnex` import โมดูลเหล่านั้นทีละตัวตามชื่อ จึงใช้ร่วมกับการ import โมดูลใดก็ได้ในลำดับใดก็ได้ ชื่อ `stdlib`, `all` และ `qbnex_stdlib` ให้ผลเดียวกับ `qbnex` |
 
 โมดูล `ext.*` เรียกไลบรารี Rust `crates/runtime/ext` (Rust ล้วน ไม่ใช้ OpenSSL)
 เมื่อเกิด error ฟังก์ชันจะคืน 0 หรือ string ว่าง และ `Ext_LastError$`

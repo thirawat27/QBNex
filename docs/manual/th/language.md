@@ -230,7 +230,8 @@ END CLASS
 ### `DECLARE LIBRARY`, `_FLOAT`, `_MEM`
 
 ใช้ได้เหมือน QB64 ฟังก์ชันภายนอกถูกเรียกผ่าน
-`crates/engine/ffi` (calling convention ของ Windows x64 และ Linux x86-64/AArch64)
+`crates/engine/ffi` (calling convention แบบ Win64, System V x86-64 และ AArch64
+รวมถึงแบบ AArch64 ของ Apple จึงใช้ได้บน Windows, Linux และ macOS)
 ส่วน `_FLOAT` เป็นเลขทศนิยม 80-bit ที่คำนวณด้วยซอฟต์แวร์ได้ผลตรงเป๊ะ
 
 ## วางแผนไว้
@@ -272,4 +273,3 @@ x += 2
   pointer (`@SubName`), overload ตามชนิด
 - `x += 1` (รวม `-=`, `*=`, `/=`), บรรทัด comment แบบ `# comment`,
   `IMPORT module` ที่ไม่ใช้รูป `'$IMPORT:` และ `FUNCTION name (...) AS type`
-  ที่ README รุ่นก่อนเคยเขียนไว้

@@ -4,7 +4,7 @@
 
 ## 2D graphics (Available)
 
-All QBasic and QB64 graphics run on the Rust runtime: `SCREEN` 0-13 and
+All QBasic and QB64 graphics run on the Rust runtime: `SCREEN` 0-2 and 7-13,
 `_NEWIMAGE` 32-bit pages, `PSET`, `LINE`, `CIRCLE`, `PAINT`, `DRAW`,
 `VIEW`/`WINDOW`, `GET`/`PUT`, `PCOPY`, `_PUTIMAGE`, `_LOADIMAGE` (the formats
 QB64 reads: PNG, JPEG, BMP, PCX, ...), TrueType fonts with `_LOADFONT`, palettes, alpha
@@ -27,21 +27,26 @@ _DISPLAY
 
 Projection, depth buffer (`_DEPTHBUFFER ON|LOCK|OFF`), culling
 (`_CLOCKWISE`/`_ANTICLOCKWISE`), `_SMOOTH*` filtering and alpha follow
-QB64. The default renderer is the software one: there the 3D form draws on
-32-bit images only (error 5 otherwise), and each image keeps its depth buffer
-until `_DEPTHBUFFER _CLEAR` or until the image is freed.
-
-**Preview:** a runtime built with the `gpu` feature presents frames and can
-draw 3D triangles with wgpu (Vulkan, DX12, Metal). It falls back to the
-software path when there is no adapter or `QB_GPU=off`. One known
-difference: on the GPU the far plane (10000) clips, as legacy OpenGL did.
+QB64. The 3D form is always drawn by the software renderer, on 32-bit images
+only (error 5 otherwise), and each image keeps its depth buffer until
+`_DEPTHBUFFER _CLEAR` or until the image is freed. It has no far plane. A
+runner built with the `gpu` feature only presents the frames with wgpu
+(Vulkan, DX12, Metal), and presents in software when there is no adapter or
+`QB_GPU=off`.
 
 ## High-level 3D: models, camera, lights (Preview)
 
-The compiler knows these statements and functions; they draw on a runtime
-built with GPU support (wgpu). Without a GPU every statement still runs
-without an error, `_DRAW3D` draws nothing and `_GPU3D` returns 0. Design:
-`docs/dev/3d-api.md`.
+The compiler knows these statements and functions; they draw only on a
+runner built with the `gpu` feature (wgpu). The standard setup scripts and
+the release builds compile `qb-exec` without it, so there `_GPU3D` returns 0
+and `_DRAW3D` draws nothing; build `qb-exec` with `--features gpu` to get it.
+Without the feature, or on a machine with no GPU adapter, the statements
+still run and raise no error for valid arguments. Errors are the same on
+every build: an unknown mesh, light or shader handle is error 258, and bad
+arguments are error 5 (for example a `_LIGHT` kind other than 1 or 2, a zero
+direction for a directional light, eye = target in `_CAMERA`, a field of
+view outside 1-179, or near >= far in `_CAMERARANGE`). Design (in Thai):
+[`docs/dev/3d-api.md`](../../dev/3d-api.md).
 
 ```basic
 SCREEN _NEWIMAGE(800, 600, 32)
@@ -93,5 +98,5 @@ _FREEMESH box&: _FREELIGHT lamp&
 | `_LIGHTON l&, on&` · `_FREELIGHT l&` | Switch (at most 8 lights on), free. |
 | `_CLEAR3D [colour~&]` | Clear colour and depth of the 3D layer. |
 | `_GPU3D` | -1 when 3D can be drawn. |
-| `_SHADER(wgsl$)` · `_SHADERERROR$` | Compile a WGSL function `fn shade(i: ShadeIn) -> vec4<f32>`; -1 when it does not compile, and `_SHADERERROR$` gives the line, column and reason. |
+| `_SHADER(wgsl$)` · `_SHADERERROR$` | Compile a WGSL function `fn shade(i: ShadeIn) -> vec4<f32>`; on a `gpu` build -1 when it does not compile, and `_SHADERERROR$` gives the line, column and reason; without `gpu` it returns a handle without checking the code. |
 | `_SHADERPARAM sh&, index&, value!` · `_MESHSHADER m&, sh&` · `_FREESHADER sh&` | Set one of 16 parameters, draw a mesh with the shader (0 = normal lighting), free. |

@@ -5,7 +5,7 @@
 ## กราฟิก 2 มิติ (ใช้ได้แล้ว)
 
 กราฟิกทั้งหมดของ QBasic และ QB64 รันบน runtime ภาษา Rust ได้แก่
-`SCREEN` 0-13 และหน้า 32-bit ของ `_NEWIMAGE`, `PSET`, `LINE`, `CIRCLE`,
+`SCREEN` 0-2 และ 7-13, หน้า 32-bit ของ `_NEWIMAGE`, `PSET`, `LINE`, `CIRCLE`,
 `PAINT`, `DRAW`, `VIEW`/`WINDOW`, `GET`/`PUT`, `PCOPY`, `_PUTIMAGE`,
 `_LOADIMAGE` (รูปแบบไฟล์ที่ QB64 อ่านได้: PNG, JPEG, BMP, PCX ...),
 ฟอนต์ TrueType ด้วย `_LOADFONT`, palette, alpha blending, `_DISPLAY`,
@@ -27,20 +27,24 @@ _DISPLAY
 
 การฉายภาพ, depth buffer (`_DEPTHBUFFER ON|LOCK|OFF`), การตัดด้านหลัง
 (`_CLOCKWISE`/`_ANTICLOCKWISE`), การกรองแบบ `_SMOOTH*` และ alpha ทำงาน
-เหมือน QB64 ตัววาดค่าเริ่มต้นเป็นแบบซอฟต์แวร์
-บน renderer แบบ software รูปแบบ 3 มิติวาดได้เฉพาะภาพ 32-bit (ภาพแบบอื่นได้ error 5) และแต่ละภาพเก็บ depth buffer ไว้จนกว่าจะสั่ง `_DEPTHBUFFER _CLEAR` หรือคืนภาพนั้น
-
-**ทดลอง:** runtime ที่ build พร้อมฟีเจอร์ `gpu` จะแสดงผลเฟรมและวาด
-สามเหลี่ยม 3 มิติด้วย wgpu (Vulkan, DX12, Metal) ได้ ถ้าไม่มีการ์ดจอหรือ
-ตั้ง `QB_GPU=off` จะกลับไปใช้ทางซอฟต์แวร์ ข้อแตกต่างที่รู้แล้วคือบน GPU
-ระนาบไกล (10000) จะตัดภาพทิ้ง เหมือนที่ OpenGL ของ QB64 เดิมทำ
+เหมือน QB64 รูปแบบ 3 มิติวาดด้วย renderer แบบ software เสมอ วาดได้เฉพาะ
+ภาพ 32-bit (ภาพแบบอื่นได้ error 5) และแต่ละภาพเก็บ depth buffer ไว้จนกว่าจะ
+สั่ง `_DEPTHBUFFER _CLEAR` หรือคืนภาพนั้น และไม่มีระนาบไกล (far plane)
+runner ที่ build พร้อมฟีเจอร์ `gpu` แค่แสดงผลเฟรมด้วย wgpu (Vulkan, DX12, Metal)
+และกลับไปแสดงผลแบบซอฟต์แวร์เมื่อไม่มีการ์ดจอหรือตั้ง `QB_GPU=off`
 
 ## 3 มิติระดับสูง: model, กล้อง, แสง (ทดลอง)
 
-คอมไพเลอร์รู้จักคำสั่งและฟังก์ชันเหล่านี้แล้ว และจะวาดได้เมื่อ runtime ถูก
-build พร้อมการรองรับ GPU (wgpu) ถ้าไม่มี GPU ทุกคำสั่งยังรันได้โดยไม่เกิด
-error แต่ `_DRAW3D` จะไม่วาดอะไร และ `_GPU3D` คืน 0 เอกสารออกแบบอยู่ที่
-`docs/dev/3d-api.md`
+คอมไพเลอร์รู้จักคำสั่งและฟังก์ชันเหล่านี้แล้ว แต่จะวาดได้เฉพาะบน runner ที่
+build พร้อมฟีเจอร์ `gpu` (wgpu) สคริปต์ setup มาตรฐานและ release build
+คอมไพล์ `qb-exec` โดยไม่เปิดฟีเจอร์นี้ จึงได้ `_GPU3D` คืน 0 และ `_DRAW3D`
+ไม่วาดอะไร ถ้าต้องการให้วาดได้ให้ build `qb-exec` ด้วย `--features gpu`
+เมื่อไม่มีฟีเจอร์นี้ หรือเครื่องไม่มีการ์ดจอ (GPU adapter) คำสั่งทั้งหมดยังรันได้
+และไม่เกิด error ถ้าอาร์กิวเมนต์ถูกต้อง error เหมือนกันทุก build คือ handle ของ
+mesh, แสง หรือ shader ที่ไม่มีอยู่ได้ error 258 และอาร์กิวเมนต์ผิดได้ error 5
+(เช่น kind ของ `_LIGHT` ที่ไม่ใช่ 1 หรือ 2, ทิศของแสงแบบทิศทางเป็นเวกเตอร์ศูนย์,
+eye = target ใน `_CAMERA`, มุมมองนอกช่วง 1-179 หรือ near >= far ใน
+`_CAMERARANGE`) เอกสารออกแบบ: [`docs/dev/3d-api.md`](../../dev/3d-api.md)
 
 ```basic
 SCREEN _NEWIMAGE(800, 600, 32)
@@ -92,5 +96,5 @@ _FREEMESH box&: _FREELIGHT lamp&
 | `_LIGHTON l&, on&` · `_FREELIGHT l&` | เปิดปิด (เปิดพร้อมกันได้สูงสุด 8 ดวง), คืนหน่วยความจำ |
 | `_CLEAR3D [colour~&]` | ล้างสีและ depth ของชั้น 3 มิติ |
 | `_GPU3D` | คืน -1 เมื่อวาด 3 มิติได้ |
-| `_SHADER(wgsl$)` · `_SHADERERROR$` | คอมไพล์ฟังก์ชัน WGSL `fn shade(i: ShadeIn) -> vec4<f32>` คืน -1 เมื่อคอมไพล์ไม่ผ่าน และ `_SHADERERROR$` บอกบรรทัด คอลัมน์ และเหตุผล |
+| `_SHADER(wgsl$)` · `_SHADERERROR$` | คอมไพล์ฟังก์ชัน WGSL `fn shade(i: ShadeIn) -> vec4<f32>` บน build ที่มี `gpu` คืน -1 เมื่อคอมไพล์ไม่ผ่าน และ `_SHADERERROR$` บอกบรรทัด คอลัมน์ และเหตุผล ถ้าไม่มี `gpu` จะคืน handle โดยไม่ตรวจโค้ด |
 | `_SHADERPARAM sh&, index&, value!` · `_MESHSHADER m&, sh&` · `_FREESHADER sh&` | ตั้งพารามิเตอร์ 1 ใน 16 ตัว, วาด mesh ด้วย shader นั้น (0 = แสงปกติ), คืนหน่วยความจำ |

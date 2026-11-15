@@ -26,7 +26,7 @@ Status: all modules on this page are **Available**. In the
 | `json` | RFC 8259 JSON: parse, access, build, serialize |
 | `url` | URL parsing, query strings, encoding, RFC 3986 resolution |
 | `ext.regex` | Regular expressions |
-| `ext.hash` | CRC32, MD5, SHA-1/256/512, Base64, hex |
+| `ext.hash` | CRC32, MD5, SHA-1/256/512 (`Hash_SHA512$`), Base64, Base64Url (`Base64Url_Encode$`), hex |
 | `ext.zip` | Read, extract and create zip archives |
 | `ext.http` | HTTP/HTTPS client (pure-Rust TLS) |
 | `ext.utf8` | UTF-8 strings by character, case, normalization, CP437 conversion |
@@ -36,11 +36,11 @@ Status: all modules on this page are **Available**. In the
 | `collections.list`, `.dictionary`, `.queue`, `.stack`, `.set` | Collections in BASIC (TYPE based), no fixed limit on lists or items |
 | `strings.text`, `strings.strbuilder` | Text helpers, string builder |
 | `io.path`, `io.csv`, `io.json` | Paths, CSV rows, small JSON builders |
-| `math.numeric` | `Math_Min#`, `Math_Max#`, `Math_Clamp#`, `Math_Lerp#`, degrees/radians |
+| `math.numeric` | `Math_Min#`, `Math_Max#`, `Math_Clamp#`, `Math_Lerp#`, degrees/radians with `Math_Deg2Rad#` / `Math_Rad2Deg#` |
 | `sys.env`, `sys.args`, `sys.datetime` | Platform, environment, arguments, dates |
 | `error.result` | Result values with error codes and context |
 | `oop.class`, `oop.interface` | Runtime registry used by CLASS |
-| `qbnex` | `collections`, `strings`, `io`, `sys`, `math`, `error` and `oop` in one import; `json`, `url` and `ext.*` are imported next to it. It imports each of those modules by name, so it combines with any of them in any order |
+| `qbnex` | `collections`, `strings`, `io`, `sys`, `math`, `error` and `oop` in one import; `json`, `url` and `ext.*` are imported next to it. It imports each of those modules by name, so it combines with any of them in any order. `stdlib`, `all` and `qbnex_stdlib` are the same as `qbnex` |
 
 The `ext.*` modules call the Rust library `crates/runtime/ext` (pure Rust, no
 OpenSSL). Errors: functions return 0 / an empty string and

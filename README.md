@@ -147,16 +147,16 @@ Developer reference (QIR format, deviation IDs `L-xx`/`D-xx`, `DECLARE LIBRARY` 
 **QBNex** is a modern QBasic/QuickBASIC compiler. It translates BASIC source code into QIR, a
 text intermediate language, and packages it with a Rust runner into a standalone executable for
 Windows, Linux, and macOS. It started as a refactor of QB64 into a CLI-driven compiler without the
-IDE. Since 2.0 there is no C or C++ anywhere in the pipeline: the runner and runtime are Rust
+IDE. There is no C or C++ anywhere in the pipeline: the runner and runtime are Rust
 crates (`crates/`), the QIR runs on a register VM, and hot loops are compiled to native code with
 Cranelift.
 
-**Version**: 2.0.0 (`qb --version`; see [CHANGELOG.md](CHANGELOG.md))
+**Version**: run `qb --version`; see [CHANGELOG.md](CHANGELOG.md)
 
 The compiler is self-hosting: it is written in QBNex BASIC (about 35,000 lines in `compiler/`) and
 compiles itself. Graphics, windowing, sound, fonts and images come from the Rust runtime (winit,
-softbuffer, cpal, skrifa, and wgpu for the optional GPU path); no OpenGL, FreeGLUT, FreeType or
-miniaudio is linked.
+softbuffer, cpal, skrifa, and wgpu for the optional GPU path); no C OpenGL, FreeGLUT, FreeType or
+miniaudio library is linked. `SUB _GL` gets its OpenGL context through the Rust glutin crate.
 
 Repository: https://github.com/thirawat27/QBNex
 
@@ -183,6 +183,7 @@ Repository: https://github.com/thirawat27/QBNex
   - All QBasic `SCREEN` modes (0-13) and QB64 32-bit images; `PSET`, `LINE`, `CIRCLE`, `PAINT`, `DRAW`, `GET`/`PUT`, `_PUTIMAGE`, `_LOADIMAGE` (PNG, JPEG, BMP, PCX, ...), TrueType fonts
   - `_MAPTRIANGLE` 3D with a depth buffer (software renderer); optional wgpu GPU path
   - High-level 3D (Preview): `_LOADMODEL`, `_MESH*`, `_CAMERA`, `_LIGHT`, `_DRAW3D`, WGSL shaders with `_SHADER`
+  - QB64 `SUB _GL` with an OpenGL context on the program window (`_GLRENDER`)
   - ALT+ENTER full screen (`_ALLOWFULLSCREEN`)
   - `SOUND`, `PLAY`, `BEEP` with QBasic's `MF`/`MB` music modes, `_SND*` sound files, 4-voice synthesis (`_VOICE`, `_ADSR`, `_WAVE`)
   - Audio through cpal: WASAPI (Windows), CoreAudio (macOS), ALSA (Linux); a silent device when there is no speaker
@@ -193,7 +194,7 @@ Repository: https://github.com/thirawat27/QBNex
   - `PEEK`/`POKE`/`DEF SEG` over an emulated 1 MB memory, `CALL ABSOLUTE` and `CALL INTERRUPT` (16-bit x86 emulator, INT 33h mouse)
   - `SHELL`, `CHAIN`, `RUN`, `COMMAND$`, `ENVIRON$`
 
-- **Standard library** (`'$IMPORT:'module'`): `json`, `url`, collections, strings, I/O, system, math, result, OOP, and the Rust-backed `ext.*` modules (regex, hash, zip, http, utf8, collections, datetime)
+- **Standard library** (`'$IMPORT:'module'`): `json`, `url`, collections, strings, I/O, system, math, result, OOP, and the Rust-backed `ext.*` modules (regex, hash, zip, http, utf8, collections, datetime, and `ext.core` with `Ext_LastError$`)
 
 - **Tools**
   - Formatter (`qbnex fmt`), language server (`qbnex lsp`), debugger (`qbnex dap`), VS Code extension (`packaging/vscode`)
@@ -224,7 +225,8 @@ Window, graphics, audio, fonts, images and compression are Rust crates of the ru
 ### Release Packages and Installer
 
 Tagged releases publish `qbnex_<tag>_win-x64.zip`, `qbnex_<tag>_lnx.tar.gz` and
-`qbnex_<tag>_osx.tar.gz`. Extract to a folder you can write to.
+`qbnex_<tag>_osx.tar.gz`. Extract to a folder you can write to. Each release also lists the
+checksums of its files in `SHA256SUMS.txt`: `sha256sum -c SHA256SUMS.txt --ignore-missing`.
 
 Or download the one-file installer for your system (`qbnex_<tag>_win-x64-setup.exe`,
 `qbnex_<tag>_lnx-setup`, `qbnex_<tag>_osx-setup`) and run it. It installs for the current
@@ -234,11 +236,12 @@ to your PATH, the Start menu and "Apps & features"; on Linux/macOS into
 
 | Option | Meaning |
 | --- | --- |
-| `--yes` (`/S`, `/SILENT`, `/VERYSILENT`) | Install without asking |
+| `--yes`, `-y` (`/S`, `/SILENT`, `/VERYSILENT`) | Install without asking |
 | `--dir <folder>` (`/DIR=<folder>`) | Install folder |
 | `--no-path`, `--no-menu` | Leave PATH alone, add no menu entry |
 | `--desktop`, `--associate` | Desktop shortcut, "Compile with QBNex" for `.bas` files |
 | `--console` | Ask in the terminal instead of a window |
+| `--gui` | Show the setup window even when not started from a terminal or a file manager |
 | `--uninstall` | Run from the install folder: remove what was installed |
 
 The installer and `qb` are not code-signed, so SmartScreen and Gatekeeper may warn on the
@@ -374,7 +377,8 @@ Exit code 0 means the program compiled.
 | `-d` | `--verbose-errors` | Old alias; detailed diagnostics are the default | `qb file.bas -d` |
 | `-e` | - | `OPTION _EXPLICIT` for this compilation | `qb file.bas -e` |
 | `-s[:setting[=true/false]]` | - | Show or change compiler settings | `qb -s:exewithsource=true` |
-| `-p`, `-z` | `--ir` | Accepted for old scripts; they change nothing | `qb file.bas -z` |
+| `-p`, `-z` | - | Accepted for old scripts; they change nothing | `qb file.bas -z` |
+| `--ir` | - | Accepted, no effect (QIR is the only output) | `qb file.bas --ir` |
 
 Detailed diagnostics (`cause`, `example` and related notes) are shown by default:
 
@@ -413,11 +417,16 @@ DebugInfo=False 'Managed by qbnex -s
 
 | Variable | Effect |
 | --- | --- |
-| `QBNEX_NO_ERROR_DIALOG=1` | Runtime errors go to stderr with exit code 1 instead of the "Unhandled Error" dialog (set it in scripts and CI) |
+| `QBNEX_NO_ERROR_DIALOG=1` | Runtime errors go to stderr with exit code 1 instead of the "Unhandled Error" dialog (set it in scripts and CI); without it the dialog is also skipped when stdout or stderr is redirected |
 | `QB_JIT=off` / `eager` / `<n>` | No JIT, compile at once, or after n loop iterations |
 | `QB_JIT_THREADS=<n>`, `QB_JIT_STATS=1` | JIT compiler threads; JIT statistics on stderr |
 | `QB_PROFILE=<file>` | Write the hottest functions and lines to a file at the end |
 | `QB_GPU=off` / `verbose` | Runtimes with the GPU feature: never use the GPU / log the choice |
+| `QB_GPU_FALLBACK=1` | Runtimes with the GPU feature: use only the software adapter (for example WARP on Windows) |
+| `QB_EXEC_DISASM=1` | Print the bytecode the runner made from the QIR on stderr |
+| `QBNEX_NATIVE_KIT=<dir>` | Native kit folder used by `qb-exec build --native-link` instead of `native/` next to the runner |
+| `QBNEX_INPUT_SCRIPT=<file>` | Feed keyboard, mouse and window events from a script (tests) |
+| `QBNEX_FB_CAPTURE=<file>` | Append the display page to the file at each `_DISPLAY` and at the end (conformance tests) |
 | `QB_GL=off` | No OpenGL context: `SUB _GL` is not run |
 | `QB_AUDIO_DEVICE=null` / `none` | Silent device that keeps time / no audio |
 | `QBNEX_LPRINT=<file>` | `LPRINT` appends to a text file |
@@ -459,8 +468,7 @@ END TRY
 Planned (not in the compiler yet; the editor tools may already know the words): `x += 1` and the other
 augmented assignments, `# comment` lines, `IMPORT module` without the `'$IMPORT:` form,
 `FUNCTION name (...) AS type`, array literals, `_THROW`, `_SPLIT`/`_JOIN$`/`_REPLACE$` and the UTF-8
-string helpers, built-in `_LIST`/`_DICT`, CLASS virtual dispatch. Earlier READMEs described some of
-these as available; they are not.
+string helpers, built-in `_LIST`/`_DICT`, CLASS virtual dispatch.
 
 ---
 
@@ -476,7 +484,7 @@ The only import form the compiler accepts is the `'$IMPORT:'module'` metacommand
 
 <!-- docs-test: define qbnex -->
 ```basic
-' Traditional import syntax
+' Import syntax
 '$IMPORT:'qbnex'
 '$IMPORT:'json'
 '$IMPORT:'url'
@@ -495,7 +503,7 @@ The `IMPORT module` form below is **planned** and does not compile yet:
 
 <!-- docs-test: compile-error -->
 ```basic
-' Modern import syntax - cleaner and easier to read
+' Planned syntax (does not compile yet)
 IMPORT qbnex
 IMPORT json
 IMPORT url
@@ -538,16 +546,17 @@ END CLASS
 
 | Module | Import | Contents |
 |--------|--------|----------|
-| Core | `'$IMPORT:'qbnex'` | Every module below except `json`, `url` and `ext.*` in one import; those combine with it (`qbnex_stdlib.bas`), plus CLASS support |
+| Core | `'$IMPORT:'qbnex'` | Every module below except `json`, `url` and `ext.*` in one import; those combine with it, plus CLASS support. `qbnex` (aliases `stdlib`, `all`, `qbnex_stdlib`) loads `compiler/stdlib/stdlib.bas`, which includes `qbnex_stdlib.bas` |
 | JSON | `'$IMPORT:'json'` | RFC 8259 JSON: `JSON_Parse%`, `JsonObjectGet%`, `JsonCreateObject%`, `JSON_Stringify$`, ... |
 | URL | `'$IMPORT:'url'` | `UrlParse`, `UrlFormat$`, `UrlEncodeComponent$`, `UrlDecode$`, `UrlResolve`, ... |
-| Collections | `collections.list`, `.stack`, `.queue`, `.set`, `.dictionary` | `QBNex_List` and friends; import `qbnex` for all but `collections.list` (on their own they do not compile yet) |
+| Collections | `collections.list`, `.stack`, `.queue`, `.set`, `.dictionary` | `QBNex_List` and friends; each module can be imported alone (it imports `collections.list` itself) or through `qbnex` |
 | Strings | `strings.strbuilder`, `strings.text` | String builder, padding and tests |
 | I/O | `io.path`, `io.csv`, `io.json` | Paths, CSV rows, JSON builders |
 | System | `sys.env`, `sys.args`, `sys.datetime` | Platform, arguments, dates |
 | Math, errors | `math.numeric`, `error.result` | `Math_Clamp#`, `QBNex_Result` |
 | OOP | `oop.class`, `oop.interface` | Class registry used by CLASS |
 | Rust-backed | `ext.regex`, `ext.hash`, `ext.zip`, `ext.http`, `ext.utf8`, `ext.collections`, `ext.datetime` | See [stdlib manual](docs/manual/en/stdlib.md) |
+| Ext core | `ext.core` | Shared plumbing of the `ext.*` modules: `Ext_LastError$` (message of the last failed call) |
 
 ### Working with Modules
 
@@ -724,7 +733,7 @@ Queue_Free loadOrder
 ```
 
 #### Set (`collections.set`)
-Hash-based set of unique strings.
+Set of unique strings, backed by a `QBNex_List`: lookups are a linear search and the insertion order is kept.
 
 - `HashSet_Init set` · `HashSet_Free set` · `HashSet_Clear set`
 - `HashSet_Add set, item$` (a duplicate is ignored) · `HashSet_Remove set, item$`
@@ -830,7 +839,7 @@ PRINT Text_PadLeft$("123", 8, "0")
 <!-- docs-test: prepend qbnex -->
 ```basic
 PRINT Path_Join$("src", "stdlib/demo.bas")
-' Output: src/stdlib/demo.bas
+' Output: src/stdlib/demo.bas (on Windows: src\stdlib\demo.bas)
 
 PRINT Path_FileName$("src/stdlib/demo.bas")
 ' Output: demo.bas
@@ -894,18 +903,20 @@ PRINT "Home: "; Env_GetHome$
 
 - `Args_Count&` · `Args_Get$(index&, default$)` · `Args_Program$` · `Args_All$`
 
+Arguments count from 1 (`Args_Get$` returns `default$` outside 1 to `Args_Count&`); `Args_Program$` is argument 0, the program itself.
+
 **Example:**
 <!-- docs-test: prepend qbnex -->
 ```basic
 PRINT "Argument count: "; Args_Count&
-FOR i = 0 TO Args_Count& - 1
+FOR i = 1 TO Args_Count&
     PRINT "Arg "; i; ": "; Args_Get$(i, "")
 NEXT i
 ```
 
 #### DateTime (`sys.datetime`)
 
-Months count from 0 and `Date_GetDay&` is the weekday (0 = Sunday), as in JavaScript.
+`Date_GetMonth&` and the `monthIndex&` of `Date_FromParts` count months from 0, and `Date_GetDay&` is the weekday (0 = Sunday), as in JavaScript. `Date_DaysInMonth&` takes the month as 1 to 12.
 
 - `Date_SetNow date` · `Date_FromParts date, year&, monthIndex&, day&, hour&, minute&, second&, ms&` · `Date_FromUnixMs date, ms#`
 - `Date_ToISOString$(date)` · `Date_ToJSON$(date)` · `Date_ValueOf#(date)` · `Date_NowMs#`
@@ -1022,6 +1033,8 @@ CLASS Dog EXTENDS Animal
     Breed AS STRING * 32
 
     CONSTRUCTOR (petName AS STRING, petAge AS INTEGER, petBreed AS STRING)
+        ME.Name = petName
+        ME.Age = petAge
         ME.Breed = petBreed
     END CONSTRUCTOR
 
@@ -1031,15 +1044,22 @@ CLASS Dog EXTENDS Animal
 END CLASS
 ```
 
+Constructors are not inherited: a derived class's `CONSTRUCTOR` sets the base fields itself.
+Fields and methods of the base class are inherited.
+
 **Using Classes:**
+
+A `CONSTRUCTOR` becomes the SUB `__QBNEX_<Class>_CTOR (self AS <Class>, ...)`; call it with
+the object as the first argument. A method call needs brackets, also without arguments.
+
 <!-- docs-test: skip continues the CLASS example above -->
 ```basic
 DIM pet AS Dog
-New_Dog pet, "Buddy", 3, "Collie"
+__QBNEX_Dog_CTOR pet, "Buddy", 3, "Collie"
 
-PRINT "Name: "; pet.Name
-PRINT "Describe: "; pet.Describe$
-PRINT "Sound: "; pet.Bark$
+PRINT "Name: "; RTRIM$(pet.Name)
+PRINT "Describe: "; pet.Describe$()
+PRINT "Sound: "; pet.Bark$()
 ```
 
 **Interfaces:**
@@ -1051,8 +1071,8 @@ IMPLEMENTS IPet
 ```
 
 **Runtime OOP API:**
-- `QBNEX_RegisterClass$(className$, parentClassID)` - Register class
-- `QBNEX_FindClass$(className$)` - Find class by name
+- `QBNEX_RegisterClass&(className$, baseClassID&)` - Register class
+- `QBNEX_FindClass&(className$)` - Find class by name
 - `QBNEX_RegisterMethod(classID, methodName$, slot)` - Register method
 - `QBNEX_RegisterInterface(classID, interfaceName$)` - Register interface
 - `QBNEX_ObjectInit(header, classID)` - Initialize object
@@ -1065,7 +1085,7 @@ IMPLEMENTS IPet
 <!-- docs-test: skip continues the CLASS example above -->
 ```basic
 DIM pet AS Dog
-New_Dog pet, "Buddy", 3, "Collie"
+__QBNEX_Dog_CTOR pet, "Buddy", 3, "Collie"
 
 PRINT "Class: "; QBNEX_ObjectClassName$(pet.Header)
 PRINT "Is Animal: "; QBNEX_ObjectIs&(pet.Header, "Animal")
@@ -1205,12 +1225,15 @@ stops the build with `QIR: unsupported: line N: ...`.
 and the tag `QBNEXIR0`. At start-up the runner reads that payload from its own file, validates it,
 lowers it to bytecode and runs it on a register VM; hot functions are compiled by the Cranelift
 JIT (`QB_JIT`). The runtime (window, graphics, sound, files, network) is the Rust crate
-`qb-runtime` with `qb-audio`, `qb-gpu` and `qb-ext`.
+`qb-runtime` with `qb-audio`, `qb-gpu` and `qb-ext`. On Windows a window program without
+`$CONSOLE` is made a GUI executable, so no empty console opens next to its window; `$CONSOLE`
+and `$CONSOLE:ONLY` programs stay console executables. With the native kit next to the runner,
+`qb` links a native executable instead; when that link fails it writes the runner with the QIR.
 
-**Sizes and speed** (Windows x64, this machine): hello world compiles in about 0.5 s; a
-10,000-line program in about 15 s; the compiler itself in about 41 s. Every program is the
-runner (about 12.7 MB, with graphics, sound, network and the JIT) plus its QIR text, so a hello
-world and a graphics program are about the same size.
+**Sizes and speed.** A small program compiles quickly; compile time grows with the size of the
+program. Every program is the
+runner (with graphics, sound, network and the JIT) plus its QIR text, so a hello world and a
+graphics program are about the same size; executables are large because each one carries the VM.
 
 ---
 
@@ -1226,7 +1249,7 @@ green; the progress bar is redrawn in place):
   ╚██████╔╝██████╔╝██║ ╚████║███████╗██╔╝ ██╗
    ╚══▀▀═╝ ╚═════╝ ╚═╝  ╚═══╝╚══════╝╚═╝  ╚═╝
 
-  ⚡ QBNex Compiler v2.0.0  ·  BASIC → QIR → executable
+  ⚡ QBNex Compiler v<version>  ·  BASIC → QIR → executable
   📄 Source  C:\work\hello.bas
 
   🔨 Building  ████████████████████████████████ 100%  12 lines
@@ -1241,22 +1264,26 @@ Preparing build files... [########################################] 100%
 Build complete: hello.exe
 ```
 
-**A compile error** (detailed form, the default):
+**A compile error** (detailed form, the default; `qb C:\work\app.bas -m`):
 ```
-[x] QBNex :: Error [E1106]  IF statement is missing THEN or GOTO
-  [@] app.bas(42,13)
+[!!] QBNex :: Fatal [E1106]  IF statement is missing THEN or GOTO
+  [@] C:\work\app.bas(42,26)
   [#] source
     42 | IF score > 10 PRINT "win"
-       |             ^ add THEN or GOTO here
-  [>] next     Add THEN after the IF condition.
-  [::] flow    Parsing :: parse source file -> file: app.bas
+       |                          ^ add THEN here
+  [>] next     Add THEN after the IF condition. If you intended a jump, use IF condition GOTO label.
+  [::] flow    Legacy Frontend :: syntax validation -> file: C:\work\app.bas
+  [.] detail   Expected IF expression THEN/GOTO
+  [>>] while   IF SCORE > 10 PRINT "win",3
   [!] cause    The compiler parsed an IF condition but never found THEN or GOTO to finish the statement.
   [+] example  IF score > 10 THEN PRINT "win"
 
-[x] QBNex :: Build Halted  1 blocking diagnostic(s)
+[x] QBNex :: Build Halted   1  blocking diagnostic(s)
+[::] QBNex :: Flow   fix the first blocking diagnostic first; later ones may be follow-on effects.
 ```
 
-`-k` / `--compact-errors` drops the `[!] cause` and `[+] example` notes.
+`-k` / `--compact-errors` hides the `[^] where`, `[.] detail`, `[>>] while`, `[!] cause` and
+`[+] example` notes and the closing flow hint.
 
 | Marker | Meaning |
 |--------|---------|
@@ -1275,6 +1302,7 @@ Build complete: hello.exe
 | `[>>]` | Detailed in-progress context |
 | `[!]` | Cause note |
 | `[+]` | Example or corrected form |
+| `[ok]` | Build finished without blocking diagnostics |
 
 **Runtime errors.** An unhandled runtime error in an interactive console shows the classic
 "Unhandled Error #n ... Continue?" dialog. With redirected output or `QBNEX_NO_ERROR_DIALOG=1` it
@@ -1288,7 +1316,7 @@ names that file and line.
 | Suite | Command | What it checks |
 | --- | --- | --- |
 | Rust unit and integration tests | `cargo test --workspace` (or `-p qb-runtime`, `-p qb-exec`, ...) | Runtime, VM, JIT, FFI, tools |
-| Conformance | `cargo run --release -p qbnex-conformance` | Compiles every program in `tests/conformance/cases/` (156) with the built `qb` and compares the output with the golden files |
+| Conformance | `cargo run --release -p qbnex-conformance` | Compiles every program in `tests/conformance/cases/` with the built `qb` and compares the output with the golden files |
 | Smoke scripts | `tests\smoke\<name>_smoke.cmd` / `sh tests/smoke/<name>_smoke.sh` | CLI and compiler behaviour end to end |
 | Documentation | `pwsh tests/docs/check_docs.ps1` | Compiles every BASIC block of this README and `docs/manual`, runs those with a shown output ([tests/docs/README.md](tests/docs/README.md)) |
 | Self-host fixpoint | `scripts\selfhost_fixpoint.cmd` / `sh scripts/selfhost_fixpoint.sh` | The compiler rebuilds itself to the same QIR, equal to `bootstrap/qbnex.qir` |
@@ -1307,6 +1335,8 @@ marker and exits non-zero on failure):
 | `compiler_robustness_smoke` | Malformed input ends in a diagnostic, not an internal error |
 | `audio_smoke` | `_VOICE`, `_ADSR`, `_WAVE`, `SOUND`, `PLAY` |
 | `chain_smoke` | `CHAIN` with COMMON variables and arrays, also from a SUB |
+| `window_smoke` (`.sh` only) | A program in a real X11 window under Xvfb; skipped without `xvfb-run` or `xdotool` |
+| `pe_subsystem_smoke` (`.cmd` only) | Window programs become GUI executables, `$CONSOLE` programs stay console executables |
 | `benchmark_smoke` | Compile times of small, medium and large programs (manual, not in CI) |
 
 Fixture programs live in `tests/fixtures/`. CI runs every smoke script except the benchmark.
@@ -1315,13 +1345,13 @@ Fixture programs live in `tests/fixtures/`. CI runs every smoke script except th
 :: Windows: build, then the smoke scripts CI runs
 set QBNEX_CI=1
 scripts\setup_win.cmd
-for %t in (cli diagnostics warnings labels encoding stdlib stdlib_modules compiler_robustness audio chain) do tests\smoke\%t_smoke.cmd
+for %t in (cli diagnostics warnings labels encoding stdlib stdlib_modules compiler_robustness audio chain pe_subsystem) do tests\smoke\%t_smoke.cmd
 ```
 
 ```bash
 # Linux/macOS
 sh scripts/setup_lnx.sh
-for t in cli diagnostics warnings labels encoding stdlib stdlib_modules compiler_robustness audio chain; do
+for t in cli diagnostics warnings labels encoding stdlib stdlib_modules compiler_robustness audio chain window; do
     sh "tests/smoke/${t}_smoke.sh" || break
 done
 ```
@@ -1868,7 +1898,7 @@ The tables below list the classic QBasic statements and functions by category; Q
 | `KILL`         | Delete file            | `KILL "file.txt"`                  |
 | `NAME...AS`    | Rename file            | `NAME "old.txt" AS "new.txt"`      |
 | `FILES`        | List files             | `FILES "*.bas"`                    |
-| `CHDIR`        | Change directory       | `CHDIR "C\DATA"`                   |
+| `CHDIR`        | Change directory       | `CHDIR "C:\DATA"`                   |
 | `MKDIR`        | Make directory         | `MKDIR "NEWDIR"`                   |
 | `RMDIR`        | Remove directory       | `RMDIR "OLDDIR"`                   |
 
@@ -1907,7 +1937,7 @@ The tables below list the classic QBasic statements and functions by category; Q
 | `TIME$`          | Current time           | `t$ = TIME$`                |
 | `COMMAND$`       | Command-line args      | `cmd$ = COMMAND$`           |
 | `ENVIRON$`       | Environment variable   | `ENVIRON$("PATH")`          |
-| `FRE`            | Free memory            | `FRE("")`                   |
+| `FRE`            | Free memory (returns fixed values) | `FRE("")`                   |
 | `CSRLIN`         | Current row            | `r = CSRLIN`                |
 | `POS`            | Current column         | `c = POS(0)`                |
 | `PEEK`           | Read memory byte       | `PEEK(&H417)`               |
@@ -1935,8 +1965,6 @@ The tables below list the classic QBasic statements and functions by category; Q
 | `RESUME <label>`       | Resume at label     | `RESUME Continue`            |
 | `ERR`                  | Error number        | `IF ERR = 53 THEN...`        |
 | `ERL`                  | Error line number   | `PRINT "Error at line"; ERL` |
-| `ERDEV`                | Device error code   | `ERDEV`                      |
-| `ERDEV$`               | Device error string | `ERDEV$`                     |
 
 ### Advanced Features
 
@@ -1953,17 +1981,17 @@ The tables below list the classic QBasic statements and functions by category; Q
 | `DATA`                    | Define data            | `DATA 10, 20, 30`                 |
 | `READ`                    | Read data              | `READ x, y, z`                    |
 | `RESTORE`                 | Reset data pointer     | `RESTORE MyData`                  |
-| `KEY`                     | Define function key    | `KEY 1, "LIST" + CHR$(13)`        |
-| `KEY ON/OFF`              | Enable/disable keys    | `KEY ON`                          |
-| `KEY LIST`                | List key definitions   | `KEY LIST`                        |
+| `KEY`                     | Define function key (compiles, no effect; see [limitations](docs/manual/en/limitations.md)) | `KEY 1, "LIST" + CHR$(13)`        |
+| `KEY ON/OFF`              | Enable/disable keys (compiles, no effect; see [limitations](docs/manual/en/limitations.md)) | `KEY ON`                          |
+| `KEY LIST`                | List key definitions (compiles, no effect; see [limitations](docs/manual/en/limitations.md)) | `KEY LIST`                        |
 | `ON TIMER`                | Timer event            | `ON TIMER(1) GOSUB TimerEvent`    |
 | `TIMER ON/OFF`            | Enable/disable timer   | `TIMER ON`                        |
-| `ON COM`                  | Serial port event      | `ON COM(1) GOSUB ComEvent`        |
-| `ON PEN`                  | Light pen event        | `ON PEN GOSUB PenEvent`           |
+| `ON COM`                  | Serial port event (compiles, no effect; see [limitations](docs/manual/en/limitations.md)) | `ON COM(1) GOSUB ComEvent`        |
+| `ON PEN`                  | Light pen event (compiles, no effect; see [limitations](docs/manual/en/limitations.md)) | `ON PEN GOSUB PenEvent`           |
 | `ON STRIG`                | Joystick event         | `ON STRIG(1) GOSUB JoyEvent`      |
 | `ON PLAY`                 | Music event            | `ON PLAY(1) GOSUB MusicEvent`     |
-| `TRON`                    | Trace on               | `TRON`                            |
-| `TROFF`                   | Trace off              | `TROFF`                           |
+| `TRON`                    | Trace on (compiles, no effect; see [limitations](docs/manual/en/limitations.md)) | `TRON`                            |
+| `TROFF`                   | Trace off (compiles, no effect; see [limitations](docs/manual/en/limitations.md)) | `TROFF`                           |
 | `LPRINT`                  | Print to printer       | `LPRINT "Text"`                   |
 | `LPOS`                    | Printer position       | `LPOS(1)`                         |
 | `OUT`                     | Output to port         | `OUT &H3F8, 65`                   |
@@ -2016,9 +2044,9 @@ The compiler is BASIC and compiles itself:
 QBNex/
 ├── .github/
 │   ├── scripts/                # Release bundle and release-notes helpers
-│   ├── workflows/              # ci.yml, release.yml, docs.yml
+│   ├── workflows/              # ci.yml, release.yml, docs.yml, extension.yml, docker.yml
 │   └── dependabot.yml
-├── assets/                     # Logo and platform icons
+├── assets/                     # Logo, platform icons, showcase screenshots
 ├── bootstrap/
 │   └── qbnex.qir               # The compiler in QIR (input of the setup scripts)
 ├── compiler/                   # QBNex compiler source (BASIC)
@@ -2026,16 +2054,19 @@ QBNex/
 │   ├── global/                 # Version, constants, settings
 │   ├── includes/               # Shared include files
 │   ├── stdlib/                 # Standard library modules (collections, error, ext, io,
-│   │                           #   math, oop, strings, sys, json.bas, url.bas, qbnex_stdlib.bas)
+│   │                           #   math, oop, strings, sys, json.bas, url.bas, stdlib.bas,
+│   │                           #   qbnex_stdlib.bas)
 │   ├── subs_functions/         # Built-in statement and function table
 │   ├── support/                # $COLOR tables, SUB _GL keyword table, vwatch
 │   └── utilities/              # Compiler modules (QIR emission, CLI, imports, DEF FN, ...)
 ├── crates/                     # Rust crates (Cargo workspace)
+│   ├── compat/paste/           # Stand-in for the archived paste crate
 │   ├── compiler/ir/            # qb-ir: QIR types, text parser/printer, validator, builtin table
 │   ├── compiler/syntax/        # qb-syntax: lexer and keyword tables for the tools
 │   ├── engine/exec/            # qb-exec: runner for compiled QIR programs (VM, loader; bin/<os>/qb-exec)
 │   ├── engine/jit/             # qb-jit: Cranelift JIT tier
-│   ├── engine/link/            # qb-link: native code loading and executable writer
+│   ├── engine/link/            # qb-link: linker/loader for native program code (Cranelift object
+│   │                           #   -> loadable image; rust-lld toolchain)
 │   ├── engine/native/          # qb-native: runtime library linked into native executables
 │   ├── engine/ffi/             # qb-ffi: DECLARE LIBRARY calls into shared libraries
 │   ├── runtime/core/           # qb-runtime: window, graphics, console, files, network, memory, 3D scene
@@ -2052,6 +2083,7 @@ QBNex/
 ├── docs/
 │   ├── manual/                 # User manual (en, th)
 │   └── dev/                    # Developer reference (QIR, deviations, FFI, 3D API)
+├── examples/                   # Showcase programs
 ├── licenses/                   # License texts of QB64 and the third-party components
 ├── packaging/
 │   └── vscode/                 # VS Code extension
@@ -2065,7 +2097,7 @@ QBNex/
 │   ├── docs/                   # check_docs.ps1: compiles the BASIC examples of the docs
 │   ├── fixtures/               # Programs used by the smoke scripts
 │   └── smoke/                  # Smoke and benchmark scripts (*.cmd / *.sh)
-├── Cargo.toml                  # Cargo workspace (version 2.0.0)
+├── Cargo.toml                  # Cargo workspace (holds the release version)
 ├── rust-toolchain.toml         # Pinned Rust version (also used by CI)
 ├── qb.cmd, qbnex.cmd           # Windows launchers (compiler + fmt/lsp/dap subcommands)
 ├── README.md, CHANGELOG.md, CONTRIBUTING.md, SECURITY.md
@@ -2090,19 +2122,21 @@ QBNex/
 
 ### Continuous Integration and Releases
 
-- **`ci.yml`** (pushes and pull requests to `main` and `rust-port`, and weekly for the audit): dependency audit, build, clippy, Rust tests, smoke scripts, conformance, self-host fixpoint and native executables on Linux, macOS and Windows x64. A commit message containing `ci-skip` skips the push jobs. Actions are pinned to commit SHAs and run with read-only permissions.
-- **`release.yml`** (tags `v*` and manual dispatch): builds and packages `qbnex_<tag>_win-x64.zip`, `qbnex_<tag>_lnx.tar.gz`, `qbnex_<tag>_osx.tar.gz` and the matching `-setup` installers, tests the installers, signs `qb-fmt`, `qb-lsp` and `qb-dap` when signing secrets are set, and publishes a GitHub Release.
+- **`ci.yml`** (pushes and pull requests to `main` and `rust-port`, and weekly for the audit): dependency audit, build, clippy, Rust tests, smoke scripts, conformance, GPU tests, self-host fixpoint, the portable bundle, the one-file installer and native executables on Linux, macOS and Windows x64. A commit message containing `ci-skip` skips the push jobs. Actions are pinned to commit SHAs and run with read-only permissions.
+- **`release.yml`** (tags `v*` and manual dispatch): builds and packages `qbnex_<tag>_win-x64.zip`, `qbnex_<tag>_lnx.tar.gz`, `qbnex_<tag>_osx.tar.gz` and the matching `-setup` installers, tests the installers, signs `qb-fmt`, `qb-lsp` and `qb-dap` (and notarizes them on macOS) when signing secrets are set, and publishes a GitHub Release with `SHA256SUMS.txt`.
 - **`docs.yml`** (pushes and pull requests that change `README.md`, `docs/` or `tests/docs/`): runs `tests/docs/check_docs.ps1`, so every BASIC block of the README and the manual still compiles and prints what it shows. `ci.yml` skips pushes that only change prose.
 - **`extension.yml`** (changes to `packaging/vscode/` or `crates/compiler/syntax/`): `npm ci`, `npm audit`, `npm test` of the VS Code extension, and a check that `syntaxes/qbasic.tmLanguage.json` is what `npm run grammar` generates.
-- **`docker.yml`** (changes to `docker/`): builds `docker/Dockerfile` and runs `qb --version` in the image.
+- **`docker.yml`** (changes to `docker/`): validates `docker/docker-compose.yml`, builds `docker/Dockerfile`, runs `qb --version` in the image and compiles and runs a hello program as the image's user (uid 1000).
 
 There are no 32-bit Windows builds.
 
-The tag must match `version` in `[workspace.package]` of `Cargo.toml` (the release fails otherwise); a tag with a suffix such as `v2.0.0-preview.3` is published as a pre-release, with the notes of the CHANGELOG section of that version, or else of `[2.0.0]`.
+The tag must match `version` in `[workspace.package]` of `Cargo.toml` (the release fails otherwise); a tag with a suffix such as `v<version>-preview.<n>` is published as a pre-release. The release notes are the CHANGELOG section of that exact version, else the section of the version without its suffix (`[<version>]`), else the newest section.
+
+`<version>` below is `[workspace.package] version` in `Cargo.toml`:
 
 ```bash
-git tag v2.0.0
-git push origin v2.0.0
+git tag v<version>
+git push origin v<version>
 ```
 
 ---
