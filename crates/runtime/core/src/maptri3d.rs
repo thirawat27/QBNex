@@ -124,7 +124,7 @@ mod imp {
     use qb_gpu::{glam, wgpu, Gpu};
     use std::collections::{HashMap, HashSet};
     use std::sync::atomic::Ordering;
-    use std::sync::Mutex;
+    use std::sync::{Arc, Mutex};
 
     /// Flushes of fewer triangles than this count as small.
     const SMALL_BATCH: usize = 4;
@@ -156,7 +156,8 @@ mod imp {
     }
 
     struct Gpu3 {
-        gpu: Gpu,
+        /// the process's shared headless device (the `_DRAW3D` layer draws on it too)
+        gpu: Arc<Gpu>,
         r: MapTriangle3d,
         dests: HashMap<u32, DestTex>,
         srcs: HashMap<u32, SrcTex>,
@@ -206,7 +207,7 @@ mod imp {
     fn gpu3(s: &mut State) -> Option<&mut Gpu3> {
         s.gpu
             .get_or_insert_with(|| {
-                let gpu = Gpu::headless()?;
+                let gpu = Gpu::shared_headless()?;
                 // a software adapter draws these slower than raster::tri3d does
                 if gpu.is_software() {
                     return None;
@@ -235,7 +236,19 @@ mod imp {
                 return false;
             }
             let Some(g) = gpu3(s) else { return false };
-            if w > g.max || h > g.max || g.gpu.failed() {
+            if g.gpu.failed() {
+                // a device error, possibly from the 3D layer on the same device:
+                // what is queued goes in software, and so does everything after
+                flush_locked(s);
+                if s.gpu.as_ref().is_some_and(Option::is_some) {
+                    if verbose() {
+                        eprintln!("qb-runtime: _MAPTRIANGLE 3D falls back to software");
+                    }
+                    s.gpu = Some(None);
+                }
+                return false;
+            }
+            if w > g.max || h > g.max {
                 return false;
             }
             // the source is an image with queued triangles: draw them first
@@ -412,6 +425,10 @@ mod imp {
 
     /// Draws `queue` on the GPU; `false` after a device error.
     fn draw_gpu(g: &mut Gpu3, queue: &[Queued], batch_src: &HashMap<u32, (u32, u32, Vec<u32>)>) -> bool {
+        // the device may have failed since the triangles were queued (the 3D layer shares it)
+        if g.gpu.failed() {
+            return false;
+        }
         // sources: upload those that changed since their last use
         for (&k, (w, h, px)) in batch_src {
             let (w, h) = (*w, *h);

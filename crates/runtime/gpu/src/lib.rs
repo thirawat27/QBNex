@@ -4,7 +4,8 @@
 //! - [`Gpu`]: instance, adapter, device and queue. [`Gpu::headless`] picks a
 //!   hardware adapter or the platform's software one (WARP, llvmpipe, ...)
 //!   and returns `None` when there is no adapter at all, so tests and
-//!   tools can skip cleanly.
+//!   tools can skip cleanly. [`Gpu::shared_headless`] is one such device
+//!   shared by the whole process.
 //! - [`Target`]: where frames go — an offscreen texture (readable back with
 //!   [`Target::read_rgba`]) or a winit window surface.
 //! - [`blit::Blitter`]: presents the software framebuffer the runtime draws
@@ -23,7 +24,7 @@ pub mod scene;
 pub mod three;
 
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, Weak};
 
 pub use glam;
 pub use wgpu;
@@ -128,6 +129,29 @@ impl Gpu {
         let (instance, adapter) = shared()?;
         let (device, queue, failed) = device(&adapter).ok()?;
         Some(Gpu { instance, adapter, device, queue, failed })
+    }
+
+    /// The process's shared headless GPU, for the runtime parts that draw
+    /// offscreen (the 3D layer, batched 3D `_MAPTRIANGLE`): each device costs
+    /// tens of milliseconds to make and its own driver memory. Same rules as
+    /// [`Gpu::headless`]. It lives while someone holds it. A device that
+    /// reported an error is not handed out again (the next caller gets a new
+    /// one): a holder that sees [`Gpu::failed`] drops it and falls back to
+    /// software, since the error may have come from another holder.
+    pub fn shared_headless() -> Option<Arc<Gpu>> {
+        static SHARED_HEADLESS: Mutex<Weak<Gpu>> = Mutex::new(Weak::new());
+        if std::env::var("QB_GPU").is_ok_and(|v| v == "off") {
+            return None;
+        }
+        let mut slot = SHARED_HEADLESS.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(gpu) = slot.upgrade()
+            && !gpu.failed()
+        {
+            return Some(gpu);
+        }
+        let gpu = Arc::new(Gpu::headless()?);
+        *slot = Arc::downgrade(&gpu);
+        Some(gpu)
     }
 
     /// A GPU and a surface for `window`.
@@ -439,4 +463,35 @@ pub fn fit_texture<T: Copy + Default>(px: &[T], w: u32, h: u32, max: u32) -> (st
         }
     }
     (std::borrow::Cow::Owned(out), fw, fh)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The only test here that uses the shared device (it breaks it).
+    #[test]
+    fn shared_headless_is_one_device_until_it_fails() {
+        let Some(a) = Gpu::shared_headless() else {
+            eprintln!("skipped: no GPU adapter");
+            return;
+        };
+        let b = Gpu::shared_headless().expect("the live device");
+        assert!(Arc::ptr_eq(&a, &b), "two callers get the same device");
+        drop(b);
+        // MAP_READ with MAP_WRITE is a validation error
+        let _ = a.device.create_buffer(&wgpu::BufferDescriptor {
+            label: None,
+            size: 4,
+            usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::MAP_WRITE,
+            mapped_at_creation: false,
+        });
+        assert!(a.failed());
+        let c = Gpu::shared_headless().expect("a new device");
+        assert!(!Arc::ptr_eq(&a, &c) && !c.failed(), "a failed device is not handed out again");
+        // nobody holds it: the next caller makes a new one
+        let weak = Arc::downgrade(&c);
+        drop((a, c));
+        assert!(weak.upgrade().is_none());
+    }
 }

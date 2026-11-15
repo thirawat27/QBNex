@@ -576,17 +576,18 @@ pub(crate) fn apply_to_record(rec: &mut [u8], w: u32, h: u32, bytes_per_pixel: u
 
 #[cfg(feature = "gpu")]
 mod gpu {
-    //! The GPU side: a headless device, models built lazily, the layer cache.
+    //! The GPU side: the shared headless device (batched 3D `_MAPTRIANGLE`
+    //! draws on it too), models built lazily, the layer cache.
 
     use super::{rgba, state, Camera3, Light3, Mesh, Shape};
     use qb_gpu::glam::Vec3;
     use qb_gpu::scene::{transform, Image, Instance, Light, Lighting, Material, Model, SceneRenderer};
     use qb_gpu::three::{Camera, Projection};
     use qb_gpu::{wgpu, Gpu, Target};
-    use std::sync::Mutex;
+    use std::sync::{Arc, Mutex};
 
     pub(super) struct Side {
-        pub gpu: Gpu,
+        pub gpu: Arc<Gpu>,
         renderer: Option<SceneRenderer>,
         /// (generation, w, h, pixels)
         cache: Option<(u64, u32, u32, Vec<u32>)>,
@@ -598,12 +599,17 @@ mod gpu {
     /// `None` = not tried yet; `Some(None)` = no adapter.
     static SIDE: Mutex<Option<Option<Side>>> = Mutex::new(None);
 
-    /// Runs `f` with the GPU (created on first use); `None` without an adapter,
-    /// or after the device reported an error (3D is then off, `_GPU3D` = 0).
+    fn side(gpu: Arc<Gpu>) -> Side {
+        Side { gpu, renderer: None, cache: None, target: None, readback: qb_gpu::Readback::default() }
+    }
+
+    /// Runs `f` with the GPU (taken on first use); `None` without an adapter,
+    /// or after the device reported an error, here or in the other user of the
+    /// shared device (3D is then off, `_GPU3D` = 0, and the device is let go).
     pub(super) fn with<T>(f: impl FnOnce(&mut Side) -> T) -> Option<T> {
         let mut g = SIDE.lock().unwrap_or_else(|e| e.into_inner());
         if g.is_none() {
-            *g = Some(Gpu::headless().map(|gpu| Side { gpu, renderer: None, cache: None, target: None, readback: qb_gpu::Readback::default() }));
+            *g = Some(Gpu::shared_headless().map(side));
         }
         if g.as_ref().and_then(Option::as_ref).is_some_and(|s| s.gpu.failed()) {
             eprintln!("qb-runtime: GPU error; 3D drawing is off");
@@ -612,10 +618,17 @@ mod gpu {
         g.as_mut().and_then(Option::as_mut).map(f)
     }
 
-    /// Forgets the device, so the next use creates a new one.
+    /// Forgets the device, so the next use takes the shared one again.
     #[cfg(test)]
     pub(super) fn reset() {
         *SIDE.lock().unwrap_or_else(|e| e.into_inner()) = None;
+    }
+
+    /// A device of its own, for a test that breaks it: breaking the shared
+    /// one would turn off the GPU for the other tests drawing on it.
+    #[cfg(test)]
+    pub(super) fn use_own_device() {
+        *SIDE.lock().unwrap_or_else(|e| e.into_inner()) = Some(Gpu::headless().map(|gpu| side(Arc::new(gpu))));
     }
 
     fn build(gpu: &Gpu, m: &Mesh) -> Option<Model> {
@@ -955,11 +968,7 @@ mod tests {
     #[test]
     fn device_error_turns_3d_off_without_a_panic() {
         let _g = fresh();
-        if qb_3d_available() == 0 {
-            eprintln!("skipped: no GPU adapter");
-            return;
-        }
-        /// The next test gets a new device.
+        /// The next test takes the shared device again.
         struct NewDevice;
         impl Drop for NewDevice {
             fn drop(&mut self) {
@@ -967,6 +976,11 @@ mod tests {
             }
         }
         let _d = NewDevice;
+        gpu::use_own_device();
+        if qb_3d_available() == 0 {
+            eprintln!("skipped: no GPU adapter");
+            return;
+        }
         let m = qb_3d_mesh_cube(2.0);
         assert_eq!(qb_3d_draw(m, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0), 0);
         frame_done();
@@ -985,6 +999,8 @@ mod tests {
         let mut px = vec![0xFF10_2030u32; 16 * 16];
         compose(&mut px, 16, 16);
         assert!(px.iter().all(|&p| p == 0xFF10_2030));
+        // the shared device the other tests draw on is not the broken one
+        assert!(qb_gpu::Gpu::shared_headless().is_none_or(|g| !g.failed()));
     }
 
     #[cfg(feature = "gpu")]
