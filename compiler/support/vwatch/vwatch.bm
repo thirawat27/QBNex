@@ -360,7 +360,7 @@ SUB vwatch (globalVariables AS _OFFSET, localVariables AS _OFFSET)
                     ELSEIF vw_varType$ = "STRING" THEN
                         vw_varSize = LEN(vw_dummy%&)
                     ELSEIF INSTR(vw_varType$, "FLOAT") > 0 THEN
-                        vw_varSize = 16 'long double...
+                        vw_varSize = 16 '80-bit _FLOAT in a 16-byte slot
                     END IF
 
                     IF INSTR(vw_varType$, "BIT") THEN
@@ -516,7 +516,7 @@ SUB vwatch (globalVariables AS _OFFSET, localVariables AS _OFFSET)
                     ELSEIF vw_varType$ = "STRING" THEN
                         vw_varSize = LEN(vw_dummy%&)
                     ELSEIF INSTR(vw_varType$, "FLOAT") > 0 THEN
-                        vw_varSize = 16 'long double...
+                        vw_varSize = 16 '80-bit _FLOAT in a 16-byte slot
                         vw_value$ = LEFT$(vw_value$, vw_varSize)
                     END IF
 

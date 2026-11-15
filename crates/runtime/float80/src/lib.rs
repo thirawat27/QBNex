@@ -1,7 +1,7 @@
 //! Software x87 80-bit extended precision float (`_FLOAT` in `QBNex`).
 //!
-//! The legacy runtime stored `_FLOAT` in a `long double`, which the legacy build
-//! kept in the x87 80-bit format with the FPU control word `0x037F` (64-bit significand,
+//! The legacy runtime stored `_FLOAT` in the x87 80-bit format with the FPU
+//! control word `0x037F` (64-bit significand,
 //! round to nearest even, all exceptions masked). [`F80`] reproduces the results of
 //! that hardware bit for bit:
 //!
@@ -16,12 +16,12 @@
 //!   is not the correctly rounded value (`f2xm1`, `fyl2x`, `fyl2xp1`) run on the x87
 //!   unit on `x86/x86_64` ([`x87`]); other targets use a software version that is
 //!   within one unit in the last place (documented deviation, see the crate docs);
-//! - [`dec`] converts to and from decimal text like the legacy build's `strtold`
-//!   and `snprintf("%.*Le" / "%.*Lf" / "%.*Lg")`;
+//! - [`dec`] converts to and from decimal text like the legacy build's parser
+//!   and its `%.*Le` / `%.*Lf` / `%.*Lg` formatting;
 //! - [`qb`] has the QBasic-level functions (`EXP`, `^`, `FIX`, `SIN`, ...) with the
 //!   legacy error codes.
 //!
-//! The results match the legacy 80-bit build's `long double` code bit for bit.
+//! The results match the legacy 80-bit build bit for bit.
 
 #![cfg_attr(not(test), deny(clippy::unwrap_used))]
 // clippy::pedantic is clean except for the lints below. Bit-level x87
@@ -114,14 +114,14 @@ impl F80 {
         F80 { mant, se: ((neg as u16) << 15) | (exp & 0x7FFF) }
     }
 
-    /// From the 10 little-endian bytes of an x87 `long double`.
+    /// From the 10 little-endian bytes of an x87 extended value.
     #[must_use]
     pub const fn from_bytes(b: [u8; 10]) -> F80 {
         let mant = u64::from_le_bytes([b[0], b[1], b[2], b[3], b[4], b[5], b[6], b[7]]);
         F80 { mant, se: u16::from_le_bytes([b[8], b[9]]) }
     }
 
-    /// The 10 little-endian bytes of an x87 `long double`.
+    /// The 10 little-endian bytes of an x87 extended value.
     #[must_use]
     pub const fn to_bytes(self) -> [u8; 10] {
         let m = self.mant.to_le_bytes();

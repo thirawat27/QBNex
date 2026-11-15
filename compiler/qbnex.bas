@@ -757,14 +757,14 @@ DIM SHARED incRangeFrom AS LONG, incRangeTo AS LONG, incRangeSkip AS LONG, incRa
     '4=DO WHILE/UNTIL (awaiting LOOP)
     '5=WHILE (awaiting WEND)
     '6=$IF (precompiler)
-    '10=SELECT CASE qbs (awaiting END SELECT/CASE)
-    '11=SELECT CASE int64 (awaiting END SELECT/CASE)
-    '12=SELECT CASE uint64 (awaiting END SELECT/CASE)
-    '13=SELECT CASE LONG double (awaiting END SELECT/CASE/CASE ELSE)
-    '14=SELECT CASE float ...
-    '15=SELECT CASE double
-    '16=SELECT CASE int32
-    '17=SELECT CASE uint32
+    '10=SELECT CASE STRING (awaiting END SELECT/CASE)
+    '11=SELECT CASE _INTEGER64 (awaiting END SELECT/CASE)
+    '12=SELECT CASE _UNSIGNED _INTEGER64 (awaiting END SELECT/CASE)
+    '13=SELECT CASE _FLOAT (awaiting END SELECT/CASE/CASE ELSE)
+    '14=SELECT CASE SINGLE
+    '15=SELECT CASE DOUBLE
+    '16=SELECT CASE LONG
+    '17=SELECT CASE _UNSIGNED LONG
     '18=CASE (awaiting END SELECT/CASE/CASE ELSE)
     '19=CASE ELSE (awaiting END SELECT)
     '32=SUB/FUNCTION (awaiting END SUB/FUNCTION)
@@ -4760,22 +4760,22 @@ IF n >= 1 THEN
         '#2: more types will be available
         '    +SINGLE
         '    +DOUBLE
-        '    -LONG DOUBLE
-        '    +INT32
-        '    +UINT32
-        '14=SELECT CASE float ...
-        '15=SELECT CASE double
-        '16=SELECT CASE int32
-        '17=SELECT CASE uint32
+        '    -_FLOAT
+        '    +LONG
+        '    +_UNSIGNED LONG
+        '14=SELECT CASE SINGLE
+        '15=SELECT CASE DOUBLE
+        '16=SELECT CASE LONG
+        '17=SELECT CASE _UNSIGNED LONG
 
-        '10=SELECT CASE qbs (awaiting END SELECT/CASE)
-        '11=SELECT CASE int64 (awaiting END SELECT/CASE)
-        '12=SELECT CASE uint64 (awaiting END SELECT/CASE)
-        '13=SELECT CASE LONG double (awaiting END SELECT/CASE/CASE ELSE)
-        '14=SELECT CASE float ...
-        '15=SELECT CASE double
-        '16=SELECT CASE int32
-        '17=SELECT CASE uint32
+        '10=SELECT CASE STRING (awaiting END SELECT/CASE)
+        '11=SELECT CASE _INTEGER64 (awaiting END SELECT/CASE)
+        '12=SELECT CASE _UNSIGNED _INTEGER64 (awaiting END SELECT/CASE)
+        '13=SELECT CASE _FLOAT (awaiting END SELECT/CASE/CASE ELSE)
+        '14=SELECT CASE SINGLE
+        '15=SELECT CASE DOUBLE
+        '16=SELECT CASE LONG
+        '17=SELECT CASE _UNSIGNED LONG
 
         t = controltype(controllevel) - 10
 
@@ -4852,14 +4852,14 @@ IF n >= 1 THEN
                     GOTO addedexp
                 END IF
 
-                '10=SELECT CASE qbs (awaiting END SELECT/CASE)
-                '11=SELECT CASE int64 (awaiting END SELECT/CASE)
-                '12=SELECT CASE uint64 (awaiting END SELECT/CASE)
-                '13=SELECT CASE LONG double (awaiting END SELECT/CASE/CASE ELSE)
-                '14=SELECT CASE float ...
-                '15=SELECT CASE double
-                '16=SELECT CASE int32
-                '17=SELECT CASE uint32
+                '10=SELECT CASE STRING (awaiting END SELECT/CASE)
+                '11=SELECT CASE _INTEGER64 (awaiting END SELECT/CASE)
+                '12=SELECT CASE _UNSIGNED _INTEGER64 (awaiting END SELECT/CASE)
+                '13=SELECT CASE _FLOAT (awaiting END SELECT/CASE/CASE ELSE)
+                '14=SELECT CASE SINGLE
+                '15=SELECT CASE DOUBLE
+                '16=SELECT CASE LONG
+                '17=SELECT CASE _UNSIGNED LONG
 
                 'TYPE 2?
                 x$ = getelement$(e$, 1)
@@ -8218,7 +8218,7 @@ IF e1typc <> e2typc THEN a$ = "Type mismatch": GOTO errmes
 t = e1typ
 IF t AND ISOFFSETINBITS THEN a$ = "Cannot SWAP bit-length variables": GOTO errmes
 B = t AND 511
-t$ = str2$(B): IF B > 64 THEN t$ = "longdouble"
+t$ = str2$(B): IF B > 64 THEN t$ = "float80"
 e1$ = refer(e1$, e1typ, 0): e2$ = refer(e2$, e2typ, 0)
 IF Error_Happened THEN GOTO errmes
 GOTO finishedline

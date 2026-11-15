@@ -429,7 +429,7 @@ fn sample_wave(voice: &mut Voice, rng: &mut LegacyRand, phase: f64, st: &mut Not
 /// NaN and out-of-range values give 0x80000000 instead of saturating.
 pub use qb_float80::conv::cvttsd2si as cvtt_i32;
 
-/// `(int32)(length * rate)`, at least 1 frame.
+/// `length * rate` truncated to a 32-bit integer, at least 1 frame.
 pub fn frames_for(rate: u32, length: f64) -> usize {
     let s = (length * rate as f64) as i32;
     if s == 0 {

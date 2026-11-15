@@ -2882,7 +2882,7 @@ impl<'m, 'o> Vm<'m, 'o> {
                                 let s = if p == 0 {
                                     Vec::new()
                                 } else {
-                                    // SAFETY: a char* result is a NUL-terminated string
+                                    // SAFETY: a string result points to NUL-terminated bytes
                                     unsafe { std::ffi::CStr::from_ptr(p as *const core::ffi::c_char) }.to_bytes().to_vec()
                                 };
                                 *self.sdst(d) = s;

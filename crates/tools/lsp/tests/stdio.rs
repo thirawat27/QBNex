@@ -229,7 +229,7 @@ fn unknown_method_and_garbage_text() {
 }
 
 #[test]
-fn hover_for_r13_keywords_and_library() {
+fn hover_for_iif_draw3d_and_library_functions() {
     let mut c = Client::start();
     c.request("initialize", json!({"processId": null, "rootUri": null, "capabilities": {}}));
     c.notify("initialized", json!({}));

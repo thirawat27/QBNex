@@ -150,7 +150,7 @@ pub fn glut_special(key: i32, down: bool) -> Option<KeyAction> {
     })
 }
 
-/// QB64's `GLUT_key_ascii`. `key` is the `unsigned char` freeglut
+/// QB64's `GLUT_key_ascii`. `key` is the unsigned 8-bit code freeglut
 /// passed; `ctrl`/`shift` come from `glutGetModifiers()`. `macos` enables the
 /// DEL/backspace swap of the macOS build.
 pub fn glut_ascii(key: i32, ctrl: bool, shift: bool, down: bool, macos: bool) -> KeyAction {
@@ -446,7 +446,7 @@ mod tests {
 
     #[test]
     fn keys_without_text_report_vk_on_release_only() {
-        // legacy: WM_KEYUP default branch passed (char)wParam when ToAscii failed
+        // legacy: WM_KEYUP default branch passed the low byte of wParam when ToAscii failed
         assert_eq!(translate(&press(Key::Other(0x14))), vec![]);
         assert_eq!(
             translate(&release(Key::Other(0x14))),

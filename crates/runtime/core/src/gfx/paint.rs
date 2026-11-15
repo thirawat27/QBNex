@@ -189,7 +189,7 @@ pub unsafe fn paint_tile(im: &mut ImgStruct, x: f32, y: f32, tile: &[u8], mut bo
     }
     let pat = Pattern::for_mode(im.compatible_mode);
     let (sx, sy) = pat.size(tile.len());
-    // Legacy `static uint8 tile[8][64]`, indexed [x][y] and filled column by
+    // Legacy 8 x 64 byte tile table, indexed [x][y] and filled column by
     // column; rows >= 64 alias the next column exactly as in that flat array.
     let mut t = vec![0u8; 8 * 64 + sy];
     for xx in 0..sx {

@@ -33,7 +33,7 @@ pub(crate) use window::{activate as window_activate, closed as window_closed, pi
 pub(crate) enum V {
     I(i64),
     F(f64),
-    /// `_FLOAT`: x87 80-bit extended (bit-exact with real x87 `long double`)
+    /// `_FLOAT`: x87 80-bit extended (bit-exact with the real x87 unit)
     X(F80),
     S(Vec<u8>),
     P(u64),

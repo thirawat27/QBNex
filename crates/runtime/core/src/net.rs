@@ -31,7 +31,7 @@ enum Sock {
 /// as legacy treated a full buffer.
 pub const MAX_QUEUED: usize = 64 << 20;
 
-/// One open TCP endpoint (legacy `struct tcp_connection`).
+/// One open TCP endpoint (the legacy TCP connection record).
 pub struct Conn {
     sock: Sock,
     /// Listener: the requested port. Client: the port it connected to.

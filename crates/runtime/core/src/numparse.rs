@@ -7,7 +7,7 @@
 //!
 //! A number item is first split into digits ([`NumRepr`], shared with the
 //! INPUT # reader in `fileio.rs`) and then converted to the target type.
-//! The legacy `long double n_float_value` held either a `double` (decimal
+//! The legacy 80-bit `n_float_value` held either a `double` (decimal
 //! numbers went through `sscanf("%lf")`) or an exact `int64` (hex/oct/bin);
 //! [`NumValue`] keeps both forms so no precision is lost.
 
@@ -18,7 +18,7 @@ use crate::round::{f80_from_f64, qbr};
 pub const ISFLOAT: i32 = 536_870_912;
 pub const ISUNSIGNED: i32 = 268_435_456;
 
-/// Value of the legacy `long double n_float_value`.
+/// Value of the legacy 80-bit `n_float_value`.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum NumValue {
     /// Exact integer (hex/oct/bin digits, or an integer READ target).

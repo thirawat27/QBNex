@@ -1,5 +1,5 @@
 //! Decimal text <-> [`F80`], exact (correctly rounded, ties to even), like the
-//! legacy build's `strtold` and `snprintf` with `%.*Le` / `%.*Lf` / `%.*Lg`.
+//! legacy build's decimal parser and its `%.*Le` / `%.*Lf` / `%.*Lg` formatting.
 
 use core::fmt::Write as _;
 
@@ -247,7 +247,7 @@ fn digit_str(d: &[u8]) -> String {
     d.iter().map(|&b| (b + b'0') as char).collect()
 }
 
-/// `printf("%.*Le", prec, x)`.
+/// `%.*Le` formatting with `prec` digits.
 #[must_use]
 pub fn format_e(x: F80, prec: usize) -> String {
     if let Some(s) = special_text(x) {
@@ -273,7 +273,7 @@ pub fn format_e(x: F80, prec: usize) -> String {
     out
 }
 
-/// `printf("%.*Lf", prec, x)`.
+/// `%.*Lf` formatting with `prec` digits.
 #[must_use]
 pub fn format_f(x: F80, prec: usize) -> String {
     if let Some(s) = special_text(x) {
@@ -311,7 +311,7 @@ pub fn format_f(x: F80, prec: usize) -> String {
     out
 }
 
-/// `printf("%.*Lg", prec, x)`.
+/// `%.*Lg` formatting with `prec` digits.
 #[must_use]
 pub fn format_g(x: F80, prec: usize) -> String {
     if let Some(s) = special_text(x) {
@@ -360,7 +360,7 @@ pub fn format_shortest(x: F80) -> String {
     format_g(x, 21)
 }
 
-/// The legacy `strtold`: returns the value and the number of bytes consumed
+/// The legacy decimal parser: returns the value and the number of bytes consumed
 /// (0 when no number was found; the value is then +0).
 #[must_use]
 pub fn parse(s: &[u8]) -> (F80, usize) {
@@ -672,7 +672,7 @@ mod tests {
     }
 
     #[test]
-    fn parses_like_strtold() {
+    fn parses_like_the_legacy_parser() {
         assert_eq!(p("1"), F80::ONE);
         assert_eq!(p("0.1"), F80::from_parts(false, 0x3FFB, 0xCCCC_CCCC_CCCC_CCCD));
         assert_eq!(p("-0"), F80::NEG_ZERO);
@@ -690,7 +690,7 @@ mod tests {
     }
 
     #[test]
-    fn formats_like_printf() {
+    fn formats_like_the_legacy_formatter() {
         let tenth = p("0.1");
         assert_eq!(format_e(tenth, 20), "1.00000000000000000001e-01");
         assert_eq!(format_e(F80::ONE, 0), "1e+00");

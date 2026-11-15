@@ -19,7 +19,7 @@ FUNCTION gl2qb_type_convert$ (a$, symbol$, typ)
     IF a$ = "GLint" THEN b$ = "LONG": symbol$ = "&": typ = LONGTYPE - ISPOINTER
     IF a$ = "GLsizei" THEN b$ = "LONG": symbol$ = "&": typ = LONGTYPE - ISPOINTER
 
-    'unsigned char
+    'unsigned 8-bit
     IF a$ = "GLboolean" THEN b$ = "_UNSIGNED _BYTE": symbol$ = "~%%": typ = UBYTETYPE - ISPOINTER
     IF a$ = "GLubyte" THEN b$ = "_UNSIGNED _BYTE": symbol$ = "~%%": typ = UBYTETYPE - ISPOINTER
 

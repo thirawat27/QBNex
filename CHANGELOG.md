@@ -54,7 +54,7 @@ the standard builds, faster 3D drawing and `qb --help` options that do what they
 - Release bundles include `qb-fmt`, `qb-lsp` and `qb-dap`, next to the one-file installers.
 - The Windows installer has the QBNex icon and version information (description, file and product version, product name, copyright, language), written as a resource file by its build script and linked without a resource compiler.
 - CI also runs the GPU tests on a software adapter (Mesa lavapipe on Linux, WARP on Windows), a compiled program in a real X11 window under Xvfb (`tests/smoke/window_smoke.sh`: the drawing on screen, a key press), and the one-file installer on Linux, macOS and Windows (install over a folder with the user's files, compile and run a program with it, install again, uninstall: `.github/scripts/installer_check.*`).
-- Developer documents are `docs/dev` (QIR format, legacy defects and deviations, FFI, 3D API); the port journal and planning notes were removed.
+- Developer documents are `docs/dev` (QIR format, legacy defects and deviations, FFI, 3D API).
 
 #### License
 

@@ -216,7 +216,7 @@ mod tests {
     #[test]
     fn bmp_palette_entries_stb_never_read_are_black() {
         // OS/2 BMP, 1 bpp, 2 palette entries: stb_image computes a palette size
-        // of -2, reads no entry and indexes uninitialised memory; the port makes
+        // of -2, reads no entry and indexes uninitialised memory; QBNex makes
         // those entries black.
         let mut f = b"BM".to_vec();
         f.extend_from_slice(&[0; 8]);

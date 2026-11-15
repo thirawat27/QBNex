@@ -6,12 +6,12 @@
 //! for NaN, infinities and out-of-range results.
 
 /// Raw bytes of an x87 80-bit extended value, little-endian, as stored in a
-/// `long double` on x86 (8-byte significand with explicit integer bit,
+/// 80-bit extended value on x86 (8-byte significand with explicit integer bit,
 /// then 2 bytes of sign + 15-bit exponent).
 pub type F80 = [u8; 10];
 
 /// Exact `double` -> x87 extended conversion, for platforms whose
-/// `long double` is not the 80-bit format (e.g. AArch64).
+/// native extended type is not the 80-bit format (e.g. AArch64).
 pub fn f80_from_f64(v: f64) -> F80 {
     let bits = v.to_bits();
     let sign = ((bits >> 63) as u16) << 15;
@@ -95,7 +95,7 @@ pub fn fistp_i64(f: F80) -> i64 {
     }
 }
 
-/// QB64's `qbr(long double)`: like `fistp_i64`, but values above `i64::MAX`
+/// QB64's `qbr` on an 80-bit value: like `fistp_i64`, but values above `i64::MAX`
 /// are reduced by 2^63 first and returned with the top bit set, so callers
 /// storing into `_UNSIGNED _INTEGER64` get the right bit pattern.
 pub fn qbr(f: F80) -> i64 {

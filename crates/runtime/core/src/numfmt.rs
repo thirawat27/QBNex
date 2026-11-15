@@ -11,7 +11,7 @@
 //!   (`STR$(42.5#)` = " 42.50", `STR$(-0.25#)` = "-.250"). The port prints
 //!   the shortest form, as QBasic and QB64 do (" 42.5", "-.25").
 //! - Legacy built a broken printf format when more than 19 decimals were
-//!   needed (`STR$(1.234567890123456D-16)` gave " .0f"); the port prints the
+//!   needed (`STR$(1.234567890123456D-16)` gave " .0f"); QBNex prints the
 //!   decimals the algorithm asked for.
 //! - Legacy SINGLE formatting of infinity/NaN read a stale buffer; the
 //!   port prints " 0" like DOUBLE does.
@@ -30,7 +30,7 @@ pub fn str_u64(v: u64) -> Vec<u8> {
     format!(" {v}").into_bytes()
 }
 
-/// `printf("% .{prec}E", v)`: sign column, exponent with at least 2 digits.
+/// Formats as `% .{prec}E`: sign column, exponent with at least 2 digits.
 fn printf_sci(v: f64, prec: usize) -> Vec<u8> {
     let sign = if v.is_sign_negative() { '-' } else { ' ' };
     let text = format!("{:.*e}", prec, v.abs());
@@ -40,7 +40,7 @@ fn printf_sci(v: f64, prec: usize) -> Vec<u8> {
     format!("{sign}{mantissa}E{exp_sign}{:02}", exp.abs()).into_bytes()
 }
 
-/// `printf("% .{decimals}f", v)`.
+/// Formats as `% .{decimals}f`.
 fn printf_fixed(v: f64, decimals: usize) -> Vec<u8> {
     let sign = if v.is_sign_negative() { '-' } else { ' ' };
     format!("{sign}{:.*}", decimals, v.abs()).into_bytes()
@@ -156,8 +156,8 @@ pub fn str_f64(v: f64) -> Vec<u8> {
     cull_leading_zero(printf_fixed(v, decimals))
 }
 
-/// `STR$` of a `_FLOAT` given as the 10 bytes of an x87 `long double`: QB64's
-/// `qbs_str(long double)` formats `(double)value`.
+/// `STR$` of a `_FLOAT` given as the 10 bytes of an x87 extended value: QB64's
+/// `qbs_str` formats the value converted to `DOUBLE`.
 pub fn str_f80(v: [u8; 10]) -> Vec<u8> {
     str_f64(qb_float80::F80::from_bytes(v).to_f64())
 }

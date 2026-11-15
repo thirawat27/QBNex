@@ -7,7 +7,7 @@ beyond the platform loader. Both use `edition = "2024"`.
 
 `qb_float80::F80` is the x87 80-bit extended format (`mant: u64` with explicit
 integer bit, `se: u16` sign + biased exponent; `from_bytes`/`to_bytes` give the
-10-byte little-endian `long double` image). Results are bit-identical to the
+10-byte little-endian image). Results are bit-identical to the
 legacy build (FPU control word `0x037F`).
 
 ### What the VM calls for each BASIC operation
@@ -17,17 +17,17 @@ legacy build (FPU control word `0x037F`).
 | `a + b`, `-`, `*`, `/` on `_FLOAT` | `a + b` ... (`core::ops`) | x87 `fadd`... |
 | unary minus | `-a` | `fchs` |
 | `=`, `<`, ... | `a.compare(b) -> Option<Ordering>` (`None` = unordered) | `fucomi` |
-| `a ^ b` (**every** numeric type: legacy promotes to long double) | `qb::pow2(a, b) -> Result<F80, i32>` | `pow2` -> `powl` |
+| `a ^ b` (**every** numeric type: legacy promotes to 80 bits) | `qb::pow2(a, b) -> Result<F80, i32>` | `pow2` -> `powl` |
 | `EXP(x##)` | `qb::exp_float` | `func_exp_float` -> `expl` |
 | `FIX(x##)`, `INT(x##)` | `qb::fix_float`, `qb::int_float` | `ceill`/`floorl` |
 | `SIN/COS/TAN/ATN(x##)` | `qb::sin` ... (through `f64`, like legacy) | generated code called the double `sin` |
-| `LOG`, `SQR` | `qb::log`, `qb::sqr` (error 5) | `func_log(double)`, `func_sqr(double)` |
-| `CINT`/`CLNG`/assignment to integers | `qb::qbr(x) -> i64` | `qbr(long double)` |
+| `LOG`, `SQR` | `qb::log`, `qb::sqr` (error 5) | `func_log`, `func_sqr` |
+| `CINT`/`CLNG`/assignment to integers | `qb::qbr(x) -> i64` | `qbr` |
 | truncating casts to integer types | `x.to_i16/to_i32/to_i64(Round::Zero)`, `x.to_u64_cast()` | `fisttp` |
 | widen/narrow | `F80::from_i64/from_u64/from_f32/from_f64`, `x.to_f32()/to_f64()` | `fild`, `fld`, `fst` |
 | `VAL` | qb-runtime `val::val` (uses `dec::decimal_to_f80`) | `func_val` |
-| `STR$`/`PRINT` of `_FLOAT` | qb-runtime `numfmt::str_f80` (formats `(double)x`) | `qbs_str(long double)` |
-| text | `dec::parse` (`strtold`), `dec::format_e/f/g` (`%.*Le/Lf/Lg`), `Display` (shortest) | `strtold`, `snprintf` |
+| `STR$`/`PRINT` of `_FLOAT` | qb-runtime `numfmt::str_f80` (formats the value as `DOUBLE`) | `qbs_str` |
+| text | `dec::parse`, `dec::format_e/f/g` (`%.*Le/Lf/Lg`), `Display` (shortest) | the legacy parser and formatter |
 
 `Err(code)` is the BASIC error the legacy runtime raised (`5` illegal function
 call, `6` overflow); the result is then 0. The lower-level `libm::{expl, exp2l,
@@ -50,7 +50,7 @@ and `scale` are public too.
   exponents (`x ^ 2`) never use these primitives and are exact everywhere.
 
 Evidence: a former differential test against the legacy build's hardware
-`long double` ran 87,481,972 checks with 0 mismatches; its mutation run
+80-bit arithmetic ran 87,481,972 checks with 0 mismatches; its mutation run
 (reference at 53-bit precision) reported 573,263 mismatches.
 
 ## `crates/engine/ffi` — `DECLARE LIBRARY`
@@ -77,8 +77,8 @@ use qb_ffi::{Library, Signature, Ty, Value, call, find_default_symbol, find_head
   `SINGLE` F32, `DOUBLE` F64, `_OFFSET` Ptr; every `BYREF` parameter and
   `BYVAL x AS STRING` is Ptr (the VM passes the address of the variable / of the
   string bytes); `SUB` returns Void. `_FLOAT` parameters or results are a
-  compile error (an intentional deviation: the calling convention of `long double`
-  differs per compiler; the legacy build compiled glue code for it).
+  compile error (an intentional deviation: the calling convention of an 80-bit value
+  differs per platform; the legacy build generated glue code for it).
 
 ### VM: run time
 

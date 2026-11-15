@@ -696,7 +696,7 @@ pub enum XTy {
     F64,
     /// address (BYREF, `_OFFSET`)
     Ptr,
-    /// string: pointer to the bytes (argument) / NUL-terminated `char*` (result)
+    /// string: pointer to the bytes (argument) / pointer to NUL-terminated bytes (result)
     Str,
 }
 

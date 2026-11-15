@@ -1,7 +1,7 @@
-//! The legacy math library's `long double` functions (`x86_64`): `expl`,
+//! The legacy math library's 80-bit functions (`x86_64`): `expl`,
 //! `exp2l`, `log2l`, `powl`, `__powil`, `ldexpl`, `floorl` and `ceill`,
 //! transcribed instruction by instruction from its algorithm. The legacy runtime reaches `expl` through `EXP` of a `_FLOAT`
-//! and `powl` through every `^` (all operands are promoted to `long double`).
+//! and `powl` through every `^` (all operands are promoted to 80 bits).
 //!
 //! `errno` and `_matherr` side effects are not modelled; they never reach BASIC.
 
@@ -10,9 +10,9 @@ use crate::x87::{f2xm1, fyl2x, fyl2xp1};
 use crate::{Class, FpClass, Round, F80};
 use core::cmp::Ordering;
 
-/// `__FLT_MAXLOG` for long double (`.rdata` of `expl.o`).
+/// Largest argument of the legacy `expl` before overflow.
 const MAXLOG: F80 = F80::from_parts(false, 0x400C, 0xB172_17F7_D1CF_79AC);
-/// `__FLT_MINLOG` for long double.
+/// Smallest argument of the legacy `expl` before underflow.
 const MINLOG: F80 = F80::from_parts(true, 0x400C, 0xB16C_8C67_1210_EB30);
 /// `c0 = 1.44268798828125L`.
 const C0: F80 = F80::from_parts(false, 0x3FFF, 0xB8AA_0000_0000_0000);

@@ -24,7 +24,7 @@ pub fn fmsbin_to_ieee(msbin: [u8; 4]) -> Result<[u8; 4], [u8; 4]> {
     }
     ieee[3] |= sign;
     // MBF bias 128 with the binary point before the hidden bit; IEEE bias 127
-    // with it after. QB64 subtracts 2 in `unsigned char` arithmetic.
+    // with it after. QB64 subtracts 2 in unsigned 8-bit arithmetic.
     let ieee_exp = msbin[3].wrapping_sub(2);
     ieee[3] |= ieee_exp >> 1;
     ieee[2] |= ieee_exp << 7;

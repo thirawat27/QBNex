@@ -59,7 +59,7 @@ pub struct ImgStruct {
     pub cursor_show: u8,
     pub cursor_firstvalue: u8,
     pub cursor_lastvalue: u8,
-    /// `union { uint8 *offset; uint32 *offset32; }`
+    /// One pointer, read as bytes or as 32-bit pixels
     pub offset: *mut u8,
     pub flags: u32,
     pub pal: *mut u32,
@@ -117,7 +117,7 @@ pub const ERR_ILLEGAL_FUNCTION_CALL: i32 = 5;
 /// QBNex "Invalid handle".
 pub const ERR_INVALID_HANDLE: i32 = 258;
 
-/// QB64's `qbr(long double)` applied to a value that started as a
+/// QB64's `qbr` (round to nearest even) applied to a value that started as a
 /// float/double expression (exact widening), truncated to `int32` the way the
 /// legacy assignments did.
 #[inline]
@@ -125,7 +125,7 @@ pub fn qbr_i32(v: f64) -> i32 {
     crate::round::qbr(crate::round::f80_from_f64(v)) as i32
 }
 
-/// `qbr(long double)` keeping the 64-bit result.
+/// `qbr` keeping the 64-bit result.
 #[inline]
 pub fn qbr_i64(v: f64) -> i64 {
     crate::round::qbr(crate::round::f80_from_f64(v))

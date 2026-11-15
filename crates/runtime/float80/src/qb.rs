@@ -6,12 +6,12 @@
 //! | BASIC | legacy runtime | here |
 //! | --- | --- | --- |
 //! | `EXP(x##)` | `func_exp_float`: `expl` if `x <= 709.782712893` else error 6 | [`exp_float`] |
-//! | `a ^ b` (every numeric type) | `pow2(long double, long double)`: error 5 for `a < 0` and fractional `b`, else `powl` | [`pow2`] |
+//! | `a ^ b` (every numeric type) | `pow2`: error 5 for `a < 0` and fractional `b`, else `powl` | [`pow2`] |
 //! | `FIX(x##)` | `func_fix_float`: `ceill`/`floorl` | [`fix_float`] |
 //! | `INT(x##)` | `floorl` | [`int_float`] |
-//! | `SIN`/`COS`/`TAN`/`ATN` | the **double** library functions (the `long double` overloads were never selected) | [`sin`] .. [`atn`] |
+//! | `SIN`/`COS`/`TAN`/`ATN` | the **double** library functions (the 80-bit versions were never selected) | [`sin`] .. [`atn`] |
 //! | `LOG`, `SQR` | `func_log(double)`, `func_sqr(double)` | [`log`], [`sqr`] |
-//! | `STR$`/`PRINT` of `_FLOAT` | `qbs_str((double)value)` | `qb-runtime` `numfmt::str_f80` |
+//! | `STR$`/`PRINT` of `_FLOAT` | `qbs_str` of the value converted to `DOUBLE` | `qb-runtime` `numfmt::str_f80` |
 //!
 //! The double functions use the platform `libm` through Rust `f64` methods; on
 //! Windows that is the same system math library the legacy build linked.
@@ -26,7 +26,7 @@ pub const ERR_ILLEGAL_FUNCTION_CALL: i32 = 5;
 pub const ERR_OVERFLOW: i32 = 6;
 
 /// `EXP` of a `_FLOAT` (`func_exp_float`). The bound is the double literal
-/// `709.782712893` widened to long double; NaN fails the test (error 6).
+/// `709.782712893` widened to 80 bits; NaN fails the test (error 6).
 ///
 /// # Errors
 /// 6 (overflow) above the bound or for NaN.
