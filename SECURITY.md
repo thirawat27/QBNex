@@ -4,7 +4,7 @@
 
 | Version | Supported          |
 | ------- | ------------------ |
-| 2.0.x   | :white_check_mark: |
+| 2.0.x (and the 2.0.0 pre-releases) | :white_check_mark: |
 | < 2.0.0 | :x:                |
 
 ## Reporting a Vulnerability
@@ -150,8 +150,8 @@ The QBNex compiler itself:
 
 Security updates will be released as:
 
-- **Patch releases** for critical vulnerabilities (e.g., `1.0.1`)
-- **Minor releases** for security feature additions (e.g., `1.1.0`)
+- **Patch releases** for critical vulnerabilities (e.g., `2.0.1`)
+- **Minor releases** for security feature additions (e.g., `2.1.0`)
 
 All security-related changes will be documented in [CHANGELOG.md](CHANGELOG.md).
 

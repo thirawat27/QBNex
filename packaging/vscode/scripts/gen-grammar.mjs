@@ -24,9 +24,12 @@ const functions = new Set([...builtins.filter((b) => b.isFunction).map((b) => b.
 const subs = new Set([...builtins.filter((b) => !b.isFunction).map((b) => b.name), ...language.filter((k) => k.kind === 'B').map((k) => k.name)].filter((n) => !control.has(n) && !other.has(n)));
 
 const esc = (s) => s.replace(/[$.*+?^()[\]{}|\\]/g, '\\$&');
-/** Case-insensitive alternation of whole words (a trailing `$` is part of the word). */
+/** Case-insensitive alternation of whole words (a trailing `$` is part of the word), longest
+ * first so a word is not cut short by its prefix, then by UTF-16 code unit: the same
+ * order on every machine (localeCompare depends on the locale), so CI can check the
+ * committed grammar is current. */
 function words(set) {
-    const alts = [...set].sort((a, b) => b.length - a.length || a.localeCompare(b)).map(esc).join('|');
+    const alts = [...set].sort((a, b) => b.length - a.length || (a < b ? -1 : a > b ? 1 : 0)).map(esc).join('|');
     return `(?i)(?<![\\w.$])(?:${alts})(?![\\w.$%&!#~\`])`;
 }
 

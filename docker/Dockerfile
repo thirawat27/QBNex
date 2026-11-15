@@ -1,7 +1,10 @@
 # QBNex Docker Image
 # Multi-stage build for QBasic/QuickBASIC compiler
 
-FROM ubuntu:22.04 AS base
+# Base images are pinned by digest (the multi-arch index of ubuntu:22.04 when
+# this was written), so a rebuild uses the same system. Update the digest on
+# purpose: docker buildx imagetools inspect ubuntu:22.04
+FROM ubuntu:22.04@sha256:74b12b11ffa550fba1929ad4d8d16533c34f6612728469671afba1b03b66881c AS base
 
 # Build dependencies (QIR pipeline): Rust, plus gcc only as the system linker
 # that Rust uses on Linux; no C/C++ source of QBNex is compiled.
@@ -16,13 +19,25 @@ RUN apt-get update && apt-get install -y \
     libxrandr-dev \
     libxi-dev \
     libxcursor-dev \
+    ca-certificates \
     curl \
-    wget \
     && rm -rf /var/lib/apt/lists/*
 
-# Rust toolchain for the QIR runner qb-exec (crates/engine/exec)
-RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal
-ENV PATH="/root/.cargo/bin:${PATH}"
+# Rust toolchain for the QIR runner qb-exec (crates/engine/exec): a pinned
+# rustup-init, checked against its SHA-256 before it runs (no `curl | sh`).
+# rustup then installs the toolchain rust-toolchain.toml names (1.100.0).
+ENV RUSTUP_HOME=/usr/local/rustup CARGO_HOME=/usr/local/cargo PATH=/usr/local/cargo/bin:$PATH
+RUN set -eu; \
+    case "$(uname -m)" in \
+      x86_64) triple=x86_64-unknown-linux-gnu; sum=b1c8cb14e30889e7e2999e6b69e62d9e9b9ffc0f4df8180564d306d9680e6c55 ;; \
+      aarch64) triple=aarch64-unknown-linux-gnu; sum=9f608c142e0e38a78957d0661ba1dfaf0b6fb37184cfaa4b9a0aa57af6184282 ;; \
+      *) echo "no pinned rustup-init for $(uname -m)" >&2; exit 1 ;; \
+    esac; \
+    curl --proto '=https' --tlsv1.2 -sSfo /tmp/rustup-init "https://static.rust-lang.org/rustup/archive/1.29.3/$triple/rustup-init"; \
+    echo "$sum  /tmp/rustup-init" | sha256sum -c -; \
+    chmod +x /tmp/rustup-init; \
+    /tmp/rustup-init -y --no-modify-path --profile minimal --default-toolchain 1.100.0; \
+    rm /tmp/rustup-init
 
 # Set working directory
 WORKDIR /app
@@ -35,7 +50,7 @@ RUN chmod +x scripts/setup_lnx.sh && \
     ./scripts/setup_lnx.sh
 
 # Runtime stage
-FROM ubuntu:22.04 AS runtime
+FROM ubuntu:22.04@sha256:74b12b11ffa550fba1929ad4d8d16533c34f6612728469671afba1b03b66881c AS runtime
 
 # Install runtime dependencies
 RUN apt-get update && apt-get install -y \

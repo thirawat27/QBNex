@@ -1037,7 +1037,8 @@ Details: [commands](docs/manual/en/commands.md), [VS Code and tools](docs/manual
 
 ## Docker Guide
 
-`docker/Dockerfile` builds QBNex on Ubuntu 22.04 (Rust plus the Linux build packages) and copies
+`docker/Dockerfile` builds QBNex on Ubuntu 22.04 (pinned by digest; Rust 1.100.0 from a checksum-verified
+rustup-init, plus the Linux build packages) and copies
 the compiler, the runner and the standard library into a smaller runtime image. In that image
 `qb` and `qbnex` are on PATH, the work folder is `/project`, and the container runs as the
 non-root user `qbnex` (uid 1000), so files it writes into a mounted folder belong to uid 1000.
@@ -1059,16 +1060,18 @@ Give `-o` a path under `/project`: without it the compiler writes to the QBNex f
 container (`/app`), which the `qbnex` user cannot write to. Without arguments the image prints `qb --help`.
 
 **Docker Compose** (`docker/docker-compose.yml`) defines two services that mount the repository root
-on `/project`, pass `DISPLAY` and use the host network:
+on `/project` and pass `DISPLAY` (they use the default bridge network: programs can connect out; publish a
+port with `ports:` for a program that listens):
 
 ```bash
-docker compose -f docker/docker-compose.yml build
+QBNEX_UID=$(id -u) QBNEX_GID=$(id -g) docker compose -f docker/docker-compose.yml build
 docker compose -f docker/docker-compose.yml run --rm qbnex qb yourfile.bas -o yourfile
 docker compose -f docker/docker-compose.yml run --rm qbnex-dev        # bash in the dev image
 ```
 
 The `qbnex-dev` service uses `docker/Dockerfile.dev`: one stage that keeps the cargo build cache,
-starts `bash`, and runs as root.
+starts `bash`, and runs as a user with the uid/gid given by `QBNEX_UID` / `QBNEX_GID` (default 1000),
+so files it writes into the repository belong to you.
 
 **Graphics programs** need an X server on the host:
 
@@ -2031,8 +2034,12 @@ QBNex/
 - **`ci.yml`** (pushes and pull requests to `main` and `rust-port`, and weekly for the audit): dependency audit, build, clippy, Rust tests, smoke scripts, conformance, self-host fixpoint and native executables on Linux, macOS and Windows x64. A commit message containing `ci-skip` skips the push jobs. Actions are pinned to commit SHAs and run with read-only permissions.
 - **`release.yml`** (tags `v*` and manual dispatch): builds and packages `qbnex_<tag>_win-x64.zip`, `qbnex_<tag>_lnx.tar.gz`, `qbnex_<tag>_osx.tar.gz` and the matching `-setup` installers, tests the installers, signs `qb-fmt`, `qb-lsp` and `qb-dap` when signing secrets are set, and publishes a GitHub Release.
 - **`docs.yml`** (pushes and pull requests that change `README.md`, `docs/` or `tests/docs/`): runs `tests/docs/check_docs.ps1`, so every BASIC block of the README and the manual still compiles and prints what it shows. `ci.yml` skips pushes that only change prose.
+- **`extension.yml`** (changes to `packaging/vscode/` or `crates/compiler/syntax/`): `npm ci`, `npm audit`, `npm test` of the VS Code extension, and a check that `syntaxes/qbasic.tmLanguage.json` is what `npm run grammar` generates.
+- **`docker.yml`** (changes to `docker/`): builds `docker/Dockerfile` and runs `qb --version` in the image.
 
 There are no 32-bit Windows builds.
+
+The tag must match `version` in `[workspace.package]` of `Cargo.toml` (the release fails otherwise); a tag with a suffix such as `v2.0.0-preview.3` is published as a pre-release, with the notes of the CHANGELOG section of that version, or else of `[2.0.0]`.
 
 ```bash
 git tag v2.0.0

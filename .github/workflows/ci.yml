@@ -36,8 +36,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-      - uses: taiki-e/install-action@cfdb7ed4ccc7c7dce37759eae89dc5674b469b39 # v2
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: taiki-e/install-action@cfdb7ed4ccc7c7dce37759eae89dc5674b469b39 # v2.90.3
         with:
           tool: cargo-audit
       - run: cargo audit
@@ -76,7 +78,9 @@ jobs:
       QBNEX_CI: "1"
       QBNEX_BUNDLE_DIR: dist/bundle/qbnex
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
 
       - name: Install Linux dependencies
         if: runner.os == 'Linux'
@@ -92,7 +96,7 @@ jobs:
       # Pull requests restore the branch cache but do not save their own: per-PR copies
       # only push the branch caches out of the repository's cache quota.
       - name: Cache cargo registry and target
-        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           cache-on-failure: true
           save-if: ${{ github.event_name != 'pull_request' }}
@@ -115,10 +119,11 @@ jobs:
           cargo build --workspace --locked
           cargo test --workspace --locked --no-run
 
+      # Tests and examples too (--all-targets is safe here: the LNK1104 above is MSVC only).
       - name: Clippy
         if: runner.os == 'Linux'
         shell: bash
-        run: cargo clippy --workspace --locked -- -D warnings
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
 
       # Linux overcommit defeats try_reserve, so the image decoder fuzz test can OOM the
       # runner instead of failing the allocation; cap virtual memory per test process.
@@ -220,7 +225,7 @@ jobs:
         run: .github/scripts/installer_check.ps1 -Setup target/debug/qbnex-setup.exe -Bundle "${{ env.QBNEX_BUNDLE_DIR }}" -Work (Join-Path $env:RUNNER_TEMP 'installer-check')
 
       - name: Upload compiler artifact
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: qbnex_${{ github.sha }}_${{ matrix.artifact_suffix }}
           path: ${{ github.workspace }}/${{ env.QBNEX_BUNDLE_DIR }}
@@ -250,7 +255,9 @@ jobs:
       QBNEX_HEADLESS: "1"
       QB_AUDIO_DEVICE: none
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
 
       - name: Install Linux dependencies
         if: runner.os == 'Linux'
@@ -264,7 +271,7 @@ jobs:
           rustc -vV
 
       - name: Cache cargo registry and target
-        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           cache-on-failure: true
           save-if: ${{ github.event_name != 'pull_request' }}

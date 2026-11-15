@@ -1,0 +1,62 @@
+name: VS Code extension
+
+# The extension is not built by ci.yml (its pushes ignore packaging/vscode). Its
+# grammar is generated from the keyword tables of crates/compiler/syntax, so a
+# change there runs this too.
+on:
+  push:
+    branches: ["main", "rust-port"]
+    paths:
+      - "packaging/vscode/**"
+      - "crates/compiler/syntax/**"
+      - ".github/workflows/extension.yml"
+  pull_request:
+    branches: ["main", "rust-port"]
+    paths:
+      - "packaging/vscode/**"
+      - "crates/compiler/syntax/**"
+      - ".github/workflows/extension.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: extension-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Build and test the extension
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: packaging/vscode
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: packaging/vscode/package-lock.json
+
+      # Exactly the versions of package-lock.json.
+      - run: npm ci
+
+      # What the .vsix ships (dependencies) may have no known vulnerability at all;
+      # the build tools (devDependencies) none rated high or critical.
+      - name: Audit dependencies
+        run: |
+          npm audit --omit=dev --audit-level=low
+          npm audit --audit-level=high
+
+      - run: npm test
+
+      - name: Grammar is current (npm run grammar)
+        run: |
+          npm run grammar
+          git diff --exit-code -- syntaxes/

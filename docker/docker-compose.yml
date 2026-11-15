@@ -12,23 +12,29 @@ services:
     # Allow access to display for graphics (optional)
     environment:
       - DISPLAY=${DISPLAY:-}
-    # Network access for TCP/IP examples
-    network_mode: host
+    # The default bridge network lets programs connect out (_OPENCLIENT, HTTP).
+    # A program that listens (_OPENHOST) for connections from the host needs its
+    # port published, e.g.:
+    # ports:
+    #   - "8080:8080"
     # Standard input and tty for interactive programs
     stdin_open: true
     tty: true
 
-  # Development service with hot reload
+  # Development service: the cargo build cache stays in the image; runs as
+  # your uid/gid (QBNEX_UID=$(id -u) QBNEX_GID=$(id -g) docker compose build)
   qbnex-dev:
     build:
       context: ..
       dockerfile: docker/Dockerfile.dev
+      args:
+        QBNEX_UID: ${QBNEX_UID:-1000}
+        QBNEX_GID: ${QBNEX_GID:-1000}
     image: qbnex-dev:latest
     volumes:
       - ..:/project
     working_dir: /project
     environment:
       - DISPLAY=${DISPLAY:-}
-    network_mode: host
     stdin_open: true
     tty: true

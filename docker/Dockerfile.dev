@@ -1,7 +1,15 @@
 # Development Dockerfile for QBNex (QIR pipeline)
 # One stage that keeps the Rust build cache for faster rebuilds.
+#
+# It runs as a user with your uid/gid, so files it writes into the mounted
+# repository belong to you, not to root:
+#   docker build -f docker/Dockerfile.dev --build-arg QBNEX_UID=$(id -u) --build-arg QBNEX_GID=$(id -g) -t qbnex-dev .
 
-FROM ubuntu:22.04
+# Pinned by digest, as in docker/Dockerfile.
+FROM ubuntu:22.04@sha256:74b12b11ffa550fba1929ad4d8d16533c34f6612728469671afba1b03b66881c
+
+ARG QBNEX_UID=1000
+ARG QBNEX_GID=1000
 
 # Build dependencies: Rust, plus gcc only as the system linker that Rust uses
 # on Linux (no C/C++ source of QBNex is compiled)
@@ -16,35 +24,55 @@ RUN apt-get update && apt-get install -y \
     libxrandr-dev \
     libxi-dev \
     libxcursor-dev \
+    ca-certificates \
     curl \
-    wget \
-    inotify-tools \
     && rm -rf /var/lib/apt/lists/*
 
-# Rust toolchain for the QIR runner qb-exec (crates/engine/exec)
-RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal
-ENV PATH="/root/.cargo/bin:${PATH}"
+# The development user (-o: the host's uid or gid may already be taken in the image)
+RUN groupadd -o -g "$QBNEX_GID" qbnex && \
+    useradd -o -m -u "$QBNEX_UID" -g "$QBNEX_GID" qbnex && \
+    mkdir -p /app /project /usr/local/rustup /usr/local/cargo && \
+    chown qbnex:qbnex /app /project /usr/local/rustup /usr/local/cargo
+
+# Rust toolchain for the QIR runner qb-exec: a pinned rustup-init checked
+# against its SHA-256 (see docker/Dockerfile), owned by the development user
+# so it can add components and targets.
+ENV RUSTUP_HOME=/usr/local/rustup CARGO_HOME=/usr/local/cargo PATH=/usr/local/cargo/bin:$PATH
+USER qbnex
+RUN set -eu; \
+    case "$(uname -m)" in \
+      x86_64) triple=x86_64-unknown-linux-gnu; sum=b1c8cb14e30889e7e2999e6b69e62d9e9b9ffc0f4df8180564d306d9680e6c55 ;; \
+      aarch64) triple=aarch64-unknown-linux-gnu; sum=9f608c142e0e38a78957d0661ba1dfaf0b6fb37184cfaa4b9a0aa57af6184282 ;; \
+      *) echo "no pinned rustup-init for $(uname -m)" >&2; exit 1 ;; \
+    esac; \
+    curl --proto '=https' --tlsv1.2 -sSfo /tmp/rustup-init "https://static.rust-lang.org/rustup/archive/1.29.3/$triple/rustup-init"; \
+    echo "$sum  /tmp/rustup-init" | sha256sum -c -; \
+    chmod +x /tmp/rustup-init; \
+    /tmp/rustup-init -y --no-modify-path --profile minimal --default-toolchain 1.100.0; \
+    rm /tmp/rustup-init
 
 # Set working directory
 WORKDIR /app
 
 # Copy only what the build needs
-COPY Cargo.toml Cargo.lock rust-toolchain.toml ./
-COPY crates/ ./crates/
+COPY --chown=qbnex:qbnex Cargo.toml Cargo.lock rust-toolchain.toml ./
+COPY --chown=qbnex:qbnex crates/ ./crates/
 # tests/conformance is a workspace member: cargo needs its manifest to load the workspace
-COPY tests/conformance/Cargo.toml ./tests/conformance/Cargo.toml
-COPY tests/conformance/src/ ./tests/conformance/src/
-COPY bootstrap/ ./bootstrap/
-COPY compiler/ ./compiler/
-COPY scripts/ ./scripts/
+COPY --chown=qbnex:qbnex tests/conformance/Cargo.toml ./tests/conformance/Cargo.toml
+COPY --chown=qbnex:qbnex tests/conformance/src/ ./tests/conformance/src/
+COPY --chown=qbnex:qbnex bootstrap/ ./bootstrap/
+COPY --chown=qbnex:qbnex compiler/ ./compiler/
+COPY --chown=qbnex:qbnex scripts/ ./scripts/
 
 # Build qb-exec, pack bootstrap/qbnex.qir into qb-stage0, self-host ./qb
 RUN sh ./scripts/setup_lnx.sh
 
 # Launchers on PATH that call /app/qb by its full path, so it finds /app/crates
+USER root
 RUN printf '#!/bin/sh\nexec /app/qb "$@"\n' > /usr/local/bin/qb && \
     chmod +x /usr/local/bin/qb && \
     ln -sf qb /usr/local/bin/qbnex
+USER qbnex
 
 # Set working directory for user projects
 WORKDIR /project
