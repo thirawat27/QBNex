@@ -16,5 +16,6 @@ qb examples/showcase/starfighter.bas -o starfighter
 | [`surface3d.bas`](surface3d.bas) | Shaded 3D surface plot of z = sin(r)/r | any key closes |
 | [`mandelbrot.bas`](mandelbrot.bas) | Smooth-coloured Mandelbrot zoom | any key closes |
 | [`fractal_tree.bas`](fractal_tree.bas) | Recursive fractal tree at sunset | any key closes |
+| [`life.bas`](life.bas) | Conway's Game of Life, coloured by cell age | Space = new world, other keys close |
 
 ไฟล์ `.bas` ทุกไฟล์คอมไพล์และรันได้ทันทีด้วย `qb` ลองแก้ค่าในโค้ด (สี มุมกล้อง จำนวนวัตถุ) แล้วคอมไพล์ใหม่เพื่อดูผลได้เลย
