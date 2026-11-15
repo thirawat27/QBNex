@@ -14,6 +14,8 @@ pub(crate) struct Handle {
     inbuf: Vec<u8>,
     /// the last GET of a fixed size could not be filled (EOF(handle) is -1)
     eof: bool,
+    /// receive buffer of [`update`], allocated at its first use (not per GET)
+    rbuf: Vec<u8>,
 }
 
 #[derive(Default)]
@@ -38,7 +40,7 @@ impl Net {
         }
     }
     fn register(&mut self, conn: Box<Conn>, ctype: i32) -> i32 {
-        let h = Handle { conn, ctype, inbuf: Vec::new(), eof: false };
+        let h = Handle { conn, ctype, inbuf: Vec::new(), eof: false, rbuf: Vec::new() };
         if let Some(k) = self.handles.iter().position(|x| x.is_none()) {
             self.handles[k] = Some(h);
             return k as i32 + 1;
@@ -57,14 +59,16 @@ impl Net {
 
 /// `stream_update`: everything the socket has received so far.
 fn update(h: &mut Handle) {
-    let mut buf = vec![0u8; 65536];
+    if h.rbuf.is_empty() {
+        h.rbuf = vec![0u8; 65536];
+    }
     loop {
-        let n = h.conn.recv(&mut buf);
+        let n = h.conn.recv(&mut h.rbuf);
         if n == 0 {
             break;
         }
-        h.inbuf.extend_from_slice(&buf[..n]);
-        if n < buf.len() {
+        h.inbuf.extend_from_slice(&h.rbuf[..n]);
+        if n < h.rbuf.len() {
             break;
         }
     }

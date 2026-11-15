@@ -468,6 +468,9 @@ pub struct Vm<'m, 'o> {
     gl: GlFrames,
     /// per `Module::rtfns` entry: the builtin runs without the runtime's name dispatch
     pure: Vec<Option<rt::builtins::Pure>>,
+    /// per `Module::rtfns` entry: the builtin goes past the rt modules' name
+    /// dispatch (`rt::builtins::call_direct`), resolved once here
+    direct: Vec<bool>,
     /// native -> VM -> native nesting of such calls
     jit_nest: u32,
     /// addressable memory (QIR TYPE / STRING * n / pointers)
@@ -651,6 +654,7 @@ impl<'m, 'o> Vm<'m, 'o> {
             #[cfg(not(target_arch = "wasm32"))]
             gl: GlFrames::default(),
             pure: m.rtfns.iter().map(|(n, _)| rt::builtins::pure(n)).collect(),
+            direct: m.rtfns.iter().map(|(n, _)| rt::builtins::route(n)).collect(),
             jit_nest: 0,
             mem: {
                 let mut mem = crate::mem::Mem::new();
@@ -1088,7 +1092,11 @@ impl<'m, 'o> Vm<'m, 'o> {
             (Some(p), &[(r, ty)]) => rt::builtins::pure_call(p, b"", &self.rt_arg(r, ty)).map(Some),
             _ => {
                 let vals: Vec<V> = a.iter().map(|&(r, ty)| self.rt_arg(r, ty)).collect();
-                rt::call(self, name, vals)
+                if self.direct.get(f as usize).copied().unwrap_or(false) {
+                    rt::builtins::call_direct(self, name, vals)
+                } else {
+                    rt::call(self, name, vals)
+                }
             }
         };
         match res {
@@ -1584,8 +1592,9 @@ impl<'m, 'o> Vm<'m, 'o> {
             };
             let d = qb_runtime::error::error_dialog(code as u32, self.line_of(at), incl, file, cmd0.as_bytes());
             let nd = qb_runtime::error::no_dialog_now();
+            // what the program printed comes before the report on stderr
+            self.rt.flush();
             if nd || d.critical {
-                self.rt.flush();
                 let line = qb_runtime::error::report_line(&d.title, &d.body);
                 use std::io::Write;
                 let mut e = std::io::stderr().lock();

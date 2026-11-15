@@ -260,6 +260,9 @@ pub static TABLE: &[Builtin] = &[
     // a number for a _FLOAT variable, with its 64-bit mantissa
     b!("INPUTITEM.x", [I32], F80),
     b!("INPUTPROMPT", [Str, I32]),
+    // INPUTPROMPT + the storage types of the INPUT's variables ("i16 f64 str"),
+    // which the runner checks the answer against ("Redo from start")
+    b!("INPUTPROMPT.t", [Str, I32, Str]),
     b!("KILL", [Str]),
     b!("NAME", [Str, Str]),
     b!("MKDIR", [Str]),

@@ -427,20 +427,23 @@ fn convert(v: NumValue, typ: i32, hex: bool) -> Option<NumValue> {
             return None;
         }
     }
-    let mut value = v.qbr();
+    // in 128 bits: for a 64-bit target `1 << 64` is no shift at all in 64 bits
+    // (wrapping_shl takes the count modulo 64), which made the range 0..=0
+    let bits = bits.clamp(1, 64);
+    let mut value = i128::from(v.qbr());
     let (maxval, minval) = if typ & ISUNSIGNED != 0 || hex {
-        (1i64.wrapping_shl(bits).wrapping_sub(1), 0)
+        ((1i128 << bits) - 1, 0)
     } else {
-        let top = 1i64.wrapping_shl(bits.wrapping_sub(1));
-        (top.wrapping_sub(1), top.wrapping_neg())
+        let top = 1i128 << (bits - 1);
+        (top - 1, -top)
     };
     if value > maxval || value < minval {
         return None;
     }
-    if typ & ISUNSIGNED == 0 && hex && 1i64.wrapping_shl(bits.wrapping_sub(1)) & value != 0 {
-        value = (maxval ^ -1).wrapping_add(value);
+    if typ & ISUNSIGNED == 0 && hex && (1i128 << (bits - 1)) & value != 0 {
+        value += maxval ^ -1;
     }
-    Some(NumValue::Int(value))
+    Some(NumValue::Int(value as i64))
 }
 
 /// `func_read_float`: READ into a numeric variable of type `typ`.
@@ -554,6 +557,18 @@ mod tests {
         let mut o = 0;
         let r = read_float(d.as_bytes(), &mut o, typ);
         (r, o)
+    }
+
+    #[test]
+    fn convert_has_the_full_range_of_64_bit_targets() {
+        let (u64t, i64t) = (64 | ISUNSIGNED, 64);
+        assert_eq!(convert(NumValue::Int(5), u64t, false), Some(NumValue::Int(5)));
+        assert_eq!(convert(NumValue::Int(-1), u64t, false), None);
+        assert_eq!(convert(NumValue::Int(i64::MAX), i64t, false), Some(NumValue::Int(i64::MAX)));
+        assert_eq!(convert(NumValue::Int(i64::MIN), i64t, false), Some(NumValue::Int(i64::MIN)));
+        assert_eq!(convert(NumValue::Int(7), 32, true), Some(NumValue::Int(7)));
+        assert_eq!(convert(NumValue::Int(0xFFFF), 16, true), Some(NumValue::Int(-1)));
+        assert_eq!(convert(NumValue::Int(0x1_0000), 16, true), None);
     }
 
     #[test]

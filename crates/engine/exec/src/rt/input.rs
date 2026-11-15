@@ -67,6 +67,12 @@ static STARTED: AtomicBool = AtomicBool::new(false);
 /// program that never reads input would otherwise grow the queue forever).
 const MOVE_BACKLOG: usize = 256;
 
+/// Most events kept for a program that does not ask for input: beyond it the
+/// oldest go, as a full keyboard buffer loses keys (QBasic keeps 15). A
+/// program that polls takes them long before (one frame of input is a few
+/// events); a key or button release whose press was dropped is harmless.
+const EVENT_BACKLOG: usize = 4096;
+
 fn push(e: Ev) {
     let mut q = EVENTS.lock().unwrap_or_else(|p| p.into_inner());
     if matches!(e, Ev::Move(..)) && q.len() >= MOVE_BACKLOG
@@ -75,6 +81,9 @@ fn push(e: Ev) {
                 *last = e;
                 return;
             }
+    if q.len() >= EVENT_BACKLOG {
+        q.pop_front();
+    }
     q.push_back(e);
 }
 /// Key presses seen so far (SLEEP ends at the next one).
@@ -143,9 +152,9 @@ pub(crate) fn start() {
 
 #[cfg(not(target_arch = "wasm32"))]
 fn start_window() {
-    // no window here: the window layer must run headless (it then only replays the script)
-    // SAFETY: set before the window thread starts; no other thread reads the environment yet.
-    unsafe { std::env::set_var("QBNEX_HEADLESS", "1") };
+    // no window here: the window layer must run headless (it then only replays the script).
+    // A flag, not QBNEX_HEADLESS: audio and timer threads may already read the environment.
+    qb_runtime::window::request_headless();
     let cb = qb_runtime::window::Callbacks {
         key: Some(cb_key),
         mouse_button: Some(cb_button),
@@ -865,7 +874,7 @@ mod pads {
 
 #[cfg(test)]
 mod tests {
-    use super::{cb_button, cb_move, Ev, EVENTS, MOVE_BACKLOG};
+    use super::{cb_button, cb_key, cb_move, Ev, EVENTS, EVENT_BACKLOG, MOVE_BACKLOG};
 
     #[test]
     fn unread_mouse_moves_are_merged_past_the_backlog() {
@@ -880,5 +889,16 @@ mod tests {
         assert!(matches!(q[MOVE_BACKLOG - 1], Ev::Move(9999, 1)));
         assert!(matches!(q[MOVE_BACKLOG], Ev::Button(1, true, 5, 5)));
         assert!(matches!(q[MOVE_BACKLOG + 1], Ev::Move(7, 7)));
+
+        // (one test: both use the one queue) keys and buttons of a program that never
+        // reads input: the queue keeps the newest EVENT_BACKLOG
+        for k in 0..10_000u32 {
+            cb_key(1, k);
+            cb_button(1, (k % 2) as i32, 0, 0);
+        }
+        let q: Vec<Ev> = EVENTS.lock().unwrap_or_else(|p| p.into_inner()).drain(..).collect();
+        assert_eq!(q.len(), EVENT_BACKLOG);
+        assert!(matches!(q[EVENT_BACKLOG - 2], Ev::Key(1, 9999)));
+        assert!(matches!(q[EVENT_BACKLOG - 1], Ev::Button(1, true, 0, 0)));
     }
 }

@@ -149,10 +149,16 @@ impl Conn {
     }
 
     /// Sends what is still queued (giving up after a second without
-    /// progress), then shuts both directions down and closes the socket.
+    /// progress, and after [`CLOSE_LIMIT`] in all: a peer that takes a byte now
+    /// and then cannot hold CLOSE for ever), then shuts both directions down
+    /// and closes the socket.
     pub fn close(mut self) {
-        let mut last = (self.queued(), Instant::now());
+        let start = Instant::now();
+        let mut last = (self.queued(), start);
         while self.connected != 0 && !self.flush() {
+            if start.elapsed() >= CLOSE_LIMIT {
+                break;
+            }
             if self.queued() < last.0 {
                 last = (self.queued(), Instant::now());
             } else if last.1.elapsed() >= Duration::from_secs(1) {
@@ -179,6 +185,9 @@ pub fn host_open(port: i64) -> Option<Box<Conn>> {
 }
 
 /// Connects to `host` (name or dotted address; text up to the first NUL).
+/// The name lookup takes at most [`DNS_TIMEOUT`] and the connection at most
+/// [`CONNECT_TIMEOUT`] more (QB64 waits as long as the system does, about two
+/// minutes for a host that does not answer).
 pub fn client_open(host: &[u8], port: i64) -> Option<Box<Conn>> {
     client_connect(host, port, None)
 }
@@ -186,34 +195,58 @@ pub fn client_open(host: &[u8], port: i64) -> Option<Box<Conn>> {
 /// Longest wait for a name lookup when the caller gives no deadline.
 pub const DNS_TIMEOUT: Duration = Duration::from_secs(10);
 
+/// Longest wait for the connection of `_OPENCLIENT` once the name is known.
+pub const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// Longest time CLOSE of a connection spends sending what is still queued.
+pub const CLOSE_LIMIT: Duration = Duration::from_secs(10);
+
+/// Lookups still running on a helper thread (one per lookup that timed out
+/// is left behind: the system call cannot be stopped).
+static LOOKUPS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
+/// Most lookup threads at a time: a program that keeps asking a dead DNS
+/// server gets "not found" at once instead of a new thread every time.
+const MAX_LOOKUPS: usize = 8;
+
 /// Resolves `name` on a helper thread, so a slow or dead DNS server costs at
 /// most `timeout`; a dotted address needs no lookup.
 pub fn resolve(name: &str, port: u16, timeout: Duration) -> Option<Vec<SocketAddr>> {
+    use std::sync::atomic::Ordering;
     if let Ok(ip) = name.parse::<std::net::IpAddr>() {
         return Some(vec![SocketAddr::new(ip, port)]);
     }
+    if LOOKUPS.fetch_add(1, Ordering::SeqCst) >= MAX_LOOKUPS {
+        LOOKUPS.fetch_sub(1, Ordering::SeqCst);
+        return None;
+    }
     let (tx, rx) = std::sync::mpsc::channel();
     let owned = name.to_owned();
-    std::thread::spawn(move || {
-        let _ = tx.send((owned.as_str(), port).to_socket_addrs().map(|a| a.collect::<Vec<_>>()));
+    let spawned = std::thread::Builder::new().name("qb-dns".into()).spawn(move || {
+        let r = (owned.as_str(), port).to_socket_addrs().map(|a| a.collect::<Vec<_>>());
+        LOOKUPS.fetch_sub(1, Ordering::SeqCst);
+        let _ = tx.send(r);
     });
+    if spawned.is_err() {
+        LOOKUPS.fetch_sub(1, Ordering::SeqCst);
+        return None;
+    }
     rx.recv_timeout(timeout).ok()?.ok()
 }
 
 /// [`client_open`]; with a `deadline`, the lookup and each connect attempt
-/// only get the time left (without one the lookup gets [`DNS_TIMEOUT`]).
+/// only get the time left (without one the lookup gets [`DNS_TIMEOUT`] and the
+/// connect attempts [`CONNECT_TIMEOUT`]).
 fn client_connect(host: &[u8], port: i64, deadline: Option<Instant>) -> Option<Box<Conn>> {
     let port16 = valid_port(port)?;
     let host = &host[..host.iter().position(|&b| b == 0).unwrap_or(host.len())];
     let name = std::str::from_utf8(host).ok()?;
     let budget = deadline.map_or(DNS_TIMEOUT, |d| d.saturating_duration_since(Instant::now()));
     let addrs = resolve(name, port16, budget)?;
-    let stream = addrs.into_iter().filter(SocketAddr::is_ipv4).find_map(|a| match deadline {
-        None => TcpStream::connect(a).ok(),
-        Some(d) => {
-            let left = d.checked_duration_since(Instant::now()).filter(|t| !t.is_zero())?;
-            TcpStream::connect_timeout(&a, left).ok()
-        }
+    let deadline = deadline.unwrap_or_else(|| Instant::now() + CONNECT_TIMEOUT);
+    let stream = addrs.into_iter().filter(SocketAddr::is_ipv4).find_map(|a| {
+        let left = deadline.checked_duration_since(Instant::now()).filter(|t| !t.is_zero())?;
+        TcpStream::connect_timeout(&a, left).ok()
     })?;
     stream.set_nonblocking(true).ok()?;
     let mut c = Conn::new(Sock::Stream(stream), port as i32);

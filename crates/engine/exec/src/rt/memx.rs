@@ -19,10 +19,21 @@ fn var_lock() -> *mut mem::MemLock {
     l
 }
 
-fn blk<'b>(vm: &mut dyn Host<'_>, p: u64) -> R<&'b mut MemBlock> {
+/// The `_MEM` UDT at `p`, copied out: VM storage has no alignment, so it is
+/// never taken as a `&MemBlock`.
+fn blk(vm: &mut dyn Host<'_>, p: u64) -> R<MemBlock> {
     let b = vm.bytes(p, std::mem::size_of::<MemBlock>())?;
-    // SAFETY: `p` addresses a _MEM UDT, whose layout is `MemBlock` (repr(C)).
-    Ok(unsafe { &mut *(b.as_mut_ptr() as *mut MemBlock) })
+    // SAFETY: `p` addresses a _MEM UDT of `size_of::<MemBlock>()` bytes, whose layout
+    // is `MemBlock` (repr(C), plain integers).
+    Ok(unsafe { std::ptr::read_unaligned(b.as_ptr() as *const MemBlock) })
+}
+
+/// Stores `m` in the `_MEM` UDT at `p`.
+fn set_blk(vm: &mut dyn Host<'_>, p: u64, m: MemBlock) -> R<()> {
+    let b = vm.bytes(p, std::mem::size_of::<MemBlock>())?;
+    // SAFETY: as in `blk`.
+    unsafe { std::ptr::write_unaligned(b.as_mut_ptr() as *mut MemBlock, m) };
+    Ok(())
 }
 
 fn chk(err: i32) -> R<()> {
@@ -40,22 +51,22 @@ pub(crate) fn call<'a>(vm: &mut dyn Host<'a>, name: &str, a: &[V]) -> Option<R<O
         match name {
             "_MEMNEW" => {
                 let (b, err) = mem::memnew(i(1) as isize, false);
-                *blk(vm, p(0))? = b;
+                set_blk(vm, p(0), b)?;
                 chk(err)?;
             }
             "_MEMIMAGE" => {
                 let b = super::display::memimage(vm, i(1) as i32, i(2) != 0)?;
-                *blk(vm, p(0))? = b;
+                set_blk(vm, p(0), b)?;
             }
             "_MEMAT" => {
                 let (b, err) = mem::mem_at_offset(i(1) as isize, i(2) as isize, false);
-                *blk(vm, p(0))? = b;
+                set_blk(vm, p(0), b)?;
                 chk(err)?;
             }
             "_MEMVAR" => {
                 // SAFETY: the address is live VM storage of `size` bytes.
                 let b = unsafe { mem::mem(p(1) as isize, i(2) as isize, i(3) as i32, i(4) as isize, var_lock()) };
-                *blk(vm, p(0))? = b;
+                set_blk(vm, p(0), b)?;
             }
             "_MEMSTR" => {
                 // a variable-length STRING: its current characters, one byte per element
@@ -63,22 +74,24 @@ pub(crate) fn call<'a>(vm: &mut dyn Host<'a>, name: &str, a: &[V]) -> Option<R<O
                 let q = vm.str_data(p(1))?;
                 // SAFETY: the characters stay in place until the string is assigned again.
                 let b = unsafe { mem::mem(q as isize, n as isize, i(2) as i32, 1, var_lock()) };
-                *blk(vm, p(0))? = b;
+                set_blk(vm, p(0), b)?;
             }
             "_MEMEXISTS" => {
                 let b = blk(vm, p(0))?;
                 // SAFETY: b is a mem_block.
-                return Ok(Some(V::I(unsafe { mem::memexists(b) }.into())));
+                return Ok(Some(V::I(unsafe { mem::memexists(&b) }.into())));
             }
             "_MEMFREE" => {
-                let b = blk(vm, p(0))?;
+                let mut b = blk(vm, p(0))?;
                 // SAFETY: b is a mem_block.
-                chk(unsafe { mem::memfree(b) })?;
+                let err = unsafe { mem::memfree(&mut b) };
+                set_blk(vm, p(0), b)?;
+                chk(err)?;
             }
             "_MEMGETP" => {
                 let b = blk(vm, p(0))?;
                 // SAFETY: b is a mem_block; memget checks the range and the lock.
-                let (q, err) = unsafe { mem::memget(b, i(1) as isize, i(2) as isize) };
+                let (q, err) = unsafe { mem::memget(&b, i(1) as isize, i(2) as isize) };
                 chk(err)?;
                 return Ok(Some(V::P(q as u64)));
             }
@@ -90,13 +103,13 @@ pub(crate) fn call<'a>(vm: &mut dyn Host<'a>, name: &str, a: &[V]) -> Option<R<O
                 };
                 let b = blk(vm, p(0))?;
                 // SAFETY: memfill checks the destination range.
-                chk(unsafe { mem::memfill(b, i(1) as isize, i(2) as isize, src.as_ptr(), src.len() as isize) })?;
+                chk(unsafe { mem::memfill(&b, i(1) as isize, i(2) as isize, src.as_ptr(), src.len() as isize) })?;
             }
             "_MEMPUTS" => {
                 let s = a[2].s().to_vec();
                 let b = blk(vm, p(0))?;
                 // SAFETY: memget checks the range.
-                let (q, err) = unsafe { mem::memget(b, i(1) as isize, s.len() as isize) };
+                let (q, err) = unsafe { mem::memget(&b, i(1) as isize, s.len() as isize) };
                 chk(err)?;
                 if !s.is_empty() {
                     vm.bytes(q as u64, s.len())?.copy_from_slice(&s);
@@ -107,7 +120,7 @@ pub(crate) fn call<'a>(vm: &mut dyn Host<'a>, name: &str, a: &[V]) -> Option<R<O
                 let n = vm.load_str(p(2))?.len();
                 let b = blk(vm, p(0))?;
                 // SAFETY: memget checks the range.
-                let (q, err) = unsafe { mem::memget(b, i(1) as isize, n as isize) };
+                let (q, err) = unsafe { mem::memget(&b, i(1) as isize, n as isize) };
                 chk(err)?;
                 if n > 0 {
                     let s = vm.bytes(q as u64, n)?.to_vec();
@@ -115,10 +128,10 @@ pub(crate) fn call<'a>(vm: &mut dyn Host<'a>, name: &str, a: &[V]) -> Option<R<O
                 }
             }
             "_MEMCOPY" => {
-                let s = *blk(vm, p(0))?;
+                let s = blk(vm, p(0))?;
                 let d = blk(vm, p(3))?;
                 // SAFETY: memcopy checks both ranges.
-                chk(unsafe { mem::memcopy(&s, i(1) as isize, i(2) as isize, d, i(4) as isize) })?;
+                chk(unsafe { mem::memcopy(&s, i(1) as isize, i(2) as isize, &d, i(4) as isize) })?;
             }
             "_ARRADDR" | "_ARRBYTES" => {
                 let (addr, bytes) = vm.array_extent(p(0))?;

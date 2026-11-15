@@ -148,8 +148,18 @@ fn wake() {
     }
 }
 
+/// Set by [`request_headless`].
+static HEADLESS_WANTED: AtomicBool = AtomicBool::new(false);
+
+/// The next [`qb_window_run`] runs without a window, as with `QBNEX_HEADLESS=1`
+/// (a runner that only replays an input script asks this way instead of
+/// changing the environment while other threads may read it).
+pub fn request_headless() {
+    HEADLESS_WANTED.store(true, Ordering::SeqCst);
+}
+
 fn headless_requested() -> bool {
-    std::env::var("QBNEX_HEADLESS")
+    HEADLESS_WANTED.load(Ordering::SeqCst) || std::env::var("QBNEX_HEADLESS")
         .map(|v| !v.is_empty() && v != "0")
         .unwrap_or(false)
 }

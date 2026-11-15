@@ -72,6 +72,11 @@ pub(crate) const CMEM_FIRST: usize = 16;
 
 pub(crate) struct RtState<'a> {
     out: &'a mut dyn Write,
+    /// stdout is a terminal: PRINT text is flushed at once (into a file or a
+    /// pipe it goes out in blocks, see [`RtState::flush`]).
+    out_tty: bool,
+    /// `out` may hold text not yet flushed.
+    out_dirty: bool,
     col: usize,
     pub(crate) rnd: qb_runtime::rnd::RndState,
     using: Option<Using>,
@@ -79,6 +84,12 @@ pub(crate) struct RtState<'a> {
     /// the stdin line the console INPUT statement being run takes its values
     /// from (read by its first item; INPUTPROMPT starts a new statement)
     input_line: Option<Reader>,
+    /// prompt of the console INPUT statement being run (printed again after
+    /// "Redo from start")
+    input_prompt: Vec<u8>,
+    /// storage types of its variables ("i16 f64 str"; QIR of older compilers
+    /// has none: the answer is then not checked)
+    input_types: Option<Vec<Vec<u8>>>,
     /// conventional memory (VARPTR/SADD/PEEK/POKE)
     pub(crate) cmem: Vec<u8>,
     pub(crate) cmem_next: usize,
@@ -149,8 +160,14 @@ struct Using {
 
 impl<'a> RtState<'a> {
     pub(crate) fn new(out: &'a mut dyn Write) -> Self {
-        RtState { out, col: 1, rnd: Default::default(), using: None, stdin: Reader::default(),
+        #[cfg(not(target_arch = "wasm32"))]
+        let out_tty = std::io::IsTerminal::is_terminal(&std::io::stdout());
+        #[cfg(target_arch = "wasm32")]
+        let out_tty = false;
+        RtState { out, out_tty, out_dirty: false, col: 1, rnd: Default::default(), using: None, stdin: Reader::default(),
             input_line: None,
+            input_prompt: Vec::new(),
+            input_types: None,
             // 1 MB + 64 KB of conventional memory (SS:SP of CALL ABSOLUTE is FFFF:FFFE)
             cmem: vec![0; 0x110000],
             cmem_next: CMEM_FIRST,
@@ -192,8 +209,16 @@ impl<'a> RtState<'a> {
     pub(crate) fn set_stdin(&mut self, b: &[u8]) {
         self.stdin = Reader { rbuf: b.to_vec(), rpos: 0, eof: true };
     }
+    /// Sends what PRINT wrote: before the program waits (INPUT, INKEY$, SLEEP),
+    /// starts another program (SHELL, RUN, CHAIN), reports an error on stderr,
+    /// and at the end, so that stdout keeps its order with them.
     pub(crate) fn flush(&mut self) {
-        let _ = self.out.flush();
+        if self.out_dirty {
+            let _ = self.out.flush();
+            self.out_dirty = false;
+        }
+        // console text of the C runtime (`_DEST _CONSOLE` of a window program) is newer
+        qb_runtime::console::stdio::flush_pending();
     }
     /// Console output, or file output through qb-runtime (SCRN: falls back to the console).
     pub(crate) fn write(&mut self, ch: i32, b: &[u8]) -> R<()> {
@@ -204,7 +229,17 @@ impl<'a> RtState<'a> {
         if ch != 0 && super::files::print(ch, b, false, false)? {
             return Ok(());
         }
+        // console text the C runtime holds came after what `out` holds: both go
+        // out first, in that order
+        if qb_runtime::console::stdio::pending() {
+            self.flush();
+        }
         let _ = self.out.write_all(b);
+        if self.out_tty {
+            let _ = self.out.flush();
+        } else {
+            self.out_dirty = true;
+        }
         for c in b {
             // CR returns to column 1 like LF (a line redrawn in place)
             if *c == b'\n' || *c == b'\r' {
@@ -431,23 +466,34 @@ pub(crate) fn pure_call(p: Pure, s: &[u8], v: &V) -> R<V> {
     })
 }
 
-pub(crate) fn call<'a>(vm: &mut dyn Host<'a>, name: &'static str, a: Vec<V>) -> R<Option<V>> {
-    let s = |i: usize| a[i].s();
-    let i = |k: usize| a[k].i();
-    let f = |k: usize| a[k].f();
-    let ok = |v: V| Ok(Some(v));
-    if let Some(r) = super::display::call(vm, name, &a) {
+/// Builtins that only the [`call_main`] part of [`call`] knows (no module of
+/// `rt` handles them, whatever the arguments): the VM resolves them once when
+/// it loads the program ([`route`]) and calls [`call_direct`], which goes past
+/// every module's name dispatch. `rt_names_are_not_handled_by_modules` checks
+/// the list against the modules' sources.
+const DIRECT: &[&str] = &[
+    "PRINTS", "PRINTZONE", "PRINTNL", "PRINTTAB", "PRINTSPC", "PRINTN.i64", "PRINTN.u64", "PRINTN.f32", "PRINTN.f64",
+    "PRINTN.f80", "MID$", "LEFT$", "RIGHT$", "INSTR", "CHR$", "ASC", "STRING$", "HEX$", "OCT$", "LEN", "RND", "RND.n",
+    "TIMER", "TIMER.n", "INPUTPROMPT", "INPUTPROMPT.t",
+];
+
+/// How the VM calls builtin `name`: `true` = through [`call_direct`].
+pub(crate) fn route(name: &str) -> bool {
+    DIRECT.contains(&name)
+}
+
+/// [`call`] of a builtin in [`DIRECT`]: the same result without the modules' name dispatch.
+pub(crate) fn call_direct<'a>(vm: &mut dyn Host<'a>, name: &'static str, a: Vec<V>) -> R<Option<V>> {
+    if let Some(r) = print_on_screen(vm, name, &a) {
         return r;
     }
-    if let Some(r) = super::dosx::call(vm, name, &a) {
-        return r;
-    }
-    if let Some(r) = super::winx::call(vm, name, &a) {
-        return r;
-    }
+    call_main(vm, name, &a)
+}
+
+/// PRINT to the console while a screen page is the destination: drawn on it.
+fn print_on_screen<'a>(vm: &mut dyn Host<'a>, name: &str, a: &[V]) -> Option<R<Option<V>>> {
     let is_print = matches!(name, "PRINTS" | "PRINTZONE" | "PRINTNL" | "PRINTTAB" | "PRINTSPC") || name.starts_with("PRINTN.");
     if is_print && a.first().is_some_and(|c| c.i() == 0) && screen_out(vm) {
-        // console output while a screen page is the destination: draw it
         let r = match name {
             "PRINTS" => Some(super::display::call(vm, "SCREENPRINT", &a[1..])),
             "PRINTZONE" => Some(super::display::call(vm, "SCREENZONE", &[])),
@@ -462,8 +508,24 @@ pub(crate) fn call<'a>(vm: &mut dyn Host<'a>, name: &'static str, a: Vec<V>) -> 
             _ => None,
         };
         if let Some(Some(r)) = r {
-            return r;
+            return Some(r);
         }
+    }
+    None
+}
+
+pub(crate) fn call<'a>(vm: &mut dyn Host<'a>, name: &'static str, a: Vec<V>) -> R<Option<V>> {
+    if let Some(r) = super::display::call(vm, name, &a) {
+        return r;
+    }
+    if let Some(r) = super::dosx::call(vm, name, &a) {
+        return r;
+    }
+    if let Some(r) = super::winx::call(vm, name, &a) {
+        return r;
+    }
+    if let Some(r) = print_on_screen(vm, name, &a) {
+        return r;
     }
     if let Some(r) = super::audiox::call(vm, name, &a) {
         return r;
@@ -750,6 +812,15 @@ pub(crate) fn call<'a>(vm: &mut dyn Host<'a>, name: &'static str, a: Vec<V>) -> 
         r.or_else(e)?;
         return Ok(None);
     }
+    call_main(vm, name, &a)
+}
+
+/// The builtins of this file (after the modules' dispatch of [`call`]).
+fn call_main<'a>(vm: &mut dyn Host<'a>, name: &'static str, a: &[V]) -> R<Option<V>> {
+    let s = |i: usize| a[i].s();
+    let i = |k: usize| a[k].i();
+    let f = |k: usize| a[k].f();
+    let ok = |v: V| Ok(Some(v));
     let (err, erl, errline) = (vm.err(), vm.erl(), vm.errline());
     let rt = vm.rt();
     match name {
@@ -818,8 +889,8 @@ pub(crate) fn call<'a>(vm: &mut dyn Host<'a>, name: &'static str, a: Vec<V>) -> 
             }
             rt.using = Some(Using { ch: i(0) as i32, fmt: s(1).to_vec(), pos: 0, used: false })
         }
-        "USINGS" | "USINGEND" => return using(vm, name, &a),
-        n if n.starts_with("USINGN.") => return using(vm, name, &a),
+        "USINGS" | "USINGEND" => return using(vm, name, a),
+        n if n.starts_with("USINGN.") => return using(vm, name, a),
         n if n.starts_with("STR$.") => return ok(V::S(str_num(suffix_ty(n), &a[0]))),
         "VAL" => return ok(V::F(val(s(0)))),
         "VAL.f80" => {
@@ -1000,9 +1071,9 @@ pub(crate) fn call<'a>(vm: &mut dyn Host<'a>, name: &'static str, a: Vec<V>) -> 
         "_INCLERRORFILE$" => return ok(V::S(vm.inclerr().1)),
         "LINEINPUT" => {
             if !rt.window {
-                fill(&mut std::io::stdin(), &mut rt.stdin);
+                fill(rt, None);
             }
-            web_type_line(vm, false)?;
+            web_type_line(vm, false, false)?;
             let rt = vm.rt();
             let start = rt.stdin.rpos;
             let line = console_line(rt)?;
@@ -1034,36 +1105,56 @@ pub(crate) fn call<'a>(vm: &mut dyn Host<'a>, name: &'static str, a: Vec<V>) -> 
                 got.truncate(n);
                 return ok(V::S(got));
             }
-            fill(&mut std::io::stdin(), &mut rt.stdin);
+            fill(rt, Some(n));
             let s = &mut rt.stdin;
             let end = (s.rpos + n).min(s.rbuf.len());
             let got = s.rbuf[s.rpos..end].to_vec();
             s.rpos = end;
             return ok(V::S(got));
         }
-        "INPUTPROMPT" => {
+        "INPUTPROMPT" | "INPUTPROMPT.t" => {
             if i(1) == 0 {
                 rt.input_line = None;
-                if rt.screen_console() && screen_out(vm) {
-                    return super::display::call(vm, "SCREENPRINT", &a[..1]).unwrap();
-                }
-                vm.rt().write(0, s(0))?;
+                rt.input_prompt = s(0).to_vec();
+                rt.input_types = a.get(2).map(|t| t.s().split(|&c| c == b' ').map(<[u8]>::to_vec).collect());
+                input_text(vm, s(0), false)?;
             }
         }
         "INPUTITEM.s" | "INPUTITEM.n" | "INPUTITEM.i" | "INPUTITEM.x" => {
             let numeric = name != "INPUTITEM.s";
-            if rt.input_line.is_none() {
+            if vm.rt().input_line.is_none() {
                 // first item: the statement reads one line; its values come from
-                // that line only (missing ones are empty / 0)
-                if !rt.window {
-                    fill(&mut std::io::stdin(), &mut rt.stdin);
+                // that line only. An answer that does not fit the variables (too few
+                // or too many items, a number that is not one or too large) is asked
+                // again, as QBasic does ("Redo from start"), while more input can
+                // come; at the end of redirected input the line is taken as it is
+                // (missing values empty / 0), so the program does not loop forever.
+                loop {
+                    let rt = vm.rt();
+                    if !rt.window {
+                        fill(rt, None);
+                    }
+                    web_type_line(vm, numeric, true)?;
+                    let rt = vm.rt();
+                    let start = rt.stdin.rpos;
+                    let line = console_line(rt)?;
+                    echo_input(vm, start, true)?;
+                    let rt = vm.rt();
+                    let ok = rt.input_types.as_ref().is_none_or(|t| input_answer_ok(&line, t));
+                    if ok || !more_input(rt) {
+                        rt.input_line = Some(Reader { rbuf: line, rpos: 0, eof: true });
+                        break;
+                    }
+                    // the answer ended with a new line on a terminal or the screen page;
+                    // redirected input was not shown
+                    let rt = vm.rt();
+                    if !rt.screen_console() && !(stdin_is_terminal() && rt.out_tty) && rt.col != 1 {
+                        rt.write(0, b"\n")?;
+                    }
+                    input_text(vm, b"Redo from start", true)?;
+                    let prompt = vm.rt().input_prompt.clone();
+                    input_text(vm, &prompt, false)?;
                 }
-                web_type_line(vm, numeric)?;
-                let rt = vm.rt();
-                let start = rt.stdin.rpos;
-                let line = console_line(rt)?;
-                rt.input_line = Some(Reader { rbuf: line, rpos: 0, eof: true });
-                echo_input(vm, start, true)?;
             }
             let rt = vm.rt();
             let line = rt.input_line.as_mut().expect("read above");
@@ -1349,7 +1440,10 @@ fn echo_input(vm: &mut dyn Host<'_>, mut start: usize, mut line: bool) -> R<()> 
 /// /// Browser runner / window: when INPUT has used up the given stdin text and
 /// keys arrive live (the page, the window), waits for a typed line (drawn as
 /// it is typed; Backspace edits, Enter ends) and appends it to the stdin text.
-fn web_type_line(vm: &mut dyn Host<'_>, numeric: bool) -> R<()> {
+/// `input`: an INPUT statement (not LINE INPUT), whose variables' types refuse
+/// keys, as QB64's INPUT does: in a numeric item a key that cannot be part of
+/// a number, and a comma past the last variable.
+fn web_type_line(vm: &mut dyn Host<'_>, numeric: bool, input: bool) -> R<()> {
     {
         let rt = vm.rt();
         if !typed_input(rt) || rt.stdin.rpos < rt.stdin.rbuf.len() {
@@ -1357,6 +1451,7 @@ fn web_type_line(vm: &mut dyn Host<'_>, numeric: bool) -> R<()> {
         }
     }
     let mut line: Vec<u8> = Vec::new();
+    let types = if input { vm.rt().input_types.clone() } else { None };
     let draw = |vm: &mut dyn Host<'_>, b: &[u8]| -> R<()> {
         if screen_out(vm)
             && let Some(r) = super::display::call(vm, "SCREENPRINT", &[V::S(b.to_vec())]) {
@@ -1383,6 +1478,9 @@ fn web_type_line(vm: &mut dyn Host<'_>, numeric: bool) -> R<()> {
                 }
             }
             [c] if *c >= 32 => {
+                if types.as_ref().is_some_and(|t| !typed_key_ok(&line, *c, t)) {
+                    continue;
+                }
                 line.push(*c);
                 draw(vm, &[*c])?;
             }
@@ -1402,6 +1500,29 @@ fn web_type_line(vm: &mut dyn Host<'_>, numeric: bool) -> R<()> {
     rt.stdin.rbuf.push(b'\n');
     rt.web_typed_end = rt.stdin.rbuf.len();
     Ok(())
+}
+
+/// Whether key `c` may follow the typed `line` of an INPUT whose variables have
+/// the storage types `types` (see [`web_type_line`]); the whole answer is
+/// checked again at Enter ([`input_answer_ok`]).
+fn typed_key_ok(line: &[u8], c: u8, types: &[Vec<u8>]) -> bool {
+    let mut item = 0;
+    let mut quoted = false;
+    for &b in line {
+        match b {
+            b'"' => quoted = !quoted,
+            b',' if !quoted => item += 1,
+            _ => {}
+        }
+    }
+    if c == b',' && !quoted {
+        return item + 1 < types.len();
+    }
+    match types.get(item) {
+        None => false,
+        Some(t) if t.as_slice() == b"str" => true,
+        Some(_) => c == b' ' || b"0123456789+-.EeDdHhOoBb&!#%".contains(&c),
+    }
 }
 
 /// INPUT reads keys typed live (the page delivers them, or the window).
@@ -1449,12 +1570,239 @@ pub(crate) fn close_exit(rt: &mut RtState<'_>) -> ! {
     qb_runtime::fileio::close_all();
     std::process::exit(0)
 }
-fn fill(f: &mut dyn Read, rd: &mut Reader) {
-    if !rd.eof {
-        let mut b = Vec::new();
-        let _ = f.read_to_end(&mut b);
-        rd.rbuf.extend_from_slice(&b);
-        rd.eof = true;
+/// Console input: reads stdin until `rt.stdin` holds a whole line from its
+/// position on (`bytes` None) or `bytes` bytes (INPUT$), or stdin ends. Read as
+/// needed, not all of stdin at the first INPUT: a terminal gives one line at a
+/// time, and a pipe that another program still writes is read as it comes.
+/// What the program printed is flushed before it waits.
+fn fill(rt: &mut RtState<'_>, bytes: Option<usize>) {
+    if rt.stdin.eof {
+        return;
+    }
+    let tty = stdin_is_terminal();
+    let rd = &mut rt.stdin;
+    // the lines read before are not needed again
+    if rd.rpos >= 1 << 16 && rd.rpos * 2 >= rd.rbuf.len() {
+        rd.rbuf.drain(..rd.rpos);
+        rt.web_typed_end = rt.web_typed_end.saturating_sub(rd.rpos);
+        rd.rpos = 0;
+    }
+    let ready = |rd: &Reader| {
+        let b = &rd.rbuf[rd.rpos..];
+        match bytes {
+            Some(n) => b.len() >= n,
+            // CR at the end: a LF may follow (CR LF), except from a terminal
+            None => b.iter().position(|&c| c == b'\n' || c == b'\r' || c == 26).is_some_and(|p| b[p] != b'\r' || p + 1 < b.len() || tty),
+        }
+    };
+    if ready(&rt.stdin) {
+        return;
+    }
+    rt.flush();
+    let mut chunk = vec![0u8; 1 << 16];
+    let mut stdin = std::io::stdin();
+    let rd = &mut rt.stdin;
+    while !ready(rd) {
+        match stdin.read(&mut chunk) {
+            Ok(0) => {
+                rd.eof = true;
+                return;
+            }
+            Ok(n) => rd.rbuf.extend_from_slice(&chunk[..n]),
+            Err(e) if e.kind() == std::io::ErrorKind::Interrupted => {}
+            Err(_) => {
+                rd.eof = true;
+                return;
+            }
+        }
+    }
+}
+
+/// stdin is a terminal (or console): its lines are typed while the program waits.
+fn stdin_is_terminal() -> bool {
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        static T: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+        *T.get_or_init(|| std::io::IsTerminal::is_terminal(&std::io::stdin()))
+    }
+    #[cfg(target_arch = "wasm32")]
+    false
+}
+
+/// A console INPUT answer that does not fit can be answered again: keys are
+/// typed (window, page, terminal not yet at its end) or redirected input still
+/// has a line.
+fn more_input(rt: &mut RtState<'_>) -> bool {
+    if typed_input(rt) {
+        return true;
+    }
+    if !rt.web && !rt.window {
+        if stdin_is_terminal() {
+            return !rt.stdin.eof;
+        }
+        fill(rt, None);
+    }
+    let s = &rt.stdin;
+    s.rpos < s.rbuf.len() && s.rbuf[s.rpos] != 26
+}
+
+/// Prints INPUT's prompt or message where PRINT goes (`newline`: and ends the line).
+fn input_text(vm: &mut dyn Host<'_>, text: &[u8], newline: bool) -> R<()> {
+    if vm.rt().screen_console() && screen_out(vm) {
+        if let Some(r) = super::display::call(vm, "SCREENPRINT", &[V::S(text.to_vec())]) {
+            r?;
+        }
+        if newline
+            && let Some(r) = super::display::call(vm, "SCREENNL", &[]) {
+                r?;
+            }
+        return Ok(());
+    }
+    let rt = vm.rt();
+    rt.write(0, text)?;
+    if newline {
+        rt.write(0, b"\n")?;
+    }
+    Ok(())
+}
+
+/// QBasic's check of a console INPUT answer (`types`: storage type of each
+/// variable): one item per variable, separated by commas (a quoted string may
+/// hold commas; after its closing quote only spaces may follow), and each
+/// numeric item empty (0) or a number its variable can hold.
+fn input_answer_ok(line: &[u8], types: &[Vec<u8>]) -> bool {
+    let blank = |c: u8| c == b' ' || c == b'\t';
+    let mut items: Vec<(&[u8], bool)> = Vec::new();
+    let mut p = 0;
+    loop {
+        while p < line.len() && blank(line[p]) {
+            p += 1;
+        }
+        if p < line.len() && line[p] == b'"' {
+            let q = p + 1;
+            match line[q..].iter().position(|&c| c == b'"') {
+                None => {
+                    items.push((&line[q..], true));
+                    p = line.len();
+                }
+                Some(k) => {
+                    items.push((&line[q..q + k], true));
+                    p = q + k + 1;
+                    while p < line.len() && blank(line[p]) {
+                        p += 1;
+                    }
+                    if p < line.len() && line[p] != b',' {
+                        return false;
+                    }
+                }
+            }
+        } else {
+            let e = line[p..].iter().position(|&c| c == b',').map_or(line.len(), |k| p + k);
+            let mut t = &line[p..e];
+            while let [rest @ .., c] = t
+                && blank(*c)
+            {
+                t = rest;
+            }
+            items.push((t, false));
+            p = e;
+        }
+        if p >= line.len() {
+            break;
+        }
+        p += 1;
+    }
+    items.len() == types.len()
+        && items.iter().zip(types).all(|(&(t, quoted), ty)| ty.as_slice() == b"str" || (!quoted && input_number_ok(t, ty)))
+}
+
+/// A numeric INPUT item: empty, a decimal number (sign, digits with a point,
+/// E or D exponent, a type suffix) or &H / &O / &B digits, in the range of
+/// the storage type `ty` (an integer is rounded first, as it is stored).
+fn input_number_ok(t: &[u8], ty: &[u8]) -> bool {
+    if t.is_empty() {
+        return true;
+    }
+    let bits: u32 = match ty {
+        b"i8" | b"u8" => 8,
+        b"i16" | b"u16" => 16,
+        b"i32" | b"u32" => 32,
+        b"i64" | b"u64" => 64,
+        _ => 0,
+    };
+    if t[0] == b'&' {
+        let (radix, start) = match t.get(1).map(u8::to_ascii_uppercase) {
+            Some(b'H') => (16, 2),
+            Some(b'O') => (8, 2),
+            Some(b'B') => (2, 2),
+            _ => (8, 1),
+        };
+        let mut d = &t[start..];
+        if let [rest @ .., b'%' | b'&'] = d {
+            d = rest;
+        }
+        if d.is_empty() {
+            return false;
+        }
+        let mut v: u128 = 0;
+        for &c in d {
+            let Some(x) = (c as char).to_digit(radix) else { return false };
+            v = v * u128::from(radix) + u128::from(x);
+            if v > u128::from(u64::MAX) {
+                return false;
+            }
+        }
+        // an integer takes its bits (&HFFFF is -1 in an INTEGER, 65535 in an _UNSIGNED one)
+        return bits == 0 || v < 1u128 << bits;
+    }
+    let mut i = 0;
+    if matches!(t[0], b'+' | b'-') {
+        i = 1;
+    }
+    let digits = |i: &mut usize| {
+        let s = *i;
+        while *i < t.len() && t[*i].is_ascii_digit() {
+            *i += 1;
+        }
+        *i - s
+    };
+    let mut n = digits(&mut i);
+    if i < t.len() && t[i] == b'.' {
+        i += 1;
+        n += digits(&mut i);
+    }
+    if n == 0 {
+        return false;
+    }
+    if i < t.len() && matches!(t[i], b'E' | b'e' | b'D' | b'd') {
+        i += 1;
+        if i < t.len() && matches!(t[i], b'+' | b'-') {
+            i += 1;
+        }
+        if digits(&mut i) == 0 {
+            return false;
+        }
+    }
+    if i < t.len() && matches!(t[i], b'!' | b'#' | b'%' | b'&') {
+        i += 1;
+    }
+    if i != t.len() {
+        return false;
+    }
+    let v = val(t);
+    let r = v.round_ties_even();
+    match ty {
+        b"i8" => (-128.0..=127.0).contains(&r),
+        b"u8" => (0.0..=255.0).contains(&r),
+        b"i16" => (-32768.0..=32767.0).contains(&r),
+        b"u16" => (0.0..=65535.0).contains(&r),
+        b"i32" => (-2_147_483_648.0..=2_147_483_647.0).contains(&r),
+        b"u32" => (0.0..=4_294_967_295.0).contains(&r),
+        b"i64" => (-9_223_372_036_854_775_808.0..9_223_372_036_854_775_808.0).contains(&r),
+        b"u64" => (0.0..18_446_744_073_709_551_616.0).contains(&r),
+        b"f32" => v.abs() <= f64::from(f32::MAX),
+        b"f80" => true,
+        _ => v.is_finite(),
     }
 }
 
@@ -1847,7 +2195,15 @@ fn input_call<'a>(vm: &mut dyn Host<'a>, name: &str, a: &[V]) -> Option<R<Option
     }
     let cm = &mut rt.cmem[..];
     let v = match name {
-        "INKEY$" | "qbs_inkey" => V::S(rt.input.inkey(cm)),
+        "INKEY$" | "qbs_inkey" => {
+            // a prompt printed before the program waits for a key
+            if rt.out_dirty {
+                let _ = rt.out.flush();
+                rt.out_dirty = false;
+            }
+            let cm = &mut rt.cmem[..];
+            V::S(rt.input.inkey(cm))
+        }
         "func__keyhit" => {
             rt.input.pump(cm);
             V::I(i64::from(qb_runtime::keybuf::qb_keyhit_pop()))
@@ -2295,5 +2651,50 @@ mod using_tests {
         // finite values still go through the exponent format
         let f = String::from_utf8(format_num(b"#.##^^^^", &V::F(1234.5), Ty::F64)).unwrap();
         assert!(f.contains("1.23D+03") && !f.starts_with('%'), "{f}");
+    }
+}
+
+#[cfg(test)]
+mod route_tests {
+    use super::DIRECT;
+
+    /// Every name of [`DIRECT`] is a case of `call_main` and of no module that
+    /// `call` asks first (by its sources: a module's case is `"NAME" =>`,
+    /// `"NAME" |`, `| "NAME"` or `"NAME" if`).
+    #[test]
+    fn rt_names_are_not_handled_by_modules() {
+        let modules = [
+            include_str!("display.rs"),
+            include_str!("dosx.rs"),
+            include_str!("winx.rs"),
+            include_str!("audiox.rs"),
+            include_str!("scene3d.rs"),
+            include_str!("netx.rs"),
+            include_str!("files.rs"),
+            include_str!("memx.rs"),
+            include_str!("input.rs"),
+        ];
+        let me = include_str!("builtins.rs");
+        let main_at = me.find("fn call_main").unwrap();
+        let main = &me[main_at..];
+        let main = &main[..main.find("\n}\n").unwrap()];
+        let chain = &me[me.find("pub(crate) fn call<'a>").unwrap()..main_at];
+        let input = &me[me.find("fn input_call").unwrap()..];
+        let input = &input[..input.find("\n}\n").unwrap()];
+        for n in DIRECT {
+            let lit = format!("\"{n}\"");
+            for m in modules {
+                for case in [format!("{lit} =>"), format!("{lit} |"), format!("| {lit}"), format!("{lit} if")] {
+                    assert!(!m.contains(&case), "{n} is a case of an rt module");
+                }
+            }
+            assert!(!chain.contains(&lit) && !input.contains(&lit), "{n} is handled before call_main");
+            if n.starts_with("PRINTN.") {
+                assert!(main.contains("starts_with(\"PRINTN.\")"));
+                assert!(modules.iter().all(|m| !m.contains("\"PRINTN.")));
+            } else {
+                assert!(main.contains(&lit), "{n} is not a case of call_main");
+            }
+        }
     }
 }

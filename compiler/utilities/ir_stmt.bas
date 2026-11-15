@@ -401,7 +401,7 @@ END SUB
 
 'INPUT [#n,] [prompt;|,] vars   /   LINE INPUT [#n,] [prompt;] var
 SUB IrInput (lineinput AS LONG)
-    DIM n AS LONG, i AS LONG, j AS LONG, ch$, t AS LONG, p$, r$, st$, e$, pr$
+    DIM n AS LONG, i AS LONG, j AS LONG, ch$, t AS LONG, p$, r$, st$, e$, pr$, ty$, saved$, k AS LONG
     n = IrStmtN
     i = 2 + lineinput
     IF IrEl$(i) = "#" THEN
@@ -418,7 +418,29 @@ SUB IrInput (lineinput AS LONG)
             IF IrEl$(i + 1) = ";" AND lineinput = 0 THEN pr$ = pr$ + "? "
             i = i + 2
         END IF
-        IrE "rt INPUTPROMPT " + IrConstStr$(pr$) + " " + ch$
+        'INPUT: the storage types of the variables (code of their places discarded,
+        'each place is evaluated again before its value is stored), so that qb-exec
+        'checks the whole answer and asks again ("Redo from start")
+        ty$ = ""
+        IF lineinput = 0 THEN
+            IrFlush
+            saved$ = IrFnBody(IrFnCur): IrFnBody(IrFnCur) = ""
+            k = i
+            DO WHILE k <= n
+                j = IrFindSep(k, "|,|")
+                IrQuiet = -1: p$ = IrPlaceAtRaw$(k, j - 1, t): IrQuiet = 0
+                IF p$ = "" THEN ty$ = "": EXIT DO
+                ty$ = ty$ + " " + IrRegOf$(IrPlaceSTy$(p$))
+                k = j + 1
+            LOOP
+            IrFlush
+            IrFnBody(IrFnCur) = saved$
+        END IF
+        IF LEN(ty$) THEN
+            IrE "rt INPUTPROMPT.t " + IrConstStr$(pr$) + " " + ch$ + " " + IrConstStr$(MID$(ty$, 2))
+        ELSE
+            IrE "rt INPUTPROMPT " + IrConstStr$(pr$) + " " + ch$
+        END IF
     END IF
     DO WHILE i <= n
         j = IrFindSep(i, "|,|")
