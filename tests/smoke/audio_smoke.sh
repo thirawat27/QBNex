@@ -74,6 +74,60 @@ if [ "$simple_size" -ge "$audio_size" ]; then
   exit 1
 fi
 
+# Sound handles on the silent device (it plays against the clock): a streamed
+# file, _SNDLIMIT counted from the sound's start (it was engine time, so a
+# sound played half a second into the program stopped at once).
+PLAYBACK_SRC="$SMOKE_TMP/playback.bas"
+PLAYBACK_EXE="$SMOKE_TMP/playback"
+cat >"$PLAYBACK_SRC" <<'BAS'
+$CONSOLE:ONLY
+f$ = "qbnex_smoke_tone.wav"
+n& = 22050
+OPEN f$ FOR BINARY AS #1
+h$ = "RIFF" + MKL$(36 + n& * 2) + "WAVEfmt " + MKL$(16) + MKI$(1) + MKI$(1) + MKL$(22050) + MKL$(44100) + MKI$(2) + MKI$(16) + "data" + MKL$(n& * 2)
+PUT #1, , h$
+s$ = SPACE$(n& * 2)
+FOR i& = 0 TO n& - 1
+    MID$(s$, i& * 2 + 1, 2) = MKI$(INT(SIN(i& / 10) * 8000))
+NEXT
+PUT #1, , s$
+CLOSE #1
+h& = _SNDOPEN(f$, "STREAM")
+PRINT "stream"; h& > 0; "len"; INT(_SNDLEN(h&) * 10 + .5) / 10
+_DELAY .5
+_SNDPLAY h&
+_SNDLIMIT h&, .4
+_DELAY .15
+PRINT "limit playing"; _SNDPLAYING(h&)
+_DELAY .6
+PRINT "limit stopped"; _SNDPLAYING(h&)
+_SNDCLOSE h&
+d& = _SNDOPEN(f$)
+PRINT "decoded len"; INT(_SNDLEN(d&) * 10 + .5) / 10
+_SNDLOOP d&
+_SNDCLOSE d&
+KILL f$
+SYSTEM
+BAS
+OUT_PLAYBACK="$SMOKE_TMP/playback.txt"
+if ! "$QB" "$PLAYBACK_SRC" -o "$PLAYBACK_EXE" >"$OUT_PLAYBACK" 2>&1; then
+  echo "[FAIL] Sound handle program should compile."
+  echo "AUDIO_SMOKE_FAIL"
+  cat "$OUT_PLAYBACK"
+  exit 1
+fi
+(cd "$SMOKE_TMP" && QB_AUDIO_DEVICE=null QBNEX_HEADLESS=1 timeout 60 ./playback </dev/null) >"$OUT_PLAYBACK" 2>&1 || true
+EXPECTED_PLAYBACK="stream-1 len 1
+limit playing-1
+limit stopped 0
+decoded len 1"
+if [ "$(tr -d '\r' <"$OUT_PLAYBACK" | sed 's/ *$//')" != "$EXPECTED_PLAYBACK" ]; then
+  echo "[FAIL] Sound handles on the silent device:"
+  cat "$OUT_PLAYBACK"
+  echo "AUDIO_SMOKE_FAIL"
+  exit 1
+fi
+
 echo "AUDIO_SMOKE_OK"
 rm -rf "$SMOKE_TMP"
 exit 0

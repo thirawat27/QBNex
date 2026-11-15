@@ -6,6 +6,7 @@
 //! - [`engine`]: sound handles and the mixer; one mutex guards all state that
 //!   the audio callback reads.
 //! - [`decode`]: file decoding (symphonia, xmrsplayer).
+//! - [`stream`]: sounds decoded while they play ("STREAM", `_SNDPLAYFILE`).
 //! - [`device`]: cpal output on its own thread.
 //! - [`ffi`]: the `qb_snd_*` entry points the runner calls.
 
@@ -19,3 +20,4 @@ pub mod device;
 pub mod engine;
 pub mod ffi;
 pub mod queue;
+pub mod stream;

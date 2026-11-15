@@ -70,9 +70,39 @@ impl<'a> Ctx<'a> {
     fn consumed(&self) -> i64 {
         self.pos as i64
     }
+
+    /// Bytes of the file from byte `from` on (0 past its end).
+    pub fn left_from(&self, from: usize) -> u64 {
+        self.d.len().saturating_sub(from) as u64
+    }
 }
 
 pub const MAX_DIMENSIONS: u32 = 1 << 24;
+
+/// Largest picture a compressed image (PNG, JPEG, GIF, PCX, run-length TGA)
+/// decodes to: 2^28 pixels (16384 x 16384, 1 GiB of 32-bit pixels). Their
+/// size comes from the header alone, so without a budget a file of a few
+/// bytes had gigabytes cleared before any of its data was read.
+pub const MAX_COMPRESSED_PIXELS: u64 = 1 << 28;
+
+/// A file shorter than the pixel data its header describes still decodes,
+/// the missing pixels zero (stb_image reads zeros past the end), while the
+/// picture has at most this many pixels (4096 x 4096). A larger picture the
+/// file cannot hold is not decoded: its buffer would be sized by the header
+/// alone.
+pub const MAX_TRUNCATED_PIXELS: u64 = 1 << 24;
+
+/// A `w` x `h` compressed picture is within [`MAX_COMPRESSED_PIXELS`].
+pub fn within_budget(w: u64, h: u64) -> bool {
+    w.saturating_mul(h) <= MAX_COMPRESSED_PIXELS
+}
+
+/// The file holds the `needed` bytes of a picture of `pixels` pixels, or the
+/// picture is small enough to decode with its missing part zero
+/// ([`MAX_TRUNCATED_PIXELS`]).
+pub fn data_fits(pixels: u64, needed: u64, available: u64) -> bool {
+    needed <= available || pixels <= MAX_TRUNCATED_PIXELS
+}
 
 /// `stbi__mul2sizes_valid`
 fn mul2_valid(a: i64, b: i64) -> bool {
@@ -328,6 +358,12 @@ pub fn bmp_load(s: &mut Ctx) -> Option<Rgba> {
     if !mad3_valid(4, w as i64, h as i64) {
         return None;
     }
+    // uncompressed rows of 4-byte multiples (the last one may lack its padding)
+    let row_bytes = (u64::from(img_x) * info.bpp.max(0) as u64).div_ceil(8);
+    let needed = if h == 0 { 0 } else { row_bytes.next_multiple_of(4) * (h as u64 - 1) + row_bytes };
+    if !data_fits(w as u64 * h as u64, needed, s.left_from(offset.max(0) as usize)) {
+        return None;
+    }
     let mut out = alloc(4 * w * h)?;
     let mut z = 0usize;
     if info.bpp < 16 {
@@ -575,6 +611,14 @@ pub fn tga_load(s: &mut Ctx) -> Option<Rgba> {
         tga_get_comp(bits_per_pixel, image_type == 3)
     };
     if comp == 0 || !mad3_valid(width as i64, height as i64, comp as i64) {
+        return None;
+    }
+    // bytes of one pixel in the file, and what the smallest file of this picture holds:
+    // every pixel (uncompressed) or one run of 128 pixels per packet (run-length)
+    let pixels = width as u64 * height as u64;
+    let stored = if indexed || rgb16 { (bits_per_pixel as u64).div_ceil(8).max(1) } else { comp as u64 };
+    let needed = if is_rle { pixels.div_ceil(128) * (1 + stored) } else { pixels * stored };
+    if (is_rle && !within_budget(width as u64, height as u64)) || !data_fits(pixels, needed, s.left_from(18)) {
         return None;
     }
     let mut data = alloc(width * height * comp)?;
@@ -890,6 +934,10 @@ pub fn gif_load(s: &mut Ctx) -> Option<Rgba> {
     if !mad3_valid(4, g.w as i64, g.h as i64) {
         return None;
     }
+    // (the frames may cover a small part of the picture: its size is the header's alone)
+    if !within_budget(g.w as u64, g.h as u64) {
+        return None;
+    }
     let pcount = (g.w * g.h) as usize;
     g.out = alloc(4 * pcount)?;
     g.history = alloc(pcount)?;
@@ -1048,6 +1096,10 @@ pub fn pnm_load(s: &mut Ctx) -> Option<Rgba> {
     }
     let (w, h) = (x as usize, y as usize);
     if !mad3_valid(comp as i64, w as i64, h as i64) || !mul2_valid((comp * w * h) as i64, bytes) {
+        return None;
+    }
+    let needed = (comp * w * h) as u64 * bytes as u64;
+    if !data_fits(w as u64 * h as u64, needed, s.left_from(s.consumed() as usize)) {
         return None;
     }
     let mut raw = alloc(comp * w * h * bytes as usize)?;

@@ -65,6 +65,22 @@ impl CRand {
         ((self.state >> 16) & 0x7fff) as i32
     }
 
+    /// Moves on `n` calls of [`Self::rand`] (the LCG jumped ahead in log n steps).
+    pub fn skip(&mut self, mut n: u64) {
+        let (mut mul, mut add) = (214013u32, 2531011u32);
+        let (mut acc_mul, mut acc_add) = (1u32, 0u32);
+        while n > 0 {
+            if n & 1 != 0 {
+                acc_mul = acc_mul.wrapping_mul(mul);
+                acc_add = acc_add.wrapping_mul(mul).wrapping_add(add);
+            }
+            add = mul.wrapping_add(1).wrapping_mul(add);
+            mul = mul.wrapping_mul(mul);
+            n >>= 1;
+        }
+        self.state = acc_mul.wrapping_mul(self.state).wrapping_add(acc_add);
+    }
+
     fn white(&mut self) -> f64 {
         (self.rand() as f64 / RAND_MAX as f64) * 2.0 - 1.0
     }
@@ -411,13 +427,7 @@ fn sample_wave(voice: &mut Voice, rng: &mut CRand, phase: f64, st: &mut NoteStat
 
 /// x86 `cvttsd2si` (C/C++ double -> int32 cast): truncates toward zero;
 /// NaN and out-of-range values give 0x80000000 instead of saturating.
-pub fn cvtt_i32(x: f64) -> i32 {
-    if x.is_nan() || x >= 2147483648.0 || x <= -2147483649.0 {
-        i32::MIN
-    } else {
-        x as i32
-    }
-}
+pub use qb_float80::conv::cvttsd2si as cvtt_i32;
 
 /// `(int32)(length * rate)`, at least 1 frame.
 pub fn frames_for(rate: u32, length: f64) -> usize {
@@ -429,32 +439,111 @@ pub fn frames_for(rate: u32, length: f64) -> usize {
     }
 }
 
+/// A note being generated: the waveform of [`generate_waveform`] frame by
+/// frame, so a long note (`SOUND 440, 65535` lasts an hour) is rendered a
+/// block at a time while it plays instead of all at once.
+pub struct NoteGen {
+    voice: Voice,
+    rng: CRand,
+    rate: u32,
+    length: f64,
+    volume_multiplier: f64,
+    phase_inc: f64,
+    /// The waveform is sampled (else the frames are silent).
+    sampled: bool,
+    st: NoteState,
+    phase: f64,
+    next: usize,
+    frames: usize,
+}
+
+impl NoteGen {
+    /// Frequencies of 20000 Hz and above give silence (QuickBASIC behaviour).
+    pub fn new(voice: Voice, rng: CRand, rate: u32, frequency: f64, length: f64, volume: f64) -> Self {
+        let frames = frames_for(rate, length);
+        let noise = matches!(voice.waveform, Waveform::WhiteNoise | Waveform::PinkNoise | Waveform::BrownNoise | Waveform::LfsrNoise);
+        let sampled = frequency < 20000.0 && (frequency > 0.0 || noise);
+        let phase_inc = if rate > 0 { frequency / rate as f64 } else { 0.0 };
+        NoteGen { voice, rng, rate, length, volume_multiplier: volume * 32767.0, phase_inc, sampled, st: NoteState::default(), phase: 0.0, next: 0, frames }
+    }
+
+    pub fn frames(&self) -> usize {
+        self.frames
+    }
+
+    /// Frames not generated yet.
+    pub fn remaining(&self) -> usize {
+        self.frames - self.next
+    }
+
+    /// Writes the next `out.len() / 2` frames (at most [`Self::remaining`]);
+    /// returns how many.
+    pub fn fill(&mut self, out: &mut [i16]) -> usize {
+        let n = (out.len() / 2).min(self.remaining());
+        if !self.sampled {
+            out[..2 * n].fill(0);
+            self.next += n;
+            return n;
+        }
+        for f in out[..2 * n].as_chunks_mut::<2>().0 {
+            let t = self.next as f64 / self.rate as f64;
+            let env = envelope_amplitude(&self.voice.envelope, self.length, t);
+            let w = sample_wave(&mut self.voice, &mut self.rng, self.phase - self.phase.floor(), &mut self.st);
+            // (float * float) * double, converted like the C++ cast to int16
+            let x = cvtt_i32((w * env) as f64 * self.volume_multiplier) as i16;
+            *f = [x, x];
+            self.phase += self.phase_inc;
+            self.next += 1;
+        }
+        n
+    }
+
+    /// Moves `voice` and `rng` on as generating the whole note would (the
+    /// noise generators draw one value per frame), without generating it.
+    pub fn advance_past(&self, voice: &mut Voice, rng: &mut CRand) {
+        if !self.sampled {
+            return;
+        }
+        let n = self.frames as u64;
+        match voice.waveform {
+            Waveform::WhiteNoise | Waveform::PinkNoise | Waveform::BrownNoise => rng.skip(n),
+            Waveform::LfsrNoise => voice.lfsr = lfsr_skip(voice.lfsr, n),
+            _ => {}
+        }
+    }
+}
+
+/// `n` steps of [`next_lfsr`]. The register is 16 bits after its first step
+/// and the step is a permutation of those, so the state cycles: the steps
+/// wrap at the length of the cycle.
+fn lfsr_skip(mut lfsr: u32, n: u64) -> u32 {
+    if n == 0 {
+        return lfsr;
+    }
+    next_lfsr(&mut lfsr);
+    let start = lfsr;
+    let mut done = 1u64;
+    while done < n {
+        next_lfsr(&mut lfsr);
+        done += 1;
+        if lfsr == start {
+            for _ in 0..(n - done) % (done - 1) {
+                next_lfsr(&mut lfsr);
+            }
+            return lfsr;
+        }
+    }
+    lfsr
+}
+
 /// Generates `frames_for(rate, length)` interleaved 16-bit stereo frames.
 /// Frequencies of 20000 Hz and above give silence (QuickBASIC behaviour).
 pub fn generate_waveform(voice: &mut Voice, rng: &mut CRand, rate: u32, frequency: f64, length: f64, volume: f64) -> Vec<i16> {
-    let frames = frames_for(rate, length);
-    let mut out = vec![0i16; frames * 2];
-    if !(frequency < 20000.0) {
-        return out;
-    }
-    let volume_multiplier = volume * 32767.0;
-    let phase_inc = if rate > 0 { frequency / rate as f64 } else { 0.0 };
-    let noise = matches!(voice.waveform, Waveform::WhiteNoise | Waveform::PinkNoise | Waveform::BrownNoise | Waveform::LfsrNoise);
-    let mut st = NoteState::default();
-    let mut phase = 0.0f64;
-    for i in 0..frames {
-        let t = i as f64 / rate as f64;
-        let env = envelope_amplitude(&voice.envelope, length, t);
-        let mut w = 0.0f32;
-        if frequency > 0.0 || noise {
-            w = sample_wave(voice, rng, phase - phase.floor(), &mut st);
-        }
-        // (float * float) * double, converted like the C++ cast to int16
-        let x = cvtt_i32((w * env) as f64 * volume_multiplier) as i16;
-        out[2 * i] = x;
-        out[2 * i + 1] = x;
-        phase += phase_inc;
-    }
+    let mut g = NoteGen::new(std::mem::take(voice), rng.clone(), rate, frequency, length, volume);
+    let mut out = vec![0i16; g.frames() * 2];
+    g.fill(&mut out);
+    *voice = g.voice;
+    *rng = g.rng;
     out
 }
 
@@ -548,6 +637,45 @@ mod tests {
         let mut v = Voice { waveform: Waveform::Square, envelope: Envelope { attack: 0.0, decay: 0.0, sustain: 1.0, release: 0.0 }, ..Voice::default() };
         let w = generate_waveform(&mut v, &mut CRand::default(), 8000, 1000.0, 0.01, 1e6);
         assert_eq!(w[0], 0); // 32767e6 does not fit in int32: low 16 bits of 0x80000000
+    }
+
+    #[test]
+    fn crand_and_lfsr_jump_ahead() {
+        for n in [0u64, 1, 2, 7, 1000, 65534, 65535, 65536, 200_001] {
+            let (mut a, mut b) = (CRand::default(), CRand::default());
+            for _ in 0..n {
+                a.rand();
+            }
+            b.skip(n);
+            assert_eq!(a.rand(), b.rand(), "{n}");
+            let mut l = 0xACE1u32;
+            for _ in 0..n {
+                next_lfsr(&mut l);
+            }
+            assert_eq!(lfsr_skip(0xACE1, n), l, "{n}");
+        }
+    }
+
+    /// A note generated in pieces is the note generated at once, and leaves
+    /// the voice and the random generator as it would.
+    #[test]
+    fn note_in_pieces_matches_whole_note() {
+        for w in [Waveform::Triangle, Waveform::WhiteNoise, Waveform::PinkNoise, Waveform::LfsrNoise] {
+            let mut v = Voice { waveform: w, ..Voice::default() };
+            let mut r = CRand::default();
+            let whole = generate_waveform(&mut v.clone(), &mut r.clone(), 8000, 440.0, 0.7, 0.5);
+            let mut g = NoteGen::new(v.clone(), r.clone(), 8000, 440.0, 0.7, 0.5);
+            g.advance_past(&mut v, &mut r);
+            let mut parts = Vec::new();
+            let mut buf = vec![0i16; 2 * 333];
+            while g.remaining() > 0 {
+                let n = g.fill(&mut buf);
+                parts.extend_from_slice(&buf[..2 * n]);
+            }
+            assert_eq!(parts, whole);
+            assert_eq!(v.lfsr, g.voice.lfsr);
+            assert_eq!(r.rand(), g.rng.rand());
+        }
     }
 
     #[test]

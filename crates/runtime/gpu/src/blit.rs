@@ -195,6 +195,25 @@ impl Blitter {
         self.format
     }
 
+    /// Fills `frame` with black.
+    pub fn clear(&self, gpu: &Gpu, frame: &Frame) {
+        let mut enc = gpu.device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("qb-gpu clear") });
+        enc.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: Some("qb-gpu clear"),
+            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                view: &frame.view,
+                depth_slice: None,
+                resolve_target: None,
+                ops: wgpu::Operations { load: wgpu::LoadOp::Clear(wgpu::Color::BLACK), store: wgpu::StoreOp::Store },
+            })],
+            depth_stencil_attachment: None,
+            timestamp_writes: None,
+            occlusion_query_set: None,
+            multiview_mask: None,
+        });
+        gpu.queue.submit([enc.finish()]);
+    }
+
     /// Uploads `pixels` (`width`×`height`, `0xAARRGGBB`) and draws them into
     /// `frame` at the rectangle [`fit_rect`] gives for [`Blitter::fit`].
     pub fn draw(&mut self, gpu: &Gpu, frame: &Frame, pixels: &[u32], width: u32, height: u32) {
@@ -206,6 +225,8 @@ impl Blitter {
     /// target pixels; parts outside the target are clipped). Black elsewhere.
     pub fn draw_rect(&mut self, gpu: &Gpu, frame: &Frame, pixels: &[u32], width: u32, height: u32, rect: (i32, i32, u32, u32)) {
         if width == 0 || height == 0 {
+            // (nothing to show: the frame is black, not what its texture held)
+            self.clear(gpu, frame);
             return;
         }
         // short data padded; a framebuffer above the device limit is scaled down

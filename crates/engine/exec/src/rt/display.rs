@@ -706,6 +706,9 @@ impl Display {
                 return fw * text.len() as i32;
             }
             let fh = self.font_metric(f, true);
+            if let Some(w) = self.measure_printable(f as u32, fh, text) {
+                return w;
+            }
             let tmp = self.newimage(65535, fh, 32, 1);
             let Some(t) = self.resolve(tmp) else { return 0 };
             let (ow, or) = (self.write_index, self.read_index);
@@ -728,6 +731,34 @@ impl Display {
             self.read_index = or;
             if xpos == 0 { 0 } else { xpos + 1 }
         }
+    }
+
+    /// The width the image method of [`Self::printwidth`] finds for `text` in
+    /// the proportional font `f`, from the glyph widths alone, when it is sure
+    /// to be the same: no control characters, no Unicode font, every glyph
+    /// one with rows, and no wrap at the image's 65535 pixels. In such an
+    /// image (32-bit, `_FILLBACKGROUND`, opaque black background) every pixel
+    /// of a character cell is non-zero, so the method finds the end of the
+    /// last cell. None: measure with the image. This spares makefit (every
+    /// PRINT item) a 65535-pixel-wide image per call.
+    fn measure_printable(&self, f: u32, fh: i32, text: &[u8]) -> Option<i32> {
+        let flags = *self.fontflags.get(f as usize)?;
+        if fh <= 0 || flags & 32 != 0 || text.iter().any(|&c| c < 32) {
+            return None;
+        }
+        let mut x = 0i32;
+        for &c in text {
+            let r = self.render(f, u32::from(c), flags & 8 != 0)?;
+            if r.h <= 0 && r.w > 0 {
+                return None;
+            }
+            // (the cursor at column x + 1 wraps when x + 1 + width > 65535)
+            if x + 1 + r.w > 65535 {
+                return None;
+            }
+            x += r.w;
+        }
+        Some(if x <= 1 { 0 } else { x })
     }
 
     /// `chrwidth_custom`
@@ -971,8 +1002,10 @@ impl Display {
         // SAFETY: caller passes valid surfaces.
         unsafe {
             (*w).top_row = 1;
+            // (rows of the font's height, as QB64: the font number is the height
+            // only for the built-in 8, 14 and 16; _LOADFONT handles are 32 and up)
             (*w).bottom_row = if (*w).text == 0 {
-                ((*w).height as u32 / (*w).font.max(1)) as i16
+                (i32::from((*w).height) / self.fontheight.get((*w).font as usize).copied().unwrap_or(0).max(1)) as i16
             } else {
                 (*w).height as i16
             };

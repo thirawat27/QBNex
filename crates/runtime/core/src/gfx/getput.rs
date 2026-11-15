@@ -108,7 +108,9 @@ pub unsafe fn graphics_get(
             // Legacy checked (w+7)>>3 bytes per row but writes (2w+7)>>3,
             // overrunning arrays sized by the check.
             let z = (w.wrapping_mul(2).wrapping_add(7)) >> 3;
-            if z.wrapping_mul(h).wrapping_add(4) > len {
+            // the header holds the width in bits: a wider picture cannot be
+            // described (it used to be stored truncated, and PUT drew garbage)
+            if z.wrapping_mul(h).wrapping_add(4) > len || w * 2 > 0xFFFF {
                 return ERR;
             }
             unsafe {
@@ -182,7 +184,8 @@ pub unsafe fn graphics_get(
         }
         8 => {
             mask &= 255;
-            if w.wrapping_mul(h).wrapping_add(4) > len {
+            // (the header holds the width in bits, as for 2-bit pixels)
+            if w.wrapping_mul(h).wrapping_add(4) > len || w * 8 > 0xFFFF {
                 return ERR;
             }
             unsafe {
@@ -491,6 +494,21 @@ mod tests {
             assert_eq!(r, ERR_ILLEGAL_FUNCTION_CALL, "mode {mode}");
             let r = unsafe { graphics_put(&mut a.img, 2e9, 0.0, hdr.as_ptr(), 64, 0, 0, 0) };
             assert_eq!(r, ERR_ILLEGAL_FUNCTION_CALL, "mode {mode}");
+        }
+    }
+
+    /// The header width is in bits for 2- and 8-bit pixels: a picture too
+    /// wide for its 16 bits is error 5, not a truncated header.
+    #[test]
+    fn get_width_must_fit_the_header() {
+        for (mode, max) in [(13u16, 8191i32), (1, 32767)] {
+            let mut a = TestImage::new(20, 10, mode);
+            let mut buf = vec![0u8; 70_000 * 2];
+            let get = |a: &mut TestImage, buf: &mut Vec<u8>, w: i32| unsafe { graphics_get(&mut a.img, 0.0, 0.0, (w - 1) as f32, 0.0, buf.as_mut_ptr(), buf.len() as i32, 0, 4) };
+            assert_eq!(get(&mut a, &mut buf, max), 0, "mode {mode}");
+            let hw = u16::from_le_bytes([buf[0], buf[1]]) as i32;
+            assert_eq!(hw, if mode == 13 { max * 8 } else { max * 2 });
+            assert_eq!(get(&mut a, &mut buf, max + 1), ERR_ILLEGAL_FUNCTION_CALL, "mode {mode}");
         }
     }
 

@@ -16,7 +16,8 @@
 //! CID, PFR, Type 42, Windows FNT/FON, PCF and BDF fonts, and embedded
 //! bitmap strikes.
 
-use std::sync::Mutex;
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
 
 use skrifa::instance::{LocationRef, Size};
 use skrifa::outline::{
@@ -405,9 +406,36 @@ struct Font {
     baseline: i32,
     monospace: bool,
     monospace_width: i32,
+    /// Glyphs rendered so far, by (code point, monochrome): text repeats a
+    /// few characters, and each used to be loaded, hinted and rasterised
+    /// again for every character printed. Bounded by [`GLYPH_CACHE_BYTES`].
+    cache: HashMap<(u32, bool), Arc<GlyphBitmap>>,
+    cache_bytes: usize,
 }
 
+/// Most bitmap bytes a font keeps in its glyph cache; when a new glyph would
+/// pass it the cache starts again empty.
+const GLYPH_CACHE_BYTES: usize = 8 << 20;
+
 impl Font {
+    /// [`Self::glyph`], from the cache when the glyph was rendered before.
+    fn cached_glyph(&mut self, codepoint: u32, mono: bool) -> Arc<GlyphBitmap> {
+        if let Some(g) = self.cache.get(&(codepoint, mono)) {
+            return g.clone();
+        }
+        let g = Arc::new(self.glyph(codepoint, mono));
+        let bytes = g.data.len() + 64;
+        if self.cache_bytes + bytes > GLYPH_CACHE_BYTES {
+            self.cache.clear();
+            self.cache_bytes = 0;
+        }
+        if bytes <= GLYPH_CACHE_BYTES {
+            self.cache.insert((codepoint, mono), g.clone());
+            self.cache_bytes += bytes;
+        }
+        g
+    }
+
     fn face(&self) -> Option<FontRef<'_>> {
         FontRef::from_index(&self.data, self.index).ok()
     }
@@ -618,11 +646,13 @@ pub fn load(content: &[u8], default_pixel_height: i32, which_font: i32, options:
         fixed_pitch,
         monospace: false,
         monospace_width: 0,
+        cache: HashMap::new(),
+        cache_bytes: 0,
     };
     if options & 16 != 0 {
         // the width of capital W, rendered in monochrome
         // None: a font whose advance makes one cell larger than any string may be
-        let Some(r) = render_font(&font, &[87], 1) else { return 0 };
+        let Some(r) = render_font(&mut font, &[87], 1) else { return 0 };
         font.monospace_width = r.w;
         font.monospace = true;
     }
@@ -648,8 +678,8 @@ pub fn width(i: i32) -> i32 {
 /// `FontRenderTextUTF32`: `None` = failure (return 0).
 /// `options`: 1 = monochrome (0 or 255 per pixel).
 pub fn render(i: i32, codepoints: &[u32], options: i32) -> Option<Rendered> {
-    let fonts = table();
-    let font = fonts.get(i as usize)?.as_ref()?;
+    let mut fonts = table();
+    let font = fonts.get_mut(i as usize)?.as_mut()?;
     render_font(font, codepoints, options)
 }
 
@@ -666,7 +696,7 @@ fn cell_buffer(w: i32, h: i32) -> Option<Vec<u8>> {
     Some(v)
 }
 
-fn render_font(font: &Font, codepoints: &[u32], options: i32) -> Option<Rendered> {
+fn render_font(font: &mut Font, codepoints: &[u32], options: i32) -> Option<Rendered> {
     let h2 = font.default_pixel_height;
     if codepoints.is_empty() {
         return Some(Rendered {
@@ -681,8 +711,11 @@ fn render_font(font: &Font, codepoints: &[u32], options: i32) -> Option<Rendered
     let mut pre_increment = 0;
     let mut parts: Vec<(Vec<u8>, i32, i32)> = Vec::with_capacity(codepoints.len());
     let (mut codepoint_w, mut codepoint_ox) = (0i32, 0i32);
+    // pixels of the cells allocated so far: the string's cell is about their
+    // sum, so a string too large to render fails before all of them exist
+    let mut parts_area = 0usize;
     for (ci, &cp) in codepoints.iter().enumerate() {
-        let g = font.glyph(cp, mono);
+        let g = font.cached_glyph(cp, mono);
         let (w1, h1) = (g.width, g.rows);
         let mut ox = g.left;
         // (a negative advance ends up as w1 below either way)
@@ -704,6 +737,10 @@ fn render_font(font: &Font, codepoints: &[u32], options: i32) -> Option<Rendered
             w2 = font.monospace_width;
             ox = 0;
             ox2 = w2 / 2 - w1 / 2;
+        }
+        parts_area = parts_area.checked_add((w2.max(0) as usize).checked_mul(h2.max(0) as usize)?)?;
+        if parts_area > STRING_MAX_AREA {
+            return None;
         }
         let mut data2 = cell_buffer(w2, h2)?;
         let oy2 = font.baseline - g.top;
@@ -972,6 +1009,30 @@ mod tests {
             .data
             .iter()
             .all(|&v| v == 0 || v == 255));
+        free(h);
+    }
+
+    /// Glyphs come from the cache after their first use: the same pixels as
+    /// rendering them again, for both renderings and after the cache is reset.
+    #[test]
+    fn glyph_cache_gives_the_same_glyphs() {
+        let _g = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+        let data = font_file("NotoSans-Subset.ttf");
+        let h = load(&data, 20, -1, 0);
+        let first: Vec<_> = (32..127).map(|c| (render(h, &[c], 0), render(h, &[c], 1))).collect();
+        let string = render(h, &(32..127).collect::<Vec<u32>>(), 0);
+        {
+            let mut fonts = table();
+            let f = fonts[h as usize].as_mut().unwrap();
+            assert!(!f.cache.is_empty());
+            let fresh = f.glyph(72, false);
+            assert_eq!(*f.cached_glyph(72, false), fresh);
+            f.cache.clear();
+            f.cache_bytes = 0;
+        }
+        let again: Vec<_> = (32..127).map(|c| (render(h, &[c], 0), render(h, &[c], 1))).collect();
+        assert_eq!(first, again);
+        assert_eq!(render(h, &(32..127).collect::<Vec<u32>>(), 0), string);
         free(h);
     }
 }

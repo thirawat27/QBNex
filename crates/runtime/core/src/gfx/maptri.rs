@@ -111,28 +111,31 @@ pub unsafe fn maptriangle(
         }
         let _ = (rhs, bottom);
         let mut z = false;
+        // (32-bit two's complement as legacy: a source 32768 or more pixels
+        // wide or high has a negative swidth2/sheight2, whose negation
+        // overflowed and panicked)
         if lhs < 0 {
-            let v = ((lhs + 1) / -swidth2 + 1).wrapping_mul(swidth2);
+            let v = ((lhs + 1).wrapping_div(swidth2.wrapping_neg()) + 1).wrapping_mul(swidth2);
             for tp in &mut p[1..4] {
                 tp.tx = tp.tx.wrapping_add(v);
             }
             z = true;
         } else if lhs >= swidth2 {
-            let v = (lhs / swidth2).wrapping_mul(swidth2);
+            let v = lhs.wrapping_div(swidth2).wrapping_mul(swidth2);
             for tp in &mut p[1..4] {
                 tp.tx = tp.tx.wrapping_sub(v);
             }
             z = true;
         }
         if top < 0 {
-            let v = ((top + 1) / -sheight2 + 1).wrapping_mul(sheight2);
+            let v = ((top + 1).wrapping_div(sheight2.wrapping_neg()) + 1).wrapping_mul(sheight2);
             for tp in &mut p[1..4] {
                 tp.ty = tp.ty.wrapping_add(v);
             }
             z = true;
         } else if top >= swidth2 {
             // legacy compares with the width here
-            let v = (top / sheight2).wrapping_mul(sheight2);
+            let v = top.wrapping_div(sheight2).wrapping_mul(sheight2);
             for tp in &mut p[1..4] {
                 tp.ty = tp.ty.wrapping_sub(v);
             }
@@ -549,6 +552,19 @@ mod tests {
         let d = TestImage::new(16, 16, 32);
         unsafe { maptriangle(&s.img, &d.img, [0.0, 0.0, 7.0, 0.0, 0.0, 7.0], [0.0, 0.0, 14.0, 0.0, 0.0, 14.0], false) };
         assert_eq!(d.p32(0, 0), 0xFF00_0001);
+    }
+
+    /// A source 32768 pixels or more wide or high tiles in 32-bit two's
+    /// complement like legacy instead of overflowing.
+    #[test]
+    fn very_wide_source_does_not_overflow() {
+        let d = TestImage::new(16, 16, 32);
+        for (w, h) in [(32768, 1), (1, 32768), (65535, 2)] {
+            let s = TestImage::new(w, h, 32);
+            let tiled = [-3.0, -3.0, 7.0, 0.0, 0.0, 7.0];
+            let r = unsafe { maptriangle(&s.img, &d.img, tiled, [0.0, 0.0, 7.0, 0.0, 0.0, 7.0], false) };
+            assert_eq!(r, 0, "{w}x{h}");
+        }
     }
 
     #[test]

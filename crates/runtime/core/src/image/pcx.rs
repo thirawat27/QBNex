@@ -347,7 +347,7 @@ pub fn decode(data: &[u8]) -> Option<(u32, u32, Vec<u8>)> {
     // for its picture by that measure is not decoded, instead of clearing gigabytes for
     // a file of 128 bytes.
     const MAX_OUTPUT_PER_INPUT_BYTE: usize = 63 * 8 * 4;
-    if size / MAX_OUTPUT_PER_INPUT_BYTE > data.len() {
+    if size / MAX_OUTPUT_PER_INPUT_BYTE > data.len() || !super::stb::within_budget(width as u64, height as u64) {
         return None;
     }
     // calloc in dr_pcx: allocation failure is a decode failure, not an abort.

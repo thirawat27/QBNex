@@ -144,10 +144,9 @@ pub fn win_screenclick(x: i32, y: i32, button: i32, passed: bool, screen_w: i32,
     // Legacy: fx = x * (65535.0f / width), stored into a LONG (truncation).
     let scale = |v: i32, size: i32| (f64::from(v) * (65535.0f64 / f64::from(size))) as i32;
     let m = |flags| Mouse { flags, dx: 0, dy: 0 };
-    let mut ev = vec![
-        Mouse { flags: MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_MOVE, dx: scale(x, screen_w), dy: scale(y, screen_h) },
-        m(MOUSEEVENTF_LEFTDOWN),
-    ];
+    // (legacy also pressed the left button before the requested one and never
+    // released it: `_SCREENCLICK x, y, 2` left the left button held down)
+    let mut ev = vec![Mouse { flags: MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_MOVE, dx: scale(x, screen_w), dy: scale(y, screen_h) }];
     if passed {
         let (down, up) = match button {
             1 => (MOUSEEVENTF_LEFTDOWN, MOUSEEVENTF_LEFTUP),
@@ -633,20 +632,22 @@ mod tests {
     fn click_sends_move_then_buttons() {
         let mv = Mouse { flags: MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_MOVE, dx: 32767, dy: 32767 };
         let m = |flags| Mouse { flags, dx: 0, dy: 0 };
-        // Legacy always presses the left button once before the requested one.
+        // one press and release of the button (legacy pressed the left one first
+        // and left it down)
         assert_eq!(
             win_screenclick(400, 300, 0, false, 800, 600),
-            [mv, m(MOUSEEVENTF_LEFTDOWN), m(MOUSEEVENTF_LEFTDOWN), m(MOUSEEVENTF_LEFTUP)]
+            [mv, m(MOUSEEVENTF_LEFTDOWN), m(MOUSEEVENTF_LEFTUP)]
         );
         assert_eq!(
             win_screenclick(400, 300, 2, true, 800, 600),
-            [mv, m(MOUSEEVENTF_LEFTDOWN), m(MOUSEEVENTF_RIGHTDOWN), m(MOUSEEVENTF_RIGHTUP)]
+            [mv, m(MOUSEEVENTF_RIGHTDOWN), m(MOUSEEVENTF_RIGHTUP)]
         );
         assert_eq!(
-            win_screenclick(400, 300, 3, true, 800, 600)[2..],
+            win_screenclick(400, 300, 3, true, 800, 600)[1..],
             [m(MOUSEEVENTF_MIDDLEDOWN), m(MOUSEEVENTF_MIDDLEUP)]
         );
-        assert_eq!(win_screenclick(400, 300, 7, true, 800, 600)[2..], [m(0), m(0)]);
+        assert_eq!(win_screenclick(400, 300, 1, true, 800, 600)[1..], [m(MOUSEEVENTF_LEFTDOWN), m(MOUSEEVENTF_LEFTUP)]);
+        assert_eq!(win_screenclick(400, 300, 7, true, 800, 600)[1..], [m(0), m(0)]);
         assert_eq!(win_screenclick(1, 1, 1, true, 3, 3)[0], Mouse { dx: 21845, dy: 21845, ..mv });
         assert_eq!(win_screenclick(-1, 10_000, 1, true, 1024, 768)[0], Mouse { dx: -63, dy: 853_320, ..mv });
     }

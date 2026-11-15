@@ -6,7 +6,19 @@
 //! - JPEG: lossy; the IDCT and chroma upsampling differ from stb_image, so
 //!   pixels may differ slightly (documented deviation).
 
-use super::stb::{mad3_valid, Ctx, Rgba, MAX_DIMENSIONS};
+use super::stb::{mad3_valid, within_budget, Ctx, Rgba, MAX_DIMENSIONS};
+
+/// Most bytes deflate can expand one compressed byte to (a stream of
+/// back-references of length 258 costs at least two bits each, plus slack
+/// for the block headers): a picture whose filtered rows need more than this
+/// times the size of its IDAT data cannot be in the file.
+const DEFLATE_MAX_RATIO: u64 = 1032;
+
+/// The `png` crate's own allocation limit (lines, text and ICC chunks): room
+/// for a row of a picture of [`super::stb::MAX_COMPRESSED_PIXELS`] in 16-bit
+/// RGBA and for the metadata of real files, without letting a compressed text
+/// chunk expand to gigabytes.
+const PNG_DECODER_LIMIT: usize = 256 << 20;
 
 pub fn png_test(d: &[u8]) -> bool {
     d.starts_with(b"\x89PNG\r\n\x1a\n")
@@ -15,50 +27,64 @@ pub fn png_test(d: &[u8]) -> bool {
 /// The palette and transparency chunks stb 2.27 accepted: PLTE of 1 to 256 whole
 /// entries, tRNS after PLTE and no longer than it, and the tRNS sizes of grey (2)
 /// and RGB (6) images. The png crate panics on a PLTE that is not whole entries.
-fn png_chunks_valid(d: &[u8]) -> bool {
+/// Also returns the bytes of IDAT data in the file (`None`: not valid).
+fn png_chunks_valid(d: &[u8]) -> Option<u64> {
     let color_type = d.get(25).copied().unwrap_or(0);
     let mut plte: Option<usize> = None;
+    let mut idat = 0u64;
     let mut i = 8usize;
     while let Some(h) = d.get(i..i + 8) {
         let len = u32::from_be_bytes([h[0], h[1], h[2], h[3]]) as usize;
         match &h[4..8] {
             b"PLTE" => {
                 if !len.is_multiple_of(3) || len == 0 || len > 768 {
-                    return false;
+                    return None;
                 }
                 plte = Some(len / 3);
             }
             b"tRNS" => match color_type {
-                3 if plte.is_none_or(|n| len > n) => return false,
-                0 if len != 2 => return false,
-                2 if len != 6 => return false,
+                3 if plte.is_none_or(|n| len > n) => return None,
+                0 if len != 2 => return None,
+                2 if len != 6 => return None,
                 _ => {}
             },
+            // (a chunk may claim more than the file has: count what is there)
+            b"IDAT" => idat += (len as u64).min(d.len().saturating_sub(i + 8) as u64),
             b"IEND" => break,
             _ => {}
         }
-        i = match i.checked_add(12 + len) {
+        // (12 + len overflows a 32-bit usize for a length near 4 GiB)
+        i = match len.checked_add(12).and_then(|n| i.checked_add(n)) {
             Some(n) => n,
             None => break,
         };
     }
-    true
+    Some(idat)
 }
 
 pub fn png_load(d: &[u8]) -> Option<Rgba> {
-    if !png_chunks_valid(d) {
-        return None;
-    }
+    let idat = png_chunks_valid(d)?;
     let mut dec = png::Decoder::new(std::io::Cursor::new(d));
-    dec.set_limits(png::Limits { bytes: usize::MAX });
+    dec.set_limits(png::Limits { bytes: PNG_DECODER_LIMIT });
     dec.ignore_checksums(true);
     dec.set_transformations(png::Transformations::EXPAND);
     let mut reader = dec.read_info().ok()?;
-    let (w, h) = {
+    let (w, h, raw_bits) = {
         let info = reader.info();
-        (info.width, info.height)
+        let samples: u64 = match info.color_type {
+            png::ColorType::Grayscale | png::ColorType::Indexed => 1,
+            png::ColorType::GrayscaleAlpha => 2,
+            png::ColorType::Rgb => 3,
+            png::ColorType::Rgba => 4,
+        };
+        (info.width, info.height, samples * info.bit_depth as u64)
     };
-    if w > MAX_DIMENSIONS || h > MAX_DIMENSIONS || !mad3_valid(4, w as i64, h as i64) {
+    if w > MAX_DIMENSIONS || h > MAX_DIMENSIONS || !mad3_valid(4, w as i64, h as i64) || !within_budget(w.into(), h.into()) {
+        return None;
+    }
+    // the samples (at least: rows add a filter byte each) come out of the IDAT data
+    let raw_bytes = (u64::from(w) * u64::from(h)).saturating_mul(raw_bits) / 8;
+    if raw_bytes > idat.saturating_mul(DEFLATE_MAX_RATIO).saturating_add(1024) {
         return None;
     }
     let mut buf = Vec::new();
@@ -128,7 +154,7 @@ pub fn jpeg_load(d: &[u8]) -> Option<Rgba> {
     // first, so an image too large for memory fails (like stb's malloc) instead
     // of aborting the program.
     let (fw, fh) = jpeg_frame_size(d)?;
-    if !mad3_valid(4, fw as i64, fh as i64) {
+    if !mad3_valid(4, fw as i64, fh as i64) || !within_budget(fw.into(), fh.into()) {
         return None;
     }
     let probe = (fw as usize * fh as usize).checked_mul(12)?;

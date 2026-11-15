@@ -239,6 +239,72 @@ mod tests {
         assert!(decode(&jpg).is_none());
     }
 
+    /// Allocations follow what a file can hold: a header alone no longer has
+    /// gigabytes cleared, while small truncated files still decode as before.
+    #[test]
+    fn header_sizes_are_bounded_by_the_data() {
+        // BMP 24-bit: 14 + 40 header bytes, then the pixels
+        let bmp = |w: u32, h: u32, pixels: usize| {
+            let mut f = b"BM".to_vec();
+            f.extend_from_slice(&[0; 8]);
+            f.extend_from_slice(&54u32.to_le_bytes());
+            f.extend_from_slice(&40u32.to_le_bytes());
+            f.extend_from_slice(&w.to_le_bytes());
+            f.extend_from_slice(&h.to_le_bytes());
+            f.extend_from_slice(&[1, 0, 24, 0]);
+            f.extend_from_slice(&[0; 24]);
+            f.extend(std::iter::repeat_n(0x40u8, pixels));
+            f
+        };
+        assert!(decode(&bmp(16000, 16000, 12)).is_none());
+        // the same picture with all of its rows (the last one without padding) decodes
+        let full = bmp(5, 3, 16 * 2 + 15);
+        assert_eq!(decode(&full).map(|i| (i.w, i.h)), Some((5, 3)));
+        // a small truncated picture still decodes, the missing pixels black
+        let img = decode(&bmp(5, 3, 3)).unwrap();
+        assert_eq!(img.px.len(), 5 * 3 * 4);
+        assert_eq!(&img.px[(2 * 5) * 4..(2 * 5) * 4 + 4], &[0x40, 0x40, 0x40, 255]);
+        assert_eq!(&img.px[..4], &[0, 0, 0, 255]);
+        // TGA uncompressed and run-length, 40000 x 40000 grey from 18 bytes
+        let mut tga = vec![0u8, 0, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x40, 0x9C, 0x40, 0x9C, 8, 0];
+        assert!(decode(&tga).is_none());
+        tga[2] = 11;
+        assert!(decode(&tga).is_none());
+        tga[12..16].copy_from_slice(&[4, 0, 4, 0]);
+        assert_eq!(decode(&tga).map(|i| (i.w, i.h)), Some((4, 4)));
+        // PNM: 20000 x 20000 with no data; 2 x 2 truncated still decodes
+        assert!(decode(b"P5 20000 20000 255\n").is_none());
+        assert_eq!(decode(b"P5 2 2 255\n\x01").map(|i| (i.w, i.h)), Some((2, 2)));
+        // GIF: a logical screen of 20000 x 20000 is over the pixel budget
+        let mut gif = b"GIF89a".to_vec();
+        gif.extend_from_slice(&[0x20, 0x4E, 0x20, 0x4E, 0x80, 0, 0, 0, 0, 0, 255, 255, 255]);
+        gif.extend_from_slice(&[0x2C, 0, 0, 0, 0, 1, 0, 1, 0, 0, 2, 2, 0x44, 0x01, 0, 0x3B]);
+        assert!(decode(&gif).is_none());
+        gif[6..10].copy_from_slice(&[2, 0, 1, 0]);
+        assert_eq!(decode(&gif).map(|i| (i.w, i.h)), Some((2, 1)));
+        // PNG: 16000 x 16000 RGBA from an IDAT of 10 bytes cannot be in the file
+        let chunk = |t: &[u8], body: &[u8]| [&(body.len() as u32).to_be_bytes()[..], t, body, &[0, 0, 0, 0]].concat();
+        let mut png = vec![0x89, b'P', b'N', b'G', 13, 10, 26, 10];
+        png.extend(chunk(b"IHDR", &[0, 0, 0x3E, 0x80, 0, 0, 0x3E, 0x80, 8, 6, 0, 0, 0]));
+        png.extend(chunk(b"IDAT", &[0x78, 0x9C, 3, 0, 0, 0, 0, 1, 0, 0]));
+        png.extend(chunk(b"IEND", &[]));
+        assert!(decode(&png).is_none());
+        // a chunk length near 4 GiB ends the chunk scan instead of wrapping
+        let mut odd = png.clone();
+        odd.splice(33..37, 0xFFFF_FFF8u32.to_be_bytes());
+        assert!(decode(&odd).is_none());
+    }
+
+    #[test]
+    fn pixel_budget() {
+        assert!(stb::within_budget(16384, 16384));
+        assert!(!stb::within_budget(16384, 16385));
+        assert!(!stb::within_budget(u64::MAX, 2));
+        assert!(stb::data_fits(1 << 30, 10, 10));
+        assert!(stb::data_fits(1 << 24, 10, 0));
+        assert!(!stb::data_fits((1 << 24) + 1, 10, 9));
+    }
+
     #[test]
     fn png_pixel_values_are_bgra() {
         // png_1x1.png holds RGBA (1, 2, 3, 4).

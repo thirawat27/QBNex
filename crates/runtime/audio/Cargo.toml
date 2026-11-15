@@ -16,6 +16,7 @@ name = "qb_audio"
 path = "src/lib.rs"
 
 [dependencies]
+qb-float80 = { path = "../float80" }
 symphonia = { version = "0.6", default-features = false, features = ["wav", "pcm", "adpcm", "mp3", "ogg", "vorbis", "flac"] }
 xmrs = { version = "0.15", default-features = false, features = ["std", "import_mod", "import_xm", "import_s3m", "import_it"] }
 xmrsplayer = { version = "0.15", default-features = false, features = ["std", "import_mod", "import_xm", "import_s3m", "import_it"] }
