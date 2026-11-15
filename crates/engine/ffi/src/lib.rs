@@ -9,22 +9,22 @@
 //!   `DECLARE LIBRARY "name"`, whose static `.a`/`.lib`/`.o` cannot be loaded
 //!   at run time) and loads it with `LoadLibraryW` / `dlopen`;
 //! - [`find_default_symbol`] serves a header-less `DECLARE LIBRARY` with no
-//!   name: the C runtime, the program itself and the system libraries a
+//!   name: the system runtime, the program itself and the system libraries a
 //!   QB64 program links (kernel32, user32, gdi32, ... / libc, libm);
 //! - [`call`] calls any function pointer with a [`Signature`] of QB types on
 //!   Win64, `SysV` x86-64 and `AArch64` (AAPCS64, including Apple's variant).
 //!
-//! `DECLARE LIBRARY "name"` where QB64 would find a C
+//! `DECLARE LIBRARY "name"` where QB64 would find a
 //! header (`name.h` / `name.hpp`) is rejected at compile time with
-//! [`header_error`] (documented deviation): headers may contain macros and inline
-//! C code, which only a C compiler can use.
+//! [`header_error`] (documented deviation): header files are not compiled, and
+//! the macros and inline functions they may hold are not library symbols.
 //!
 //! See `docs/dev/ffi-float80.md` for the API contract used by the
 //! emitter and the VM.
 
 #![cfg_attr(not(test), deny(clippy::unwrap_used))]
 // clippy::pedantic is clean except for the lints below. Bit-level x87
-// emulation and C ABI glue cast between integer widths on purpose (every cast
+// emulation and call glue cast between integer widths on purpose (every cast
 // is a deliberate truncation, sign reinterpretation or widening of a field),
 // and the one-letter names follow the instruction manuals (a, b, m, e, x, y).
 #![allow(
@@ -55,7 +55,7 @@ use std::fmt;
 /// `_UNSIGNED INTEGER` U16, `LONG` I32, `_UNSIGNED LONG` U32, `_INTEGER64` I64,
 /// `_UNSIGNED _INTEGER64` U64, `SINGLE` F32, `DOUBLE` F64, `_OFFSET` and every
 /// `BYREF` parameter and `BYVAL ... AS STRING` (pointer to the bytes) Ptr,
-/// `SUB` Void. `_FLOAT` has no portable C ABI and is rejected.
+/// `SUB` Void. `_FLOAT` has no portable calling convention and is rejected.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Ty {
     Void,
@@ -80,7 +80,7 @@ impl Ty {
 }
 
 /// A function type: parameter types, return type, and the index of the first
-/// variadic argument (C `...`), if any.
+/// variadic argument (the `...` of a variadic function), if any.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct Signature {
     pub args: Vec<Ty>,
@@ -209,7 +209,7 @@ fn ret_value(ty: Ty, gpr: u64, fpr: u64) -> Value {
 /// wrong kind for its slot; nothing is called then.
 ///
 /// # Safety
-/// `func` must point to a function with exactly this C signature, and every
+/// `func` must point to a function with exactly this signature, and every
 /// pointer argument must be valid for what the function does with it.
 pub unsafe fn call(func: *const c_void, sig: &Signature, args: &[Value]) -> Result<Value, CallError> {
     if func.is_null() {

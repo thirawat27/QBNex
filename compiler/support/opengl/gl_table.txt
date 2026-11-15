@@ -1,5 +1,5 @@
 # QBNex OpenGL 1.1 table for SUB _GL: the names, argument types and constants QB64 took
-# from its gl.h parsing copy, converted once to data (no C header in the repository).
+# from its gl.h parsing copy, converted once to data (no header file in the repository).
 # const NAME value | sub NAME - argtypes... | func NAME rettype argtypes...   (ptr = pointer, an _OFFSET)
 const GL_VERSION_1_1 1
 const GL_ACCUM 256

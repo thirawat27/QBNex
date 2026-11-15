@@ -1,4 +1,4 @@
-//! The three x87 transcendental primitives MinGW's `expl`/`exp2l`/`log2l` use.
+//! The three x87 transcendental primitives the legacy `expl`/`exp2l`/`log2l` use.
 //!
 //! Their hardware results are not always the correctly rounded value (about 3% of
 //! random inputs are one unit in the last place off on the reference machine, and

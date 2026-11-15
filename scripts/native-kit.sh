@@ -4,7 +4,7 @@
 # the linker command (ld.lld / ld64.lld flavor). Result: $1 (default
 # target/release/native). Use it with
 #   QBNEX_NATIVE_KIT=<dir>   or copy <dir> to native/ next to qb-exec.
-# Needs: Linux - the C library development files (libc6-dev) and the
+# Needs: Linux - the system library development files (libc6-dev) and the
 # libraries the runtime links (libasound, libudev); macOS - the Xcode command
 # line tools (SDK).
 set -eu

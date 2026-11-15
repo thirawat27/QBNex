@@ -1,5 +1,5 @@
-//! `qb_ext_*` C ABI used by the BASIC wrappers (`compiler/stdlib/ext/*.bas`,
-//! prototypes in `include/qb_ext.h`).
+//! `qb_ext_*` exported functions used by the BASIC wrappers
+//! (`compiler/stdlib/ext/*.bas`).
 //!
 //! Conventions:
 //! - Byte strings come in as (pointer, length); BASIC passes `_OFFSET(s$)`

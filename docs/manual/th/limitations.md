@@ -52,8 +52,8 @@ QBNex คอมไพล์ BASIC เป็น QIR แล้วรันด้�
 runner เรียกฟังก์ชันเป็น machine code โดยตรงผ่าน `crates/engine/ffi`
 (calling convention แบบ Win64, SysV x86-64 และ AArch64) ไม่มีโค้ดใดถูกคอมไพล์หรือ link เข้าไปในโปรแกรม จึง:
 
-- **ใช้ source หรือ header ของ C และ C++ ไม่ได้** QB64 คอมไพล์ header
-  (`name.h`) หรือ source C/C++ ที่อยู่คู่กับ `DECLARE LIBRARY "name"` เข้าไปใน
+- **ใช้ไฟล์ source หรือ header file ไม่ได้** QB64 คอมไพล์ header file
+  (`name.h`) หรือไฟล์ source ที่อยู่คู่กับ `DECLARE LIBRARY "name"` เข้าไปใน
   โปรแกรม แต่ QBNex ทำแบบนั้นไม่ได้
 - **ใช้ static library ไม่ได้** (`.a`, `.lib`, `.o`) เพราะไม่มีขั้นตอน link
 - **shared library ถูกโหลดตามชื่อ** `DECLARE LIBRARY "name"` และ
@@ -93,8 +93,8 @@ runner เรียกฟังก์ชันเป็น machine code โด�
   ถ้าหาฟังก์ชันไม่เจอ จะเกิด error 453 ตอนเรียกครั้งแรก
 - **ชนิดข้อมูล** ใช้ได้กับจำนวนเต็มทุกขนาด, SINGLE, DOUBLE, `_OFFSET`, สตริง
   (ส่งเป็น pointer ไปยังไบต์ของสตริง) และอาร์กิวเมนต์แบบ BYREF (ส่งเป็นที่อยู่)
-  ที่ยังไม่รองรับคือ `_FLOAT` ทั้งในอาร์กิวเมนต์และค่าที่คืน, ฟังก์ชัน C
-  ที่รับอาร์กิวเมนต์จำนวนไม่คงที่ และ callback จาก C กลับมาที่ BASIC
+  ที่ยังไม่รองรับคือ `_FLOAT` ทั้งในอาร์กิวเมนต์และค่าที่คืน, ฟังก์ชัน
+  ที่รับอาร์กิวเมนต์จำนวนไม่คงที่ และ callback จากโค้ดในไลบรารีกลับมาที่ BASIC
 
 ## CALL ABSOLUTE
 

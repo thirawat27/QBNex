@@ -409,7 +409,7 @@ FUNCTION IrIsInt% (t$)
     IrIsInt% = (LEFT$(t$, 1) = "i" OR LEFT$(t$, 1) = "u")
 END FUNCTION
 
-'C integer promotion
+'integer promotion (types narrower than LONG widen to LONG)
 FUNCTION IrPromote$ (t$)
     SELECT CASE t$
         CASE "i8", "u8", "i16", "u16": IrPromote$ = "i32"
@@ -417,7 +417,7 @@ FUNCTION IrPromote$ (t$)
     END SELECT
 END FUNCTION
 
-'C usual arithmetic conversions
+'usual arithmetic conversions (the common type of two operands)
 FUNCTION IrCommon$ (a$, b$)
     DIM pa$, pb$
     IF IrIsFloat(a$) OR IrIsFloat(b$) THEN
@@ -929,7 +929,7 @@ FUNCTION IrOperand$ (a$, i AS LONG, n AS LONG, typ AS LONG)
     IrOperand$ = IrI32$(0)
 END FUNCTION
 
-'applies a numeric binary C operator to (a$,ta$) and (b$,tb$)
+'applies a numeric binary operator to (a$,ta$) and (b$,tb$)
 FUNCTION IrArith$ (op$, a$, ta$, b$, tb$)
     DIM ct$, x$, y$, d$
     ct$ = IrCommon$(ta$, tb$)
@@ -1230,7 +1230,7 @@ FUNCTION IrByRefArg$ (e$, pt AS LONG, ptsize AS LONG)
 END FUNCTION
 
 'user SUB/FUNCTION call; args$ raw elements joined with CHR$(0) per argument
-'DECLARE LIBRARY function/SUB: a QIR call of the C name plus "meta extfn name lib ret args"
+'DECLARE LIBRARY function/SUB: a QIR call of the symbol name plus "meta extfn name lib ret args"
 '(BYREF and _OFFSET arguments are addresses, strings pass their characters); lib$ is "-" for DECLARE LIBRARY,
 '"opengl" for the _gl* table of SUB _GL (opengl_methods.bas: internal ccall ids; pointer args/results are i64)
 FUNCTION IrExtCall$ (idn AS LONG, nargs AS LONG, lib$)
@@ -1257,7 +1257,7 @@ FUNCTION IrExtCall$ (idn AS LONG, nargs AS LONG, lib$)
     ELSE
         rt$ = "void"
     END IF
-    'DECLARE LIBRARY: the C symbol and library of the DECLARE (recorded at declibjmp1 in qbnex.bas)
+    'DECLARE LIBRARY: the library symbol and library of the DECLARE (recorded at declibjmp1 in qbnex.bas)
     DIM xlib$, p AS LONG, q AS LONG
     xlib$ = lib$
     IF xlib$ = "-" THEN
@@ -1794,7 +1794,7 @@ FUNCTION IrCallFunc$ (idn AS LONG, a$, typ AS LONG)
                 END IF
             END IF
         CASE "CINT", "CLNG", "CSNG", "CDBL", "_ROUND"
-            'register type = the C function's return type (the registry's typ is not always it)
+            'register type = the runtime function's return type (the registry's typ is not always it)
             SELECT CASE nm$
                 CASE "CINT": sx$ = "i16"
                 CASE "CLNG": sx$ = "i32"
@@ -1999,7 +1999,7 @@ FUNCTION IrCallFunc$ (idn AS LONG, a$, typ AS LONG)
         IF IrT = "str" THEN
             IrNotSup "type of " + nm$
         ELSEIF IrIsFloat(IrT) = 0 OR IrIsFloat(IrTy$(typ)) = 0 OR nm$ = "ABS" OR nm$ = "INT" OR nm$ = "FIX" THEN
-            'keep the C type of the value
+            'keep the machine type of the value
         END IF
     END IF
     IrCallFunc$ = r$

@@ -1,6 +1,6 @@
 $CONSOLE:ONLY
 ' _OFFSET of arrays: _OFFSET(a()) is the first element, _OFFSET(a(i)) the element;
-' the addresses are real (memcpy from the C runtime reads and writes through them).
+' the addresses are real (memcpy from the system runtime reads and writes through them).
 DECLARE LIBRARY
     SUB memcpy (BYVAL dst AS _OFFSET, BYVAL src AS _OFFSET, BYVAL bytes AS _OFFSET)
 END DECLARE

@@ -2148,7 +2148,7 @@ fn invert(i: Ins) -> Ins {
 
 /// `meta extfn <name> <lib|-> <ret> <arg types...>` (emitter: DECLARE LIBRARY).
 /// The native call of a DECLARE LIBRARY function (`None` for a `_FLOAT`
-/// argument or result, which no C calling convention here passes).
+/// argument or result, which no platform calling convention here passes).
 fn xfn(f: &ir::ExtFn) -> Option<XFn> {
     let ty = |t: IT| ty_map(t).x;
     let ret = match f.ret {

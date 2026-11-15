@@ -1,7 +1,7 @@
 //! Software x87 80-bit extended precision float (`_FLOAT` in `QBNex`).
 //!
-//! The legacy runtime stored `_FLOAT` in a C `long double`, which MinGW compiles to
-//! the x87 80-bit format with the FPU control word `0x037F` (64-bit significand,
+//! The legacy runtime stored `_FLOAT` in a `long double`, which the legacy build
+//! kept in the x87 80-bit format with the FPU control word `0x037F` (64-bit significand,
 //! round to nearest even, all exceptions masked). [`F80`] reproduces the results of
 //! that hardware bit for bit:
 //!
@@ -11,17 +11,17 @@
 //!   `fld`/`fst` (f32/f64), `fild`, `fistp`/`fisttp`, including denormals,
 //!   pseudo-denormals, unsupported encodings, NaN propagation and the real
 //!   indefinite NaN;
-//! - [`libm`] transcribes MinGW-w64's `expl`, `exp2l`, `log2l`, `powl`, `__powil`,
-//!   `ldexpl`, `floorl`, `ceill` step by step. The only steps whose hardware result
+//! - [`libm`] transcribes the legacy math library's `expl`, `exp2l`, `log2l`, `powl`,
+//!   `__powil`, `ldexpl`, `floorl`, `ceill` step by step. The only steps whose hardware result
 //!   is not the correctly rounded value (`f2xm1`, `fyl2x`, `fyl2xp1`) run on the x87
 //!   unit on `x86/x86_64` ([`x87`]); other targets use a software version that is
 //!   within one unit in the last place (documented deviation, see the crate docs);
-//! - [`dec`] converts to and from decimal text like MinGW `__mingw_strtold` and
-//!   `__mingw_snprintf("%.*Le" / "%.*Lf" / "%.*Lg")`;
+//! - [`dec`] converts to and from decimal text like the legacy build's `strtold`
+//!   and `snprintf("%.*Le" / "%.*Lf" / "%.*Lg")`;
 //! - [`qb`] has the QBasic-level functions (`EXP`, `^`, `FIX`, `SIN`, ...) with the
 //!   legacy error codes.
 //!
-//! The results match real `long double` code compiled by MinGW g++ bit for bit.
+//! The results match the legacy 80-bit build's `long double` code bit for bit.
 
 #![cfg_attr(not(test), deny(clippy::unwrap_used))]
 // clippy::pedantic is clean except for the lints below. Bit-level x87
@@ -114,14 +114,14 @@ impl F80 {
         F80 { mant, se: ((neg as u16) << 15) | (exp & 0x7FFF) }
     }
 
-    /// From the 10 little-endian bytes of a C `long double`.
+    /// From the 10 little-endian bytes of an x87 `long double`.
     #[must_use]
     pub const fn from_bytes(b: [u8; 10]) -> F80 {
         let mant = u64::from_le_bytes([b[0], b[1], b[2], b[3], b[4], b[5], b[6], b[7]]);
         F80 { mant, se: u16::from_le_bytes([b[8], b[9]]) }
     }
 
-    /// The 10 little-endian bytes of a C `long double`.
+    /// The 10 little-endian bytes of an x87 `long double`.
     #[must_use]
     pub const fn to_bytes(self) -> [u8; 10] {
         let m = self.mant.to_le_bytes();
@@ -203,21 +203,21 @@ impl F80 {
         matches!(self.class(), Class::Zero | Class::Denormal | Class::Normal)
     }
 
-    /// MinGW `fpclassify` (used by the libm functions): looks only at the bits,
-    /// so unnormals count as normal and pseudo-denormals as normal.
-    pub(crate) fn mingw_class(self) -> MingwClass {
+    /// The legacy math library's `fpclassify` (used by the libm functions):
+    /// looks only at the bits, so unnormals count as normal and pseudo-denormals as normal.
+    pub(crate) fn fp_class(self) -> FpClass {
         let e = self.exp();
         if e == 0 {
             if self.mant == 0 {
-                return MingwClass::Zero;
+                return FpClass::Zero;
             }
             if self.mant & INT_BIT == 0 {
-                return MingwClass::Subnormal;
+                return FpClass::Subnormal;
             }
         } else if e == 0x7FFF {
-            return if self.mant & !INT_BIT == 0 { MingwClass::Infinite } else { MingwClass::NaN };
+            return if self.mant & !INT_BIT == 0 { FpClass::Infinite } else { FpClass::NaN };
         }
-        MingwClass::Normal
+        FpClass::Normal
     }
 
     /// x87 `fucomi`: `None` when unordered (NaN or unsupported operand).
@@ -228,7 +228,7 @@ impl F80 {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum MingwClass {
+pub(crate) enum FpClass {
     NaN,
     Normal,
     Infinite,

@@ -1,14 +1,13 @@
-//! MinGW-w64 (v13, `x86_64`) `long double` math functions, transcribed instruction
-//! by instruction from `libmingwex.a` (sources: `math/x86/exp.def.h`,
-//! `exp2l.S`, `log2l.S`, `pow.def.h`, `powi.def.h`, `ldexpl.c`, `floorl.S`,
-//! `ceill.S`). The legacy runtime reaches `expl` through `EXP` of a `_FLOAT`
+//! The legacy math library's `long double` functions (`x86_64`): `expl`,
+//! `exp2l`, `log2l`, `powl`, `__powil`, `ldexpl`, `floorl` and `ceill`,
+//! transcribed instruction by instruction from its algorithm. The legacy runtime reaches `expl` through `EXP` of a `_FLOAT`
 //! and `powl` through every `^` (all operands are promoted to `long double`).
 //!
 //! `errno` and `_matherr` side effects are not modelled; they never reach BASIC.
 
 use crate::arith::{add, div, mul, round_int, scale, sqrt, sub};
 use crate::x87::{f2xm1, fyl2x, fyl2xp1};
-use crate::{Class, MingwClass, Round, F80};
+use crate::{Class, FpClass, Round, F80};
 use core::cmp::Ordering;
 
 /// `__FLT_MAXLOG` for long double (`.rdata` of `expl.o`).
@@ -21,7 +20,7 @@ const C0: F80 = F80::from_parts(false, 0x3FFF, 0xB8AA_0000_0000_0000);
 const C1: F80 = F80::from_parts(false, 0x3FED, 0xECA5_705F_C2EE_FA20);
 /// `fldl2e` with round to nearest.
 const L2E: F80 = F80::from_parts(false, 0x3FFF, 0xB8AA_3B29_5C17_F0BC);
-/// `limit` in `log2l.S`: the double 1 - sqrt(2)/2.
+/// `limit` in the legacy `log2l`: the double 1 - sqrt(2)/2.
 const LOG2_LIMIT: f64 = 0.29289321881345247561810596348408353;
 
 fn gt(a: F80, b: F80) -> bool {
@@ -53,7 +52,7 @@ pub fn ldexpl(x: F80, n: i32) -> F80 {
     scale(x, F80::from_i32(n))
 }
 
-/// `internal_modf` of `pow.def.h`: fractional part, integer part through `iptr`.
+/// `internal_modf` of the legacy `powl`: fractional part, integer part through `iptr`.
 fn internal_modf(value: F80, iptr: &mut F80) -> F80 {
     let int_part = round_int(value, Round::Zero);
     *iptr = int_part;
@@ -65,7 +64,7 @@ fn internal_modf(value: F80, iptr: &mut F80) -> F80 {
     }
 }
 
-/// `__expl_internal`: the x87 sequence of `exp.def.h`.
+/// `__expl_internal`: the x87 sequence of the legacy `expl`.
 fn expl_internal(x: F80) -> F80 {
     let t = mul(L2E, x); // fldl2e; fmul st, st(1)
     let i = round_int(t, Round::Zero); // frndint (chop)
@@ -81,16 +80,16 @@ fn expl_internal(x: F80) -> F80 {
 /// `expl`.
 #[must_use]
 pub fn expl(x: F80) -> F80 {
-    match x.mingw_class() {
-        MingwClass::NaN => x,
-        MingwClass::Infinite => {
+    match x.fp_class() {
+        FpClass::NaN => x,
+        FpClass::Infinite => {
             if x.sign() {
                 F80::ZERO
             } else {
                 F80::INFINITY
             }
         }
-        MingwClass::Zero => F80::ONE,
+        FpClass::Zero => F80::ONE,
         _ => {
             if gt(x, MAXLOG) {
                 F80::INFINITY
@@ -103,7 +102,7 @@ pub fn expl(x: F80) -> F80 {
     }
 }
 
-/// `exp2l` (`exp2l.S`).
+/// `exp2l`, as the legacy math library computes it.
 #[must_use]
 pub fn exp2l(x: F80) -> F80 {
     if x.class() == Class::Infinity {
@@ -115,7 +114,7 @@ pub fn exp2l(x: F80) -> F80 {
     scale(p, i)
 }
 
-/// `log2l` (`log2l.S`).
+/// `log2l`, as the legacy math library computes it.
 #[must_use]
 pub fn log2l(x: F80) -> F80 {
     // fxam: C0 is set for NaN (and empty); NaN is returned unchanged.
@@ -155,14 +154,14 @@ fn do_powi_iter(mut d: F80, y: i32) -> F80 {
 /// `__powil(x, y)`.
 #[must_use]
 pub fn powil(x: F80, mut y: i32) -> F80 {
-    let x_class = x.mingw_class();
+    let x_class = x.fp_class();
     let odd_y = y & 1 != 0;
     if y == 0 || eq(x, F80::ONE) {
         return F80::ONE;
     }
     match x_class {
-        MingwClass::NaN => return if x.sign() { F80::NAN.neg() } else { F80::NAN },
-        MingwClass::Zero => {
+        FpClass::NaN => return if x.sign() { F80::NAN.neg() } else { F80::NAN },
+        FpClass::Zero => {
             if y >= 0 {
                 return if !odd_y || !x.sign() { F80::ZERO } else { F80::NEG_ZERO };
             }
@@ -171,7 +170,7 @@ pub fn powil(x: F80, mut y: i32) -> F80 {
             }
             return if x.sign() { F80::NEG_INFINITY } else { F80::INFINITY };
         }
-        MingwClass::Infinite => {
+        FpClass::Infinite => {
             let s = x.sign();
             if s && y < 0 && !odd_y {
                 return F80::ZERO;
@@ -201,7 +200,7 @@ pub fn powil(x: F80, mut y: i32) -> F80 {
         d
     } else {
         let mut r = do_powi_iter(d, y);
-        if recip && r.mingw_class() == MingwClass::Infinite && gt(d, F80::ONE) {
+        if recip && r.fp_class() == FpClass::Infinite && gt(d, F80::ONE) {
             d = div(F80::ONE, d);
             recip = false;
             r = do_powi_iter(d, y);
@@ -220,21 +219,21 @@ pub fn powil(x: F80, mut y: i32) -> F80 {
 /// `powl(x, y)`.
 #[must_use]
 pub fn powl(x: F80, y: F80) -> F80 {
-    let x_class = x.mingw_class();
-    let y_class = y.mingw_class();
+    let x_class = x.fp_class();
+    let y_class = y.fp_class();
     let mut d = F80::ZERO;
-    if y_class == MingwClass::Zero || eq(x, F80::ONE) {
+    if y_class == FpClass::Zero || eq(x, F80::ONE) {
         return F80::ONE;
     }
-    if x_class == MingwClass::NaN {
+    if x_class == FpClass::NaN {
         return x;
     }
-    if y_class == MingwClass::NaN {
+    if y_class == FpClass::NaN {
         return y;
     }
     let half_odd = |y: F80, d: &mut F80| !eq(internal_modf(ldexpl(y, -1), d), F80::ZERO);
-    if x_class == MingwClass::Zero {
-        if y_class == MingwClass::Infinite {
+    if x_class == FpClass::Zero {
+        if y_class == FpClass::Infinite {
             return if y.sign() { F80::INFINITY } else { F80::ZERO };
         }
         if x.sign() && !eq(internal_modf(y, &mut d), F80::ZERO) {
@@ -249,8 +248,8 @@ pub fn powl(x: F80, y: F80) -> F80 {
         }
         return if x.sign() { F80::NEG_INFINITY } else { F80::INFINITY };
     }
-    if y_class == MingwClass::Infinite {
-        if x_class == MingwClass::Infinite {
+    if y_class == FpClass::Infinite {
+        if x_class == FpClass::Infinite {
             return if y.sign() { F80::ZERO } else { F80::INFINITY };
         }
         let a_x = x.abs();
@@ -262,7 +261,7 @@ pub fn powl(x: F80, y: F80) -> F80 {
         }
         return if y.sign() { F80::INFINITY } else { F80::ZERO };
     }
-    if x_class == MingwClass::Infinite {
+    if x_class == FpClass::Infinite {
         if x.sign() && !eq(internal_modf(y, &mut d), F80::ZERO) {
             return if y.sign() { div(F80::ONE, x.neg()) } else { x.neg() };
         }

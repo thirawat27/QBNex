@@ -4,7 +4,7 @@
 //! copy, 8-bit with clear color; `t` = tiled texture coordinates).
 //!
 //! All arithmetic is the legacy 16.16 fixed point in `int32` (with `int64`
-//! intermediates), wrapping where C wrapped. Known legacy quirks kept: the
+//! intermediates), wrapping where the legacy code wrapped. Known legacy quirks kept: the
 //! tiling test of the third source y uses `< 0` instead of `< 16`, and the
 //! upward texture shift compares with the source width.
 

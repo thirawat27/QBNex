@@ -100,7 +100,7 @@ pub fn day_ms(hms: Option<(u32, u32, u32)>) -> u32 {
     }
 }
 
-/// Local hour, minute and second of a Unix time, or `None` where the C
+/// Local hour, minute and second of a Unix time, or `None` where the system
 /// `localtime` would fail (before 1970).
 pub fn local_hms(unix_seconds: i64) -> Option<(u32, u32, u32)> {
     use chrono::{Local, TimeZone, Timelike};

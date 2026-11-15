@@ -4,7 +4,7 @@ version.workspace = true
 edition = "2024"
 license.workspace = true
 rust-version = "1.85"
-description = "Software x87 80-bit extended float (`_FLOAT`) with the exact results of the legacy MinGW build."
+description = "Software x87 80-bit extended float (`_FLOAT`) with the exact results of the legacy build."
 publish = false
 
 [lib]

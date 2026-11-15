@@ -169,7 +169,7 @@ fn ir_flag_rejects_unsupported_statement_with_line() {
     assert!(text.contains("line 5"), "message should name the line: {text}");
 }
 
-/// Headers are never compiled: `DECLARE LIBRARY` naming a C header with no library
+/// Headers are never compiled: `DECLARE LIBRARY` naming a header file with no library
 /// beside it fails at compile time, with the header in the message. On Linux and macOS a
 /// missing static library is left to the run (system libraries resolve there).
 #[cfg(windows)]
@@ -186,7 +186,7 @@ fn declare_library_with_only_a_c_header_is_a_compile_error() {
     let text = normalize(&out.stdout) + &normalize(&out.stderr);
     assert!(!out.status.success(), "should fail: {text}");
     // where the header lies decides which message the search gives; both stop the build
-    assert!(text.contains("C headers are not supported") || text.contains("LIBRARY not found"), "message should say why: {text}");
+    assert!(text.contains("header files are not supported") || text.contains("LIBRARY not found"), "message should say why: {text}");
 }
 
 /// `DECLARE DYNAMIC LIBRARY "./name"` is the library in the source folder, also when
@@ -322,7 +322,7 @@ fn declare_library_check_follows_the_runtime_search() {
 /// golden is the earlier back end's output (recorded before the switch to QIR); QIR must
 /// match it.
 #[test]
-fn language_programs_match_the_cpp_golden() {
+fn language_programs_match_the_recorded_golden() {
     let Some(qb) = qb() else { return };
     install_runner();
     let dir = tmpdir("lang");

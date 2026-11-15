@@ -102,7 +102,7 @@ executor ต้องข้าม meta ที่ไม่รู้จัก
 | `add` `sub` `mul` `.T %d %a %b` | int, float | int: wrap แบบ two's complement (เหมือน QB64) |
 | `div.T` | float เท่านั้น | IEEE (หารศูนย์ได้ inf/nan; QB error 11 ของ `/` emitter เช็กเองถ้าต้องการ) |
 | `idiv.T` `mod.T` | int เท่านั้น | ตัดทศนิยมเข้าหา 0 / เศษมีเครื่องหมายตามตัวตั้ง; ตัวหาร 0 → **error 11** |
-| `pow.T` | float เท่านั้น | `pow()` ของ C |
+| `pow.T` | float เท่านั้น | `pow()` ของไลบรารีคณิตศาสตร์ |
 | `and` `or` `xor` `shl` `shr` | int เท่านั้น | bitwise; `shr` ของ signed = arithmetic, unsigned = logical; shift count = ค่าของ `%b` mod ความกว้าง |
 | `neg.T %d %a` | int, float | |
 | `not.T %d %a` | int | bitwise NOT |
@@ -111,14 +111,14 @@ EQV/IMP: emitter แตกเป็น `xor`+`not` / `not`+`or`
 
 ### 4.3 เปรียบเทียบ
 
-`eq ne lt le gt ge .T %d %a %b` — T เป็นตัวเลขหรือ `str`; ผลเป็น **`i32`** ค่า -1 (จริง) หรือ 0. `str` เทียบ byte ต่อ byte แบบ unsigned แล้วเทียบความยาว (QB). float: NaN เท่ากับ C (เทียบแล้วเป็นเท็จ ยกเว้น `ne`)
+`eq ne lt le gt ge .T %d %a %b` — T เป็นตัวเลขหรือ `str`; ผลเป็น **`i32`** ค่า -1 (จริง) หรือ 0. `str` เทียบ byte ต่อ byte แบบ unsigned แล้วเทียบความยาว (QB). float: NaN ตามมาตรฐาน IEEE 754 (เทียบแล้วเป็นเท็จ ยกเว้น `ne`)
 
 ### 4.4 แปลงชนิด
 
 | op | ความหมาย |
 | --- | --- |
-| `cvt.TO.FROM %d %s` | int→int: cast แบบ C (ตัด/ขยาย sign หรือ zero); int→float, float→float: ปัดใกล้สุด (ties-to-even); **float→int: ปัดครึ่งไปคู่ (`CINT`/`qbr`)** ค่าเกินช่วงของ i64 ได้ค่าที่ไม่กำหนด (เหมือน QB64) |
-| `trunc.TO.FROM %d %s` | เหมือน `cvt` แต่ float→int ตัดเข้าหา 0 (cast ของ C) |
+| `cvt.TO.FROM %d %s` | int→int: cast แบบตัดบิต (ตัด/ขยาย sign หรือ zero); int→float, float→float: ปัดใกล้สุด (ties-to-even); **float→int: ปัดครึ่งไปคู่ (`CINT`/`qbr`)** ค่าเกินช่วงของ i64 ได้ค่าที่ไม่กำหนด (เหมือน QB64) |
+| `trunc.TO.FROM %d %s` | เหมือน `cvt` แต่ float→int ตัดเข้าหา 0 (แบบ `FIX`) |
 
 string ↔ ตัวเลขทำผ่าน builtin (`STR$.*`, `VAL`)
 

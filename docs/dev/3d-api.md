@@ -1,6 +1,6 @@
 # 3D API ระดับสูง (`_MESH` / `_CAMERA` / `_LIGHT`)
 
-สถานะ: ชั้น GPU (`qb_gpu::scene`), runtime (`qb_runtime::scene3d`, C ABI `qb_3d_*`), QIR (`qb_ir` table + `qb-exec` `rt/scene3d.rs`) และ keyword ใน compiler (`compiler/subs_functions/subs_functions.bas`) มีแล้วพร้อม test.
+สถานะ: ชั้น GPU (`qb_gpu::scene`), runtime (`qb_runtime::scene3d`, ฟังก์ชัน export `qb_3d_*`), QIR (`qb_ir` table + `qb-exec` `rt/scene3d.rs`) และ keyword ใน compiler (`compiler/subs_functions/subs_functions.bas`) มีแล้วพร้อม test.
 คู่มือผู้ใช้: [`docs/manual/en/graphics-3d.md`](../manual/en/graphics-3d.md). โค้ด: `crates/runtime/gpu`, `crates/runtime/core/src/scene3d.rs`.
 
 ## เป้าหมาย

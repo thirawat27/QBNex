@@ -66,7 +66,7 @@ sh scripts/setup_lnx.sh
 
 Fedora: `gcc alsa-lib-devel systemd-devel libxkbcommon-devel libX11-devel
 pkgconf-pkg-config`; Arch: `gcc alsa-lib systemd-libs libxkbcommon libx11
-pkgconf`. `gcc` is only the system linker Rust uses on Linux.
+pkgconf`. The `gcc` package provides the system linker on Linux.
 
 Programs that open a window also need the X11 keyboard library at run time:
 `libxkbcommon-x11-0` on Debian/Ubuntu, `libxkbcommon-x11` on Fedora and Arch
@@ -101,7 +101,7 @@ See the header of `scripts/setup_win.cmd` and `scripts/setup_lnx.sh`.
 **Native executables (Preview):** `scripts/native-kit.ps1` (Windows) or
 `scripts/native-kit.sh` builds the native kit (`qb-native` plus the Rust
 toolchain's `rust-lld`) in `target/release/native` (or the folder given as
-the first argument). `native-kit.sh` needs the C library development files
+the first argument). `native-kit.sh` needs the system library development files
 (`libc6-dev`) and the libasound and libudev development files on Linux, and
 the Xcode command line tools on macOS. The kit has GPU 3D like the runner
 (`QBNEX_GPU=0` builds it without). Copied to `crates/engine/exec/bin/<os>/native/`, it makes

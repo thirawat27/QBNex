@@ -13,7 +13,7 @@ const ERR_OVERFLOW: i32 = 6;
 const DBLOCK: usize = 1280;
 const STACK_MAX: usize = 8192;
 
-/// C/C++ `int64 = double` (`cvttsd2si`): truncation, `INT64_MIN` when out of range.
+/// Truncating `double` -> `int64` cast (`cvttsd2si`): toward zero, `INT64_MIN` when out of range.
 fn cvt_i64(v: f64) -> i64 {
     if v.is_nan() || v >= -(i64::MIN as f64) || v < i64::MIN as f64 {
         i64::MIN

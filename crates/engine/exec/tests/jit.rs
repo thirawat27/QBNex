@@ -79,7 +79,7 @@ fn error_inside_native_loop_resumes_next() {
 }
 
 #[test]
-fn float_to_integer_store_wraps_like_the_cpp_backend() {
+fn float_to_integer_store_wraps_like_the_earlier_back_end() {
     same("unhandled_overflow_in_loop");
 }
 

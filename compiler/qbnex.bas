@@ -106,7 +106,7 @@ END TYPE
 
 DIM SHARED typeDefinitions$
 DIM SHARED totalVariablesCreated AS LONG, totalMainVariablesCreated AS LONG
-'usedVariableList entries chained by a hash of their C name (manageVariableList looks a
+'usedVariableList entries chained by a hash of their internal name (manageVariableList looks a
 'name up on every identifier found; scanning the whole list made it quadratic)
 DIM SHARED varListHead(0 TO 4095) AS LONG, varListNext(1000) AS LONG, varListHeadCount AS LONG
 DIM SHARED bypassNextVariable AS _BYTE
@@ -3498,7 +3498,7 @@ DIM SHARED incRangeFrom AS LONG, incRangeTo AS LONG, incRangeSkip AS LONG, incRa
         'failing with error 453 when the program runs.
         IF LEN(headername$) <> 0 AND LEN(libname$) = 0 THEN
             IF _FILEEXISTS(libpath$ + x$ + ".dll") = 0 AND _FILEEXISTS(libpath$ + "lib" + x$ + ".so") = 0 AND _FILEEXISTS(libpath$ + "lib" + x$ + ".dylib") = 0 THEN
-                a$ = "DECLARE LIBRARY " + CHR$(34) + x$ + CHR$(34) + " names the C header " + headername$ + ": C headers are not supported (QBNex has no C/C++ compile step). Build the functions into a DLL (.so, .dylib) and declare that library": GOTO errmes
+                a$ = "DECLARE LIBRARY " + CHR$(34) + x$ + CHR$(34) + " names the header file " + headername$ + ": header files are not supported. Build the functions into a DLL (.so, .dylib) and declare that library": GOTO errmes
             END IF
         END IF
 
@@ -3648,7 +3648,7 @@ IF n >= 1 THEN
     declibjmp1:
 
     IF declaringlibrary THEN
-        'QIR call name -> C symbol (the ALIAS, or the declared name) and library
+        'QIR call name -> library symbol (the ALIAS, or the declared name) and library
         IrLibOf = IrLibOf + CHR$(1) + LTRIM$(RTRIM$(removecast$(RTRIM$(id2.callname)))) + CHR$(2) + aliasname$ + CHR$(2) + IrLibSpec + CHR$(1)
     END IF
 

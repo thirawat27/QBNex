@@ -155,7 +155,7 @@ Cranelift.
 
 The compiler is self-hosting: it is written in QBNex BASIC (about 35,000 lines in `compiler/`) and
 compiles itself. Graphics, windowing, sound, fonts and images come from the Rust runtime (winit,
-softbuffer, cpal, skrifa, and wgpu for the optional GPU path); no C OpenGL, FreeGLUT, FreeType or
+softbuffer, cpal, skrifa, and wgpu for the optional GPU path); no OpenGL, FreeGLUT, FreeType or
 miniaudio library is linked. `SUB _GL` gets its OpenGL context through the Rust glutin crate.
 
 Repository: https://github.com/thirawat27/QBNex
@@ -213,7 +213,7 @@ is a copy of that runner with its own QIR appended.
 - **Building from source:** the Rust toolchain (`cargo`, from https://rustup.rs). `rust-toolchain.toml` pins Rust 1.100.0.
 - **Windows:** Windows 10 or newer, 64-bit. Excluding the QBNex folder from antivirus scanning helps (every compiled program is a new executable).
 - **macOS:** CoreAudio and Cocoa come with macOS. Tested in CI (arm64) only.
-- **Linux:** ALSA, udev, xkbcommon and X11 development packages and `pkg-config` to build; `gcc` is only the system linker Rust uses. Tested in CI only.
+- **Linux:** ALSA, udev, xkbcommon and X11 development packages and `pkg-config` to build, plus a system linker (the `gcc` package). Tested in CI only.
 
 Window, graphics, audio, fonts, images and compression are Rust crates of the runtime
 (see `licenses/THIRD_PARTY.TXT`).
@@ -2171,7 +2171,7 @@ QBNex is based on QB64; the parts that come from it keep their MIT license ([lic
 
 - **QBasic/QuickBASIC** - The original BASIC implementation by Microsoft that inspired this project
 - **QB64** - Modern QBasic compiler that served as the foundation for QBNex
-- **FreeGLUT, miniaudio, FreeType, STB Image, GLEW** - The C libraries the QB64 runtime was built on; the QBNex runtime now uses Rust crates instead (winit, softbuffer, cpal, Symphonia, skrifa, png, zune-jpeg, wgpu, Cranelift and more, see `licenses/THIRD_PARTY.TXT`)
+- **FreeGLUT, miniaudio, FreeType, STB Image, GLEW** - The libraries the QB64 runtime was built on; the QBNex runtime now uses Rust crates instead (winit, softbuffer, cpal, Symphonia, skrifa, png, zune-jpeg, wgpu, Cranelift and more, see `licenses/THIRD_PARTY.TXT`)
 - **Contributors** - Everyone who has contributed code, documentation, or feedback to this project
 
 ---

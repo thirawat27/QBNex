@@ -28,7 +28,7 @@ use skrifa::{GlyphId, MetadataProvider};
 
 // ------------------------------------------------- FreeType fixed point ---
 
-/// `FT_MulFix` (portable C version of FreeType 2.4.9).
+/// `FT_MulFix` (FreeType 2.4.9's portable fallback).
 fn mul_fix(a: i64, b: i64) -> i64 {
     let s = (a < 0) != (b < 0);
     let c = (a.abs() * b.abs() + 0x8000) >> 16;
@@ -39,7 +39,7 @@ fn mul_fix(a: i64, b: i64) -> i64 {
     }
 }
 
-/// `FT_DivFix` (portable C version of FreeType 2.4.9).
+/// `FT_DivFix` (FreeType 2.4.9's portable fallback).
 fn div_fix(a: i64, b: i64) -> i64 {
     let s = (a < 0) != (b < 0);
     let (a, b) = (a.abs(), b.abs());

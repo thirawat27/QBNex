@@ -6,7 +6,7 @@
 //! (a voice queue in the engine, a buffer in tests), exactly where legacy
 //! called `SendWaveformToQueue`.
 
-use crate::synth::{apply_wave_spec, frames_for, generate_waveform, CRand, NoteGen, Voice, VOICE_COUNT};
+use crate::synth::{apply_wave_spec, frames_for, generate_waveform, LegacyRand, NoteGen, Voice, VOICE_COUNT};
 
 /// QBasic "Illegal function call".
 pub const ERR_ILLEGAL: i32 = 5;
@@ -113,7 +113,7 @@ impl Default for PlayState {
 #[derive(Clone, Debug, Default)]
 pub struct Synth {
     pub voices: [Voice; VOICE_COUNT],
-    pub rng: CRand,
+    pub rng: LegacyRand,
     pub current_voice: usize,
     pub next_voice: usize,
     pub voice_pinned: bool,
@@ -361,7 +361,7 @@ impl Synth {
                     if d > 2147483647.0 || d < -2147483648.0 {
                         return Err(ERR_ILLEGAL);
                     }
-                    // C++ (int64)round(d): NaN converts to INT64_MIN (cvttsd2si)
+                    // round(d) to a 64-bit integer: NaN converts to INT64_MIN (cvttsd2si)
                     number = if d.is_nan() { i64::MIN } else { d.round() as i64 };
                     continue;
                 }

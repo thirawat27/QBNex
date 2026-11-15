@@ -1,7 +1,7 @@
 @echo off
 rem Builds the QIR runner (qb-exec) used by `qb` and copies it to
 rem crates\engine\exec\bin\windows\qb-exec.exe, for the windows-gnu Rust target,
-rem so the executable has no MSVC runtime dependency. scripts\setup_win.cmd is the
+rem so the executable needs no extra runtime DLL. scripts\setup_win.cmd is the
 rem usual way to build the runner.
 rem Requires cargo/rustup on PATH. End users get the prebuilt runner in release bundles.
 setlocal

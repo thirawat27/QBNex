@@ -1,7 +1,7 @@
 //! QBasic-level `_FLOAT` functions with the legacy semantics and error codes
 //! (`Err(code)` is the BASIC error the legacy runtime raised; the value is then 0).
 //!
-//! Which C function the legacy build really called matters:
+//! Which library function the legacy build really called matters:
 //!
 //! | BASIC | legacy runtime | here |
 //! | --- | --- | --- |
@@ -9,12 +9,12 @@
 //! | `a ^ b` (every numeric type) | `pow2(long double, long double)`: error 5 for `a < 0` and fractional `b`, else `powl` | [`pow2`] |
 //! | `FIX(x##)` | `func_fix_float`: `ceill`/`floorl` | [`fix_float`] |
 //! | `INT(x##)` | `floorl` | [`int_float`] |
-//! | `SIN`/`COS`/`TAN`/`ATN` | the **double** C functions (the `long double` overloads were never selected) | [`sin`] .. [`atn`] |
+//! | `SIN`/`COS`/`TAN`/`ATN` | the **double** library functions (the `long double` overloads were never selected) | [`sin`] .. [`atn`] |
 //! | `LOG`, `SQR` | `func_log(double)`, `func_sqr(double)` | [`log`], [`sqr`] |
 //! | `STR$`/`PRINT` of `_FLOAT` | `qbs_str((double)value)` | `qb-runtime` `numfmt::str_f80` |
 //!
 //! The double functions use the platform `libm` through Rust `f64` methods; on
-//! Windows that is the same UCRT the legacy build linked.
+//! Windows that is the same system math library the legacy build linked.
 
 use crate::libm::{ceill, expl, floorl, powl};
 use crate::{Round, F80};

@@ -109,7 +109,7 @@ pub fn make(year: i32, month: u32, day: u32, hour: u32, minute: u32, second: u32
     to_ms(n, local)
 }
 
-/// Calendar parts, numbered as in the C ABI.
+/// Calendar parts, numbered as in the export interface.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Part {
     Year = 1,

@@ -376,11 +376,11 @@ pub enum Ins {
     IToF { d: R, s: R },
     /// unsigned 64-bit integer -> float
     IToFU { d: R, s: R },
-    /// integer -> narrower integer (C cast, wraps)
+    /// integer -> narrower integer (truncating cast, wraps)
     Wrap { d: R, s: R, w: W },
     /// f64 -> f32 -> f64 (store into SINGLE)
     RoundF32 { d: R, s: R },
-    /// QIR `cvt`/`trunc` float -> int: ties-to-even (or toward zero), C cast, wrap; never an error
+    /// QIR `cvt`/`trunc` float -> int: ties-to-even (or toward zero), truncating cast, wrap; never an error
     CvtFI { d: R, s: R, w: W, trunc: bool },
     /// QIR shifts (count taken modulo the width)
     Shl { d: R, a: R, b: R, w: W },
@@ -509,7 +509,7 @@ pub enum Ins {
     XFromF { d: R, s: R },
     /// F80 -> f64 register (`f32` = round to SINGLE)
     XToF { d: R, s: R, f32: bool },
-    /// F80 -> integer: qbr (or truncation), wrapped to `w`; U64 = C cast
+    /// F80 -> integer: qbr (or truncation), wrapped to `w`; U64 = truncating cast
     XToI { d: R, s: R, w: W, trunc: bool },
     // ---- memory (QIR programs with TYPE / STRING * n / pointers); `p`, `a` = pointer registers
     /// d = new storage for `Module::mvars[v]`, freed when the frame returns
@@ -666,7 +666,7 @@ pub struct Module {
     pub gl_sub: Option<(u32, u32)>,
 }
 
-/// One `DECLARE LIBRARY` function: C name, library (`""` = the runner's own
+/// One `DECLARE LIBRARY` function: symbol name, library (`""` = the runner's own
 /// symbols and the default system libraries), argument and result types.
 #[derive(Clone, Debug, Default, PartialEq, Hash)]
 pub struct XFn {
@@ -679,7 +679,7 @@ pub struct XFn {
     pub ret: XTy,
 }
 
-/// C-level type of an extern argument or result.
+/// Machine-level type of an extern argument or result.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub enum XTy {
     #[default]

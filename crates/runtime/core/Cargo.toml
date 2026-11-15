@@ -14,7 +14,7 @@ path = "src/lib.rs"
 [dependencies]
 # Audio runtime, in its own crate so that it builds as its own object file.
 qb-audio = { path = "../audio" }
-# Regex, hashing, Base64/hex, zip, HTTP(S) for the BASIC stdlib (qb_ext_* C ABI),
+# Regex, hashing, Base64/hex, zip, HTTP(S) for the BASIC stdlib (qb_ext_* functions),
 # linked into the runner qb-exec so the stdlib's ext.* modules can call it through DECLARE LIBRARY.
 qb-ext = { path = "../ext", optional = true }
 # Software x87 80-bit float (`_FLOAT`): VAL rounding, f80 -> f64, STR$ of _FLOAT.

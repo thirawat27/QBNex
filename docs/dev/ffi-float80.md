@@ -1,6 +1,6 @@
 # `qb-float80` and `qb-ffi` (API for the emitter and the VM)
 
-Two Rust-only crates the QIR backend needs. Neither depends on a C library
+Two Rust-only crates the QIR backend needs. Neither depends on a native library
 beyond the platform loader. Both use `edition = "2024"`.
 
 ## `crates/runtime/float80` — `_FLOAT`
@@ -8,7 +8,7 @@ beyond the platform loader. Both use `edition = "2024"`.
 `qb_float80::F80` is the x87 80-bit extended format (`mant: u64` with explicit
 integer bit, `se: u16` sign + biased exponent; `from_bytes`/`to_bytes` give the
 10-byte little-endian `long double` image). Results are bit-identical to the
-legacy MinGW build (FPU control word `0x037F`).
+legacy build (FPU control word `0x037F`).
 
 ### What the VM calls for each BASIC operation
 
@@ -23,11 +23,11 @@ legacy MinGW build (FPU control word `0x037F`).
 | `SIN/COS/TAN/ATN(x##)` | `qb::sin` ... (through `f64`, like legacy) | generated code called the double `sin` |
 | `LOG`, `SQR` | `qb::log`, `qb::sqr` (error 5) | `func_log(double)`, `func_sqr(double)` |
 | `CINT`/`CLNG`/assignment to integers | `qb::qbr(x) -> i64` | `qbr(long double)` |
-| C casts `(int)x` etc. | `x.to_i16/to_i32/to_i64(Round::Zero)`, `x.to_u64_cast()` | `fisttp` |
+| truncating casts to integer types | `x.to_i16/to_i32/to_i64(Round::Zero)`, `x.to_u64_cast()` | `fisttp` |
 | widen/narrow | `F80::from_i64/from_u64/from_f32/from_f64`, `x.to_f32()/to_f64()` | `fild`, `fld`, `fst` |
 | `VAL` | qb-runtime `val::val` (uses `dec::decimal_to_f80`) | `func_val` |
 | `STR$`/`PRINT` of `_FLOAT` | qb-runtime `numfmt::str_f80` (formats `(double)x`) | `qbs_str(long double)` |
-| text | `dec::parse` (`strtold`), `dec::format_e/f/g` (`%.*Le/Lf/Lg`), `Display` (shortest) | `__mingw_strtold`, `__mingw_snprintf` |
+| text | `dec::parse` (`strtold`), `dec::format_e/f/g` (`%.*Le/Lf/Lg`), `Display` (shortest) | `strtold`, `snprintf` |
 
 `Err(code)` is the BASIC error the legacy runtime raised (`5` illegal function
 call, `6` overflow); the result is then 0. The lower-level `libm::{expl, exp2l,
@@ -38,8 +38,8 @@ and `scale` are public too.
 
 - Arithmetic, comparisons, conversions, `sqrt`, rounding, decimal text: pure
   software, every target.
-- `expl`/`exp2l`/`log2l`/`powl` are MinGW-w64's algorithms transcribed
-  instruction by instruction. Three x87 primitives inside them (`f2xm1`,
+- `expl`/`exp2l`/`log2l`/`powl` are the legacy math library's algorithms
+  transcribed instruction by instruction. Three x87 primitives inside them (`f2xm1`,
   `fyl2x`, `fyl2xp1`) are **not** correctly rounded by the hardware (about 3%
   of inputs are one ulp off, and the pattern is CPU-specific), so on x86/x86_64
   they run on the x87 unit (`x87::HARDWARE`), which makes `EXP` and `^` with a
@@ -49,8 +49,8 @@ and `scale` are public too.
   inputs, never more than one ulp off; measured by the former `diff_float80` differential test). Integer
   exponents (`x ^ 2`) never use these primitives and are exact everywhere.
 
-Evidence: a former differential test against real
-MinGW `long double` ran 87,481,972 checks with 0 mismatches; its mutation run
+Evidence: a former differential test against the legacy build's hardware
+`long double` ran 87,481,972 checks with 0 mismatches; its mutation run
 (reference at 53-bit precision) reported 573,263 mismatches.
 
 ## `crates/engine/ffi` — `DECLARE LIBRARY`
@@ -61,28 +61,28 @@ use qb_ffi::{Library, Signature, Ty, Value, call, find_default_symbol, find_head
 
 ### Emitter: what to check at compile time
 
-- `DECLARE LIBRARY "spec"` (and `CUSTOMTYPE`/`STATIC`) that names a C
-  header is a compile error (an intentional deviation). The BASIC compiler
+- `DECLARE LIBRARY "spec"` (and `CUSTOMTYPE`/`STATIC`) that names a
+  header file is a compile error (an intentional deviation). The BASIC compiler
   (`compiler/qbnex.bas`) looks for the header itself, with the file names of
   `find_header(spec, Some(source_dir))` (`name.h`, `name.hpp`, next to the
   path, then bare, and in `/usr/include` on Linux/macOS), and reports:
 
-  > DECLARE LIBRARY "spec" names the C header *path*: C headers are not supported (QBNex has no C/C++ compile step). Build the functions into a DLL (.so, .dylib) and declare that library
+  > DECLARE LIBRARY "spec" names the header file *path*: header files are not supported. Build the functions into a DLL (.so, .dylib) and declare that library
 
   `find_header` and `header_error` are the same check for Rust callers.
 - Otherwise emit, per declared function, the library spec (empty for a bare
-  `DECLARE LIBRARY`), the C name (ALIAS or the BASIC name) and a `Signature`.
+  `DECLARE LIBRARY`), the symbol name (ALIAS or the BASIC name) and a `Signature`.
   Types: `_BYTE` I8, `_UNSIGNED _BYTE` U8, `INTEGER` I16, `_UNSIGNED INTEGER` U16,
   `LONG` I32, `_UNSIGNED LONG` U32, `_INTEGER64` I64, `_UNSIGNED _INTEGER64` U64,
   `SINGLE` F32, `DOUBLE` F64, `_OFFSET` Ptr; every `BYREF` parameter and
   `BYVAL x AS STRING` is Ptr (the VM passes the address of the variable / of the
   string bytes); `SUB` returns Void. `_FLOAT` parameters or results are a
-  compile error (an intentional deviation: the C ABI of `long double` differs per
-  compiler; legacy passed it through g++).
+  compile error (an intentional deviation: the calling convention of `long double`
+  differs per compiler; the legacy build compiled glue code for it).
 
 ### VM: run time
 
-- Bare `DECLARE LIBRARY`: `find_default_symbol(name)` (program, C runtime,
+- Bare `DECLARE LIBRARY`: `find_default_symbol(name)` (program, system runtime,
   kernel32/user32/gdi32/advapi32/shell32/ole32/oleaut32/comdlg32/winmm/ws2_32/
   ntdll, or libc/libm/libdl/libpthread, libSystem on macOS; on Windows
   `getpid` also finds `_getpid`). The compiler's own `getpid` works.
@@ -118,7 +118,7 @@ use qb_ffi::{Library, Signature, Ty, Value, call, find_default_symbol, find_head
 - `unsafe { call(ptr, &sig, &args) } -> Result<Value, CallError>`: integers are
   truncated to the declared width then sign/zero-extended; floats passed as
   F32/F64; results come back as `Value::I` (signed), `U` (unsigned), `F32`, `F64`,
-  `Ptr`, `Void`. `Signature::variadic(args, ret, fixed)` marks C `...`.
+  `Ptr`, `Void`. `Signature::variadic(args, ret, fixed)` marks a variadic `...` list.
   `Function { ptr, sig }` bundles both.
 
 Thunks: one `global_asm!` routine per ABI (Win64, SysV x86-64, AAPCS64 with the
@@ -128,6 +128,6 @@ integer register of the same position as well (needed for variadic callees).
 
 Evidence: `cargo test -p qb-ffi` (real `getpid`, `strlen`,
 `GetCurrentProcessId`, `MessageBeep`, 20 mixed arguments, a cdylib built from
-`tests/testlib.rs` by the test) passes on Windows x64 (msvc and gnu targets),
+`tests/testlib.rs` by the test) passes on Windows x64 (`*-windows-msvc` and `*-windows-gnu` targets),
 Linux x86-64 (WSL Debian) and Linux AArch64 (qemu-aarch64). macOS and Windows
 on ARM are compiled (`cargo build --target ...`) but not run.

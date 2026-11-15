@@ -12,7 +12,7 @@
 //! and [`read_pixels`] can read what it drew.
 //!
 //! Pure Rust: glutin (WGL on Windows, EGL/GLX loaded at run time on Linux,
-//! CGL on macOS). No GL headers or C libraries at build time.
+//! CGL on macOS). No GL headers or native libraries at build time.
 
 use std::cell::RefCell;
 use std::ffi::{c_void, CString};

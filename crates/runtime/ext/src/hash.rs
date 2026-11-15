@@ -2,7 +2,7 @@
 
 use md5::Digest;
 
-/// Hash algorithms, numbered as in the C ABI (`kind` argument).
+/// Hash algorithms, numbered as in the export interface (`kind` argument).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Algorithm {
     Crc32 = 1,

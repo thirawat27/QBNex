@@ -33,7 +33,7 @@ pub mod view;
 
 use core::ffi::c_void;
 
-/// Layout-identical mirror of `img_struct` (`internal/c/common.h`).
+/// Layout-identical mirror of the legacy runtime's `img_struct`.
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
 pub struct ImgStruct {
@@ -131,7 +131,7 @@ pub fn qbr_i64(v: f64) -> i64 {
     crate::round::qbr(crate::round::f80_from_f64(v))
 }
 
-/// C/C++ float-to-int conversion (`cvttsd2si`): truncates toward zero and
+/// Truncating float-to-int cast (`cvttsd2si`): truncates toward zero and
 /// yields `INT_MIN` for NaN and out-of-range values (Rust `as` saturates).
 pub use qb_float80::conv::cvttsd2si as cvt_i32;
 
@@ -215,8 +215,8 @@ mod tests {
     use core::mem::{offset_of, size_of};
 
     #[test]
-    fn img_struct_layout_matches_common_h() {
-        // Offsets of img_struct as compiled by g++ for x86-64.
+    fn img_struct_layout_matches_the_legacy_layout() {
+        // Offsets of img_struct as the legacy build computed them for x86-64.
         if size_of::<usize>() != 8 {
             return;
         }

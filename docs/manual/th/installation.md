@@ -64,7 +64,7 @@ sh scripts/setup_lnx.sh
 
 Fedora ใช้ `gcc alsa-lib-devel systemd-devel libxkbcommon-devel libX11-devel
 pkgconf-pkg-config` ส่วน Arch ใช้ `gcc alsa-lib systemd-libs libxkbcommon
-libx11 pkgconf` โดย `gcc` เป็นแค่ linker ของระบบที่ Rust ใช้บน Linux
+libx11 pkgconf` โดยแพ็กเกจ `gcc` เป็นตัวที่ให้ linker ของระบบบน Linux
 
 โปรแกรมที่เปิดหน้าต่างต้องมีไลบรารีคีย์บอร์ดของ X11 ตอนรันด้วย คือ
 `libxkbcommon-x11-0` บน Debian/Ubuntu และ `libxkbcommon-x11` บน Fedora กับ Arch
@@ -99,7 +99,7 @@ sh scripts/setup_osx.command
 **executable แบบ native (ทดลอง):** `scripts/native-kit.ps1` (Windows) หรือ
 `scripts/native-kit.sh` จะ build native kit (`qb-native` กับ `rust-lld` ของ
 toolchain Rust) ไว้ที่ `target/release/native` (หรือโฟลเดอร์ที่ส่งเป็น argument แรก)
-`native-kit.sh` ต้องมีไฟล์สำหรับพัฒนาของไลบรารี C (`libc6-dev`) และของ libasound
+`native-kit.sh` ต้องมีไฟล์สำหรับพัฒนาของไลบรารีระบบ (`libc6-dev`) และของ libasound
 กับ libudev บน Linux และต้องมี Xcode command line tools บน macOS
 kit นี้มี 3D บน GPU เหมือน runner (ตั้ง `QBNEX_GPU=0` เพื่อ build แบบไม่มี)
 ถ้าคัดลอกไปไว้ที่ `crates/engine/exec/bin/<os>/native/`

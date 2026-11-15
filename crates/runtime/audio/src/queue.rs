@@ -229,12 +229,12 @@ mod tests {
     /// queued after it plays after it.
     #[test]
     fn long_notes_play_in_order() {
-        use crate::synth::{generate_waveform, CRand, NoteGen, Voice};
+        use crate::synth::{generate_waveform, LegacyRand, NoteGen, Voice};
         let mut q = RawQueue::new(160); // 10 frames per block
         let v = Voice::default();
-        let whole = generate_waveform(&mut v.clone(), &mut CRand::default(), 160, 50.0, 0.4, 1.0);
+        let whole = generate_waveform(&mut v.clone(), &mut LegacyRand::default(), 160, 50.0, 0.4, 1.0);
         q.push_i16(&[1000, 1000]);
-        q.push_note(NoteGen::new(v, CRand::default(), 160, 50.0, 0.4, 1.0));
+        q.push_note(NoteGen::new(v, LegacyRand::default(), 160, 50.0, 0.4, 1.0));
         q.mark_note_ends(&[1]);
         q.push_i16(&[-1000, -1000]);
         assert_eq!(q.frames_remaining(), 1 + 64 + 1);

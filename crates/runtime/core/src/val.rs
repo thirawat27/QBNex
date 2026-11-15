@@ -2,7 +2,7 @@
 //!
 //! Decimal input is normalised the way QB64 does and then converted with
 //! correct rounding (nearest, ties to even) to the x87 80-bit format, which is
-//! what `sscanf("%Lf")` did on the MinGW toolchain QB64 used. `&H`, `&O` and
+//! what `sscanf("%Lf")` did in the legacy build. `&H`, `&O` and
 //! `&B` literals are parsed as 64-bit integers; too many digits is error 6
 //! (overflow).
 
@@ -193,7 +193,7 @@ fn decimal_to_f80(neg: bool, digits: &[u8], e10: i64, inexact_tail: bool) -> F80
 }
 
 /// Nearest-even conversion of an x87 extended value to `f64`, for platforms
-/// whose C `long double` is a plain double and for the QIR backend.
+/// whose `long double` is a plain double and for the QIR backend.
 pub fn f64_from_f80(f: F80) -> f64 {
     // x87 `fst qword` (an unnormal gives the indefinite NaN).
     qb_float80::F80::from_bytes(f).to_f64()

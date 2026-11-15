@@ -114,12 +114,12 @@ jobs:
       - name: Build Rust workspace
         shell: bash
         # Not --all-targets: it builds qb-web's cdylib twice (lib, and lib for the
-        # integration tests) under one unhashed name, qb_web.dll, and MSVC fails with LNK1104.
+        # integration tests) under one unhashed name, qb_web.dll, and the Windows linker fails with LNK1104.
         run: |
           cargo build --workspace --locked
           cargo test --workspace --locked --no-run
 
-      # Tests and examples too (--all-targets is safe here: the LNK1104 above is MSVC only).
+      # Tests and examples too (--all-targets is safe here: the LNK1104 above is Windows only).
       - name: Clippy
         if: runner.os == 'Linux'
         shell: bash

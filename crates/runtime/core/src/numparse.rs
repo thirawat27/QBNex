@@ -14,7 +14,7 @@
 pub use crate::fileio::NumRepr;
 use crate::round::{f80_from_f64, qbr};
 
-/// `ISFLOAT` / `ISUNSIGNED` type flags (common.h).
+/// `ISFLOAT` / `ISUNSIGNED` type flags (as in the legacy runtime).
 pub const ISFLOAT: i32 = 536_870_912;
 pub const ISUNSIGNED: i32 = 268_435_456;
 
@@ -422,7 +422,7 @@ fn convert(v: NumValue, typ: i32, hex: bool) -> Option<NumValue> {
         return Some(v);
     }
     if let NumValue::Float(f) = v {
-        // 9.2233720368547758E+18 in the C source (= 2^63 as a double).
+        // 9.2233720368547758E+18 in the legacy source (= 2^63 as a double).
         if !(-9_223_372_036_854_775_808.0..=9_223_372_036_854_775_808.0).contains(&f) {
             return None;
         }

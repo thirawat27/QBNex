@@ -3,8 +3,8 @@
 //! `_CONSOLECURSOR`, `_CONSOLEINPUT` and `_CINP` when `_DEST`/`_SOURCE` is
 //! `_CONSOLE`.
 //!
-//! stdout/stdin go through the C runtime's `FILE` streams, as in QB64
-//! (text-mode newline translation and the C runtime's buffering).
+//! stdout/stdin go through the system runtime's stdio `FILE` streams, as in QB64
+//! (text-mode newline translation and the system runtime's buffering).
 
 use super::Host;
 use core::ffi::c_void;
@@ -16,7 +16,7 @@ unsafe extern "C" {
     fn fgetc(f: *mut c_void) -> i32;
 }
 
-/// Browser build: no C runtime. Console output collects in a
+/// Browser build: no system runtime. Console output collects in a
 /// buffer the page drains ([`take_stdout`]); stdin is always at its end.
 #[cfg(target_arch = "wasm32")]
 static WASM_STDOUT: std::sync::Mutex<Vec<u8>> = std::sync::Mutex::new(Vec::new());
@@ -119,7 +119,7 @@ pub fn tracked_column() -> i32 {
     COLUMN.load(std::sync::atomic::Ordering::Relaxed)
 }
 
-/// Text is waiting in the C runtime's stdout buffer (see [`flush_pending`]).
+/// Text is waiting in the system runtime's stdout buffer (see [`flush_pending`]).
 static C_PENDING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 /// stdout is a terminal (or console): PRINT text is flushed at once, so that it
@@ -130,16 +130,16 @@ fn stdout_is_terminal() -> bool {
     *T.get_or_init(|| std::io::IsTerminal::is_terminal(&std::io::stdout()))
 }
 
-/// Flushes the console text the C runtime holds, if any. The runner calls it
+/// Flushes the console text the system runtime holds, if any. The runner calls it
 /// before it writes stdout itself, before input and waits, and at the end.
 pub fn flush_pending() {
     if C_PENDING.swap(false, std::sync::atomic::Ordering::Relaxed) {
-        // SAFETY: CRT stream.
+        // SAFETY: stdio stream.
         unsafe { fflush(c_stdout()) };
     }
 }
 
-/// Console text waits in the C runtime's stdout buffer.
+/// Console text waits in the system runtime's stdout buffer.
 pub fn pending() -> bool {
     C_PENDING.load(std::sync::atomic::Ordering::Relaxed)
 }
@@ -150,7 +150,7 @@ pub fn write_raw(s: &[u8]) {
         return;
     }
     track(s);
-    // SAFETY: valid buffer; the CRT stream is process-global.
+    // SAFETY: valid buffer; the stdio stream is process-global.
     unsafe {
         fwrite(s.as_ptr().cast(), 1, s.len(), c_stdout());
     }
@@ -159,7 +159,7 @@ pub fn write_raw(s: &[u8]) {
 
 /// One byte of stdin (`fgetc`), None at end of input.
 pub fn getc() -> Option<u8> {
-    // SAFETY: CRT stream.
+    // SAFETY: stdio stream.
     let c = unsafe { fgetc(c_stdin()) };
     if c < 0 {
         None
@@ -302,7 +302,7 @@ pub fn write_utf8(text: &[u8], finish_on_new_line: bool) {
         let out = win::std(win::STD_OUTPUT_HANDLE);
         if win::is_console(out) {
             win::init_utf8();
-            // spaces of a PRINT , zone written through the C runtime come first
+            // spaces of a PRINT , zone written through the system runtime come first
             flush_pending();
             if !text.is_empty() {
                 let wide = win::to_wide(text, windows_sys::Win32::Globalization::CP_UTF8, win::utf8_strict())
@@ -333,7 +333,7 @@ pub fn write_utf8(text: &[u8], finish_on_new_line: bool) {
     if finish_on_new_line {
         track(b"\n");
     }
-    // SAFETY: CRT stream.
+    // SAFETY: stdio stream.
     unsafe {
         let f = c_stdout();
         if !text.is_empty() {
@@ -492,13 +492,13 @@ pub fn ansi_color(c: u32) -> u8 {
     CGA_TO_ANSI.get(c as usize).copied().unwrap_or(c.min(255) as u8)
 }
 
-/// Sends one terminal command (Linux, macOS). Text the C runtime still holds
+/// Sends one terminal command (Linux, macOS). Text the system runtime still holds
 /// is written first, so PRINT text and cursor moves reach the terminal in the
 /// order the program made them.
 #[cfg(all(not(windows), not(target_arch = "wasm32")))]
 fn term(cmd: impl crossterm::Command) {
     use std::io::Write;
-    // SAFETY: CRT stream.
+    // SAFETY: stdio stream.
     unsafe { fflush(c_stdout()) };
     let mut o = std::io::stdout();
     let _ = crossterm::queue!(o, cmd);
@@ -513,7 +513,7 @@ pub fn cursor() -> Option<(i32, i32)> {
     if !std::io::stdout().is_terminal() || !std::io::stdin().is_terminal() {
         return None;
     }
-    // SAFETY: CRT stream.
+    // SAFETY: stdio stream.
     unsafe { fflush(c_stdout()) };
     let _ = std::io::stdout().flush();
     crossterm::cursor::position().ok().map(|(c, r)| (i32::from(r) + 1, i32::from(c) + 1))
@@ -525,7 +525,7 @@ pub fn cls(h: &mut dyn Host, use_color: u32, passed: i32) {
     {
         let _ = (use_color, passed, &h);
         // legacy: system("cls")
-        // SAFETY: CRT flush before the child writes to the same console.
+        // SAFETY: stdio flush before the child writes to the same console.
         unsafe { fflush(c_stdout()) };
         let _ = std::process::Command::new("cmd").args(["/c", "cls"]).status();
         locate(1, 1, 3);

@@ -1,6 +1,6 @@
 //! Host-call trampolines for the reference interpreter.
 //!
-//! Host functions have arbitrary C signatures; calling them from Rust needs
+//! Host functions have arbitrary native signatures; calling them from Rust needs
 //! one trampoline per signature: `fn(addr, ctx, args: *const u64) -> u64`.
 //! They are generated with the same Cranelift ABI lowering the JIT uses, so
 //! the interpreter and the JIT pass arguments identically.

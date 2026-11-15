@@ -237,7 +237,7 @@ pub enum Inst {
     Cmp { op: CmpOp, ty: Ty, dst: Reg, a: Reg, b: Reg },
     /// Numeric conversion; float->int rounds half to even (QBasic `CINT`).
     Cvt { to: Ty, from: Ty, dst: Reg, src: Reg },
-    /// Numeric conversion; float->int truncates toward zero (C cast).
+    /// Numeric conversion; float->int truncates toward zero (like `FIX`).
     Trunc { to: Ty, from: Ty, dst: Reg, src: Reg },
     Concat { dst: Reg, a: Reg, b: Reg },
     Load { ty: Ty, dst: Reg, var: String },

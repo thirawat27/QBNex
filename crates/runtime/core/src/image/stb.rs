@@ -2,8 +2,9 @@
 //! (BMP, TGA, GIF, PNM) and of its format dispatch (`stbi__load_main`).
 //! PNG and JPEG go to the `png` and `zune-jpeg` crates (see `codecs.rs`).
 //!
-//! Every function mirrors the C code it names; comments only mark the places
-//! where C behaviour is undefined and a fixed choice was made.
+//! Every function mirrors the stb_image function it names; comments only mark
+//! the places where the original's behaviour is undefined and a fixed choice
+//! was made.
 
 /// `stbi__context` over a memory buffer: reads past the end give 0,
 /// `skip` may move past the end, negative skips jump to the end.
@@ -119,7 +120,7 @@ pub fn mad3_valid(a: i64, b: i64, c: i64) -> bool {
 
 /// Zeroed buffer, or None where malloc would fail. Every buffer sized from
 /// file data goes through this (or `try_reserve`): an allocation failure must
-/// make `_LOADIMAGE` return -1 like the C code, not abort the program.
+/// make `_LOADIMAGE` return -1 like stb_image, not abort the program.
 pub fn alloc(n: usize) -> Option<Vec<u8>> {
     let mut v = Vec::new();
     v.try_reserve_exact(n).ok()?;
@@ -370,7 +371,7 @@ pub fn bmp_load(s: &mut Ctx) -> Option<Rgba> {
         if psize == 0 || psize > 256 {
             return None;
         }
-        // Entries past psize are uninitialised stack memory in C; 0 here.
+        // Entries past psize are uninitialised stack memory in stb_image; 0 here.
         let mut pal = [[0u8; 4]; 256];
         for e in pal.iter_mut().take(psize.max(0) as usize) {
             e[2] = s.get8();
@@ -627,7 +628,7 @@ pub fn tga_load(s: &mut Ctx) -> Option<Rgba> {
     if !indexed && !is_rle && !rgb16 {
         for i in 0..height {
             let row = if inverted { height - i - 1 } else { i };
-            // A short read leaves the row as it was (uninitialised in C, zero here).
+            // A short read leaves the row as it was (uninitialised in stb_image, zero here).
             s.getn(&mut data[row * row_len..(row + 1) * row_len]);
         }
     } else {
@@ -861,7 +862,7 @@ impl Gif {
                             return false;
                         }
                         let pfirst = self.codes[oldcode as usize].first;
-                        // C assigns p->first before reading codes[code].first,
+                        // stb_image assigns p->first before reading codes[code].first,
                         // which is p itself when code == the new entry.
                         let suffix = if code == avail || code as usize == pi {
                             pfirst
@@ -1103,7 +1104,7 @@ pub fn pnm_load(s: &mut Ctx) -> Option<Rgba> {
         return None;
     }
     let mut raw = alloc(comp * w * h * bytes as usize)?;
-    s.getn(&mut raw); // short read: buffer stays as it was (uninitialised in C)
+    s.getn(&mut raw); // short read: buffer stays as it was (uninitialised in stb_image)
     let samples = if bytes == 2 { high_bytes(&raw)? } else { raw };
     Some(Rgba {
         w: w as u32,

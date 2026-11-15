@@ -3,10 +3,10 @@
 use crate::arith::{fin_norm, round_pack, shift_mode, zero};
 use crate::{Class, Round, F80, INT_BIT, QUIET_BIT};
 
-/// The C/C++ cast of a `double` to a 32-bit `int` (`cvttsd2si`): truncates
-/// toward zero; NaN and out-of-range values give `INT_MIN` (`0x80000000`),
+/// The truncating cast (toward zero) of a `double` to a 32-bit `int`
+/// (`cvttsd2si`): NaN and out-of-range values give `INT_MIN` (`0x80000000`),
 /// where Rust's `as` saturates. Used by the graphics and sound code, which
-/// legacy compiled with such casts.
+/// the legacy build compiled with such casts.
 #[must_use]
 #[inline]
 pub fn cvttsd2si(v: f64) -> i32 {
@@ -37,7 +37,7 @@ impl F80 {
         F80::from_i64(v as i64)
     }
 
-    /// Exact (what g++ emits: `fild` plus 2^64 when the top bit is set).
+    /// Exact (what the legacy build emitted: `fild` plus 2^64 when the top bit is set).
     #[must_use]
     pub fn from_u64(v: u64) -> F80 {
         if v == 0 {
@@ -103,7 +103,7 @@ impl F80 {
     }
 
     /// `fistp word` with rounding `mode` (`Nearest` = `fistp` under the default
-    /// control word, `Zero` = `fisttp`, the C cast). Out of range, NaN, infinity
+    /// control word, `Zero` = `fisttp`, the truncating cast). Out of range, NaN, infinity
     /// and unsupported values give the integer indefinite `-32768`.
     #[must_use]
     pub fn to_i16(self, mode: Round) -> i16 {
@@ -131,8 +131,8 @@ impl F80 {
         }
     }
 
-    /// The C cast `(unsigned long long)x` as MinGW g++ compiles it: values below
-    /// 2^63 (and NaN) go through `fisttp qword`, others through
+    /// The truncating cast to unsigned 64-bit as the legacy build computed it:
+    /// values below 2^63 (and NaN) go through `fisttp qword`, others through
     /// `fisttp(x - 2^63) ^ 2^63`.
     #[must_use]
     pub fn to_u64_cast(self) -> u64 {

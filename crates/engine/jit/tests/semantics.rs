@@ -573,7 +573,7 @@ fn aot_objects_link_for_every_target() {
         let obj = qb_jit::aot::compile_object(&m, t).unwrap_or_else(|e| panic!("{t:?}: {e:?}"));
         let img = qb_link::link(&obj).unwrap_or_else(|e| panic!("{t:?}: {e}"));
         assert_eq!(img.symbols.iter().filter(|(n, _)| n.starts_with("qb_func_")).count(), 2, "{t:?}");
-        // names are plain C names on every format (Mach-O's `_` prefix is dropped)
+        // names are plain symbol names on every format (Mach-O's `_` prefix is dropped)
         for r in &img.relocs {
             if let qb_link::Target::External(n) = &r.target {
                 assert!(n.starts_with("qb_"), "{t:?}: external {n}");

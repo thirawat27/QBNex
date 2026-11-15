@@ -20,7 +20,7 @@ pub struct Mode {
     pub show: bool,
     /// Wait for the process and return its exit code.
     pub wait: bool,
-    /// The program's console is active: run through the C `system()`.
+    /// The program's console is active: run through `system()`.
     pub use_console: bool,
 }
 
@@ -64,7 +64,7 @@ fn c_system(_cmd: &[u8]) -> i32 {
     -1
 }
 
-/// C `system()` with a NUL-terminated copy of `cmd`.
+/// `system()` with a NUL-terminated copy of `cmd`.
 #[cfg(not(target_arch = "wasm32"))]
 fn c_system(cmd: &[u8]) -> i32 {
     let mut z = cmd.to_vec();

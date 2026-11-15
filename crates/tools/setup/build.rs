@@ -2,7 +2,7 @@
 //! download list) and its version information (the Details tab of the file's
 //! properties: description, versions, product name, copyright, language).
 //! Both go into a Windows resource file (`.res`), written here in Rust, which
-//! the linker takes as an input: MSVC `link.exe` and `lld-link` read `.res`
+//! the linker takes as an input: the Windows linker (`link.exe`) and `lld-link` read `.res`
 //! files, so no resource compiler is needed.
 
 use std::path::Path;
@@ -29,7 +29,7 @@ fn main() {
     let ico_path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../assets/icons/windows/QBNex.ico");
     println!("cargo:rerun-if-changed={}", ico_path.display());
     println!("cargo:rerun-if-changed=build.rs");
-    // the GNU linker does not read .res files; the releases are MSVC builds
+    // the GNU linker does not read .res files; the releases are `*-windows-msvc` builds
     if std::env::var("CARGO_CFG_TARGET_OS").as_deref() != Ok("windows") || std::env::var("CARGO_CFG_TARGET_ENV").as_deref() != Ok("msvc") {
         return;
     }

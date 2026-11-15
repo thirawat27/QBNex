@@ -13,7 +13,7 @@
 //!
 //! These are the legacy platform gaps; they are kept as they were.
 
-/// `INPUT_MOUSE` flags (winuser.h).
+/// `INPUT_MOUSE` flags, as the Win32 API defines them.
 pub const MOUSEEVENTF_MOVE: u32 = 0x0001;
 pub const MOUSEEVENTF_LEFTDOWN: u32 = 0x0002;
 pub const MOUSEEVENTF_LEFTUP: u32 = 0x0004;

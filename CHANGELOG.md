@@ -25,9 +25,9 @@ the standard builds, faster 3D drawing and `qb --help` options that do what they
 
 #### Compiler and runtime
 
-- The compiler emits QIR (the QBNex intermediate representation) instead of C++. A compiled program is the Rust runner `qb-exec` with the program's QIR appended: QIR is lowered to bytecode, run on a register VM, and hot loops are compiled to native code with Cranelift.
+- The compiler emits QIR (the QBNex intermediate representation) instead of source code for an external compiler. A compiled program is the Rust runner `qb-exec` with the program's QIR appended: QIR is lowered to bytecode, run on a register VM, and hot loops are compiled to native code with Cranelift.
 - The whole runtime (screen, graphics, fonts, images, sound, files, network, `_MEM`, `_FLOAT`, `DECLARE LIBRARY` calls) is Rust (`crates/runtime/core`, `qb-audio`, `qb-float80`, `qb-ffi`, `qb-gpu`); no OpenGL, FreeGLUT, FreeType, miniaudio or zlib is linked. Behaviour was checked against the old runtime with conformance and differential tests.
-- Messages that named the C++ compiler or a C type now describe the QIR build: "Cannot find C type to return array data" is now "Unsupported array element type". `$EXEICON`, `$VERSIONINFO` and `$CHECKING:OFF` are accepted and have no effect (see the limitations page).
+- Messages that named the old back end's compiler or its types now describe the QIR build: the array return type error is now "Unsupported array element type". `$EXEICON`, `$VERSIONINFO` and `$CHECKING:OFF` are accepted and have no effect (see the limitations page).
 - Native executables (preview): with the native kit next to the runner, the compiler links ordinary executables through `rust-lld` and the `qb-native` library.
 - `-z`, `-p` and `--ir` are accepted for old scripts and change nothing. `--emit-ir` (or an `-o` name ending in `.qir`) writes the program's QIR text, for `qb-web`.
 - `-s` shows and sets `exewithsource` (save the executable next to the source) and `debuginfo` (kept for old scripts, no effect). Settings live in `target/qb-config.ini`.
@@ -165,7 +165,7 @@ the standard builds, faster 3D drawing and `qb --help` options that do what they
 - GPU feature: a program made one Vulkan instance per GPU user (window, 3D scene) and enumerated adapters each time; the Vulkan loader loads and unloads drivers while it does that, which crashed another thread that was using its device. The instance and adapter are now made once per process.
 - Found in a third audit, before 2.0.0. Events and errors: `RETURN label` out of an `ON TIMER`/`ON KEY`/`ON PLAY`/`ON STRIG` handler arms the trap again and leaves the SUB the event interrupted (main-module code ran on the SUB's variables and the event never fired again); `ON ERROR GOTO 0` inside a handler stops the program with the error being handled, as in QBasic; a program that leaves `GOSUB` routines by `GOTO` forever gets error 7 instead of using all memory. Comparisons with NaN are false in `IF`, `WHILE` and `LOOP` conditions as they are in an expression (`IF n < 1` was taken).
 - Arrays and strings: `ERASE` of a static array clears it in place (an element passed by reference pointed into freed memory); `a(i) = f()` stores into the array as `f` left it when `f` changes its size with `REDIM` (the value was lost, or the program crashed); a SHARED string passed by reference keeps its text under its own name during the call; `ASC(s$, position)` past the end of the string is error 5 (it returned -1); `INPUT$(n)` in a window returns n bytes after an extended key.
-- Compiler: a `SUB` or `FUNCTION` inside a `$IF` branch that is not compiled no longer makes all module code after it disappear, and an `$INCLUDE` in such a branch opens no file; `CONST` expressions with an intermediate value of 1E+15 or more keep the rest of the expression and all digits of a whole number (`CONST c = 3000000000 * 3000000000 + 1 - 3000000000 * 3000000000` was 9000000000000000000), and `OR` followed by `XOR` is accepted; `SELECT CASE` on a SINGLE matches fractional `CASE` values (`CASE 0.1`); `ABS` and `SGN` of an `_UNSIGNED _INTEGER64` from 2^63 up; `-o` naming the source file is an error instead of overwriting the source; a switch is matched whole (`-emit-ir` was taken for `-e`, and `-O2 file.bas` took the file as the output name); `OPTIONAL` defaults are filled for a call inside the arguments of another call (`h(h(1))` was "Incorrect number of arguments"); `Env_Platform$` answers `MACOS` on macOS (it said `LINUX`). Unused procedures left from the IDE and the C++ back end were removed from the compiler.
+- Compiler: a `SUB` or `FUNCTION` inside a `$IF` branch that is not compiled no longer makes all module code after it disappear, and an `$INCLUDE` in such a branch opens no file; `CONST` expressions with an intermediate value of 1E+15 or more keep the rest of the expression and all digits of a whole number (`CONST c = 3000000000 * 3000000000 + 1 - 3000000000 * 3000000000` was 9000000000000000000), and `OR` followed by `XOR` is accepted; `SELECT CASE` on a SINGLE matches fractional `CASE` values (`CASE 0.1`); `ABS` and `SGN` of an `_UNSIGNED _INTEGER64` from 2^63 up; `-o` naming the source file is an error instead of overwriting the source; a switch is matched whole (`-emit-ir` was taken for `-e`, and `-O2 file.bas` took the file as the output name); `OPTIONAL` defaults are filled for a call inside the arguments of another call (`h(h(1))` was "Incorrect number of arguments"); `Env_Platform$` answers `MACOS` on macOS (it said `LINUX`). Unused procedures left from the IDE and the old back end were removed from the compiler.
 - Screen and sound: `TAB(n)` on a screen page moves to the next line when the cursor is past column n, as on the console; text printed on a text page is read as UTF-8 only when all of it is UTF-8, so a box drawn with `STRING$(10, 196) + CHR$(191)` keeps its corner; `VIEW` on a text page is error 5; `_RED`, `_GREEN` and `_BLUE` of a colour number above 255 on a text page are error 5 (they read past the palette); `_MESHTEXTURE` in a `$CONSOLE:ONLY` program raises an error instead of crashing; `_LIMIT` keeps the fraction of the frame time (`_LIMIT 60` ran at 62.5 frames a second, and anything above 1000 was not limited); `_LOADIMAGE(f$, 256)` frees its image when it fails; a PCX file whose header claims a picture far larger than the file can hold is not decoded (128 bytes could ask for gigabytes of memory); a `PLAY` statement that ended in an error no longer leaves its dots to the next one, and `V` and `N` reject negative values from a variable.
 - Files and programs: `NAME` raises error 58 when the new name exists (the file was replaced); a full disk is error 61 ("Disk full"), not "Permission denied"; on Linux and macOS file names keep bytes that are not UTF-8 (two such names opened one file), `OPEN "COMn:"` is error 68 instead of creating a file of that name, and a read interrupted by a signal is repeated; `RUN` and `CLEAR` give back the DOS memory of `SADD`/`VARPTR` (a program that restarted itself with `RUN` ran out after some dozens of runs); the page collected by `LPRINT` is printed when the window is closed and before `CHAIN`/`RUN file$`; `RUN file$` and `CHAIN` start a program whose name has a `$` or a quote in it.
 - Tools and installer: the formatter and the language server read `ELSE IF c THEN` at the end of a line as a block of its own (a correct program got "END IF without IF"); files of the previous version that an upgrade could not delete are no longer taken for an interrupted install and moved back over the new version; the debugger no longer copies the breakpoint set at every statement; `licenses/THIRD_PARTY.TXT` covers the tools and the installer too. "Compile with QBNex" in the file manager writes the program next to the source file (it went into the installation folder) through the new `--exe-with-source` switch. A program with many array accesses in one SUB starts quickly (the loader's work grew with the square of their number: 5 s for 20,000 accesses, 20 s for 40,000; now under 0.1 s).
@@ -180,8 +180,8 @@ the standard builds, faster 3D drawing and `qb --help` options that do what they
 
 ### Removed
 
-- The C++ back end and runtime: `internal/` (libqb, the C++ build scripts, MinGW downloads), the CMake build and the `-z` C++ output.
-- One-shot migration scripts (`scripts/reorg_crates*.ps1`), the legacy C++ oracle helpers (`tests/conformance/oracle`), the corpus harness that needed the removed C++ backend (`tests/corpus-run`) and the Inno Setup script (`packaging/installer`), replaced by `qbnex-setup`.
+- The old back end and runtime: `internal/` (the old runtime library, its build scripts and toolchain downloads), the old build system and the generated-code output of `-z`.
+- One-shot migration scripts (`scripts/reorg_crates*.ps1`), the legacy oracle helpers (`tests/conformance/oracle`), the corpus harness that needed the removed back end (`tests/corpus-run`) and the Inno Setup script (`packaging/installer`), replaced by `qbnex-setup`.
 
 ## [1.0.4] - 2026-05-05
 
@@ -193,7 +193,7 @@ the standard builds, faster 3D drawing and `qb --help` options that do what they
 ### Changed
 
 #### Build System
-- Enabled CMake self-hosting by default so the standard build target produces the final `qb`/`qb.exe` compiler.
+- Enabled self-hosting by default in the build so the standard build target produces the final `qb`/`qb.exe` compiler.
 - Added an explicit stage0 source snapshot step that refreshes `internal/temp` from `internal/source` before building `qb-stage0`.
 
 #### Compiler Progress
@@ -214,8 +214,8 @@ the standard builds, faster 3D drawing and `qb --help` options that do what they
 ### Changed
 
 #### Build System
-- Refined the CMake build flow and documentation so native builds are easier to follow across supported platforms.
-- Removed the generated `internal/c/qbx.cpp` source from the tracked build inputs so CMake uses regenerated compiler output instead of stale checked-in C++.
+- Refined the native build flow and documentation so builds are easier to follow across supported platforms.
+- Removed the generated compiler output from the tracked build inputs so the build uses freshly regenerated output instead of a stale checked-in copy.
 
 #### Compiler Progress
 - Improved compiler progress rendering so the banner shows progress immediately after startup.
@@ -249,7 +249,7 @@ the standard builds, faster 3D drawing and `qb --help` options that do what they
 - Reduced repeated linker symbol scans by caching `nm` output during native build preparation.
 - Reduced repeated build-script reads by caching Windows and Unix build command templates.
 - Added token access caching in the parser hot path to cut repeated sequential string scans.
-- Added Windows precompiled-header generation for `common.h` so repeated compiler runs can reuse a dependency-specific PCH.
+- Added Windows precompiled-header generation for the shared runtime header so repeated compiler runs can reuse a dependency-specific PCH.
 
 #### Compiler Structure
 - Split static link symbol registration and cached build-line helpers out of `qbnex.bas` into dedicated utility modules.
@@ -270,7 +270,7 @@ the standard builds, faster 3D drawing and `qb --help` options that do what they
 - Removed smoke and benchmark suites from the default GitHub-hosted build workflows; these suites remain available for manual verification.
 
 #### Compatibility Fixes
-- Fixed the macOS clang build in `sub_environ` by using a mutable `std::string` buffer pointer compatible with Apple toolchains.
+- Fixed the macOS build of `sub_environ` with Apple toolchains by using a mutable string buffer pointer.
 
 #### Documentation
 - Updated `README.md` to reflect the current release assets, CI matrix, tag-based release flow, and the distinction between local smoke tests and default hosted CI behavior.
@@ -278,7 +278,7 @@ the standard builds, faster 3D drawing and `qb --help` options that do what they
 #### Core Features
 - Complete QBasic/QB4.5 compatible compiler
 - Self-hosting compiler written in QBNex BASIC (~26,000 lines)
-- Transpiles BASIC source to C++ and compiles to native binaries
+- Compiles BASIC source to native binaries
 - Command-line interface with comprehensive flag support
 - Support for 150+ QBasic/QB64 keywords and functions
 - TCP/IP networking support with `_OPENHOST`, `_OPENCLIENT`, and connection management
@@ -288,7 +288,7 @@ the standard builds, faster 3D drawing and `qb --help` options that do what they
 - Optional ZLIB compression support
 - Game controller/gamepad input support
 - Compiler settings management via INI configuration (`internal/config.ini`)
-- `-z` flag to generate C code without compiling to executable
+- `-z` flag to output generated code without building an executable
 - `-s` flag to view/edit compiler settings
 - `-p` flag to purge all pre-compiled content
 - `-e` flag to enable `OPTION _EXPLICIT` for compilation
@@ -409,9 +409,9 @@ the standard builds, faster 3D drawing and `qb --help` options that do what they
 - Updated sound system to use miniaudio instead of legacy APIs
 
 #### Platform Support
-- **Windows**: Windows 7+ (32-bit and 64-bit), MinGW g++ compiler
-- **Linux**: OpenGL, ALSA, FreeGLUT, X11, g++ compiler
-- **macOS**: Xcode command line tools, clang++, OpenGL, CoreAudio
+- **Windows**: Windows 7+ (32-bit and 64-bit), native compiler toolchain
+- **Linux**: OpenGL, ALSA, FreeGLUT, X11, native compiler toolchain
+- **macOS**: Xcode command line tools, OpenGL, CoreAudio
 - **Docker**: Ubuntu 22.04 base container with all dependencies pre-installed
 
 #### Developer Tools
@@ -423,7 +423,7 @@ the standard builds, faster 3D drawing and `qb --help` options that do what they
 - Monochrome output option (`-m` flag)
 - Settings management (`-s` flag)
 - Pre-compiled content purge (`-p` flag)
-- C code generation without compilation (`-z` flag)
+- Generated-code output without building (`-z` flag)
 - OPTION _EXPLICIT enforcement (`-e` flag)
 - Compile and run immediately (`-x` flag)
 - Custom output naming (`-o` flag)
@@ -510,14 +510,14 @@ the standard builds, faster 3D drawing and `qb --help` options that do what they
 - `debuginfo`: accepted for old scripts; it has no effect
 - `IgnoreWarnings` (set in the INI file only): hide warnings
 
-1.x kept these in `internal/config.ini`, where `DebugInfo` added GDB symbols to the C++ build.
+1.x kept these in `internal/config.ini`, where `DebugInfo` added GDB symbols to the native build.
 
 ### Dependencies (2.0)
 - Building QBNex needs the Rust toolchain (`cargo`); compiled programs need nothing else.
-- Linux builds need `gcc` (as the system linker only), ALSA, udev, xkbcommon, X11 and `pkg-config` development packages.
+- Linux builds need a system linker (the `gcc` package), ALSA, udev, xkbcommon, X11 and `pkg-config` development packages.
 - Window, graphics, sound, fonts, images and compression are Rust crates (see `licenses/THIRD_PARTY.TXT`).
 
-1.x needed a C++ toolchain (MinGW, g++ or clang++) with OpenGL, FreeGLUT, GLEW, FreeType, ZLIB and the platform audio libraries.
+1.x needed an external compiler toolchain with OpenGL, FreeGLUT, GLEW, FreeType, ZLIB and the platform audio libraries.
 
 ---
 

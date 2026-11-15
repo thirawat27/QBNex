@@ -60,8 +60,8 @@ Calls go from the runner straight to machine code through `crates/engine/ffi`
 (Win64, SysV x86-64 and AArch64 calling conventions). Nothing is compiled
 or linked into the program, so:
 
-- **C and C++ sources and headers cannot be used.** QB64 compiled a
-  header (`name.h`) or C/C++ source next to `DECLARE LIBRARY "name"`
+- **Source files and header files cannot be used.** QB64 compiled a
+  header file (`name.h`) or source file next to `DECLARE LIBRARY "name"`
   into the program; QBNex cannot.
 - **Static libraries cannot be used** (`.a`, `.lib`, `.o`): there is no
   linker step.
@@ -112,8 +112,8 @@ or linked into the program, so:
 - **Types.** Integers of every size, SINGLE, DOUBLE, `_OFFSET`, strings
   (passed as a pointer to their bytes) and BYREF arguments (passed as an
   address) work. Not supported: `_FLOAT` arguments or results,
-  C functions with a variable number of arguments, and callbacks from C
-  into BASIC.
+  functions with a variable number of arguments, and callbacks from
+  library code into BASIC.
 
 ## CALL ABSOLUTE
 

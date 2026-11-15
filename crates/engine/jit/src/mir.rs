@@ -10,7 +10,7 @@
 //! STRING / array / BYREF pointer = an opaque 64-bit handle.
 //!
 //! Semantics (the same as the qb-exec VM):
-//! * `+ - *` on integers wrap in the operand width (C cast);
+//! * `+ - *` on integers wrap in the operand width (truncating cast);
 //! * `\` and `MOD` by zero raise error 11, `/` by 0.0 raises error 11;
 //! * float -> integer conversion rounds half to even exactly like
 //!   `qb_runtime::round::qb_qbr_f64` and raises error 6 when the result does
@@ -167,7 +167,7 @@ pub enum Inst {
     Host { f: HostId, args: Vec<Reg>, dst: Option<Reg> },
     /// Raise QB error `code` (ERROR n).
     Raise { code: Reg },
-    /// Float -> integer: QB rounding then C cast to the target width (no
+    /// Float -> integer: QB rounding then a truncating cast to the target width (no
     /// overflow check; QIR `cvt`). Int sources: same as `Conv`.
     ConvWrap { dst: Reg, src: Reg },
     /// Float -> integer truncating toward zero, saturating (QIR `trunc`).

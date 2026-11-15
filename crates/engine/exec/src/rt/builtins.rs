@@ -217,7 +217,7 @@ impl<'a> RtState<'a> {
             let _ = self.out.flush();
             self.out_dirty = false;
         }
-        // console text of the C runtime (`_DEST _CONSOLE` of a window program) is newer
+        // console text in the system runtime's stdio buffer (`_DEST _CONSOLE` of a window program) is newer
         qb_runtime::console::stdio::flush_pending();
     }
     /// Console output, or file output through qb-runtime (SCRN: falls back to the console).
@@ -229,7 +229,7 @@ impl<'a> RtState<'a> {
         if ch != 0 && super::files::print(ch, b, false, false)? {
             return Ok(());
         }
-        // console text the C runtime holds came after what `out` holds: both go
+        // console text the system runtime's stdio buffer holds came after what `out` holds: both go
         // out first, in that order
         if qb_runtime::console::stdio::pending() {
             self.flush();
@@ -2676,7 +2676,7 @@ mod int33_tests {
 }
 
 /// The shell running command line `cmd` (SHELL, CHAIN, RUN): `cmd /c <cmd>`
-/// with the line passed as written, as C's `system()` does (std's argument
+/// with the line passed as written, as the system `system()` call does (std's argument
 /// quoting would escape the quotes in it), or `sh -c <cmd>`.
 pub(crate) fn shell_command(cmd: &str) -> std::process::Command {
     #[cfg(windows)]

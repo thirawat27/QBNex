@@ -58,7 +58,7 @@ struct Pcx<'a> {
     height: usize,
     components: usize,
     /// Pixel data plus 4 bytes of slack: some dr_pcx paths write one pixel
-    /// past the last row (heap overflow in C); the slack absorbs it.
+    /// past the last row (a heap overflow in the original); the slack absorbs it.
     px: Vec<u8>,
     rle_count: u8,
     rle_value: u8,
@@ -74,7 +74,7 @@ impl Pcx<'_> {
     }
 
     /// `header.palette16[i]`; indices past the palette read the rest of the
-    /// header struct like the C code, and past the header give 0.
+    /// header struct like the original decoder, and past the header give 0.
     fn palette16(&self, i: usize) -> u8 {
         self.header.get(16 + i).copied().unwrap_or(0)
     }

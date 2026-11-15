@@ -3,7 +3,7 @@
 //! `image_convert_8bpp` / `image_remap_palette`.
 
 /// Returns the 8bpp indices (None if they cannot be allocated) and fills
-/// `palette` (BGRA, alpha 0xFF). The cube sums are `uint32_t` in C and wrap.
+/// `palette` (BGRA, alpha 0xFF). The cube sums are unsigned 32-bit and wrap.
 pub fn to_8bpp(bgra: &[u8], w: usize, h: usize, palette: &mut [u32; 256]) -> Option<Vec<u8>> {
     const BAYER: [i32; 16] = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5];
     let clamp = |n: i32| n.clamp(0, 255) as u32;

@@ -116,7 +116,7 @@ pub(crate) fn layout(abi: Abi, args: &[(Ty, u64)], variadic_from: usize) -> Layo
                     nf = 8;
                 } else if ng < 8 {
                     let bits = if ty == Ty::F32 && float_in_gpr {
-                        // Variadic floats are promoted to double by the C caller.
+                        // Variadic floats are promoted to double by the caller.
                         (f32::from_bits(bits as u32) as f64).to_bits()
                     } else {
                         bits
@@ -205,7 +205,7 @@ unsafe extern "C" {
 #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
 unsafe fn qb_ffi_thunk(_frame: *mut Frame) {}
 
-/// C symbol of the thunk: Mach-O prefixes an underscore.
+/// Symbol name of the thunk: Mach-O prefixes an underscore.
 #[cfg(all(any(target_arch = "aarch64", target_arch = "x86_64"), target_vendor = "apple"))]
 macro_rules! thunk_name {
     () => {

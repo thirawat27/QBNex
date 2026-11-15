@@ -40,7 +40,7 @@ pub mod qbvk {
     pub const PAUSE: u32 = 19;
 }
 
-/// GLUT special key codes (freeglut_std.h / freeglut_ext.h).
+/// GLUT special key codes, as freeglut defines them.
 pub mod glut {
     pub const KEY_F1: i32 = 0x0001;
     pub const KEY_LEFT: i32 = 0x0064;

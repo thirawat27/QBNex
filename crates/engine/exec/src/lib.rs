@@ -101,7 +101,7 @@ pub fn run_linked(src: &str, fns: &[qb_jit::NativeFn], fingerprint: u64, out: &m
 }
 
 /// Program stdout of the runner and of native executables. On Windows a line
-/// ends with CR LF, as the C runtime's text-mode stdout wrote it (tools such
+/// ends with CR LF, as text-mode stdout on Windows writes it (tools such
 /// as `findstr /x` need the CR on redirected output).
 pub struct Stdout<W: Write>(pub W);
 

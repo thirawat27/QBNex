@@ -8,8 +8,8 @@ ignore = [
     # winit 0.30 (the window of every graphics program, qb-runtime / qb-gpu, and
     # of the installer) uses to draw the window title on Wayland desktops
     # without server-side decorations (GNOME). Leaving it out would leave those
-    # title bars without the title; winit's other title renderer needs FreeType
-    # (C). It only reads the installed system font. Fix: winit 0.31
+    # title bars without the title; winit's other title renderer needs the
+    # FreeType system library. It only reads the installed system font. Fix: winit 0.31
     # (sctk-adwaita 0.12 can use skrifa).
     "RUSTSEC-2026-0192",
     # zvariant, zvariant_derive, zbus_names (merged into zbus 6): zbus 5,

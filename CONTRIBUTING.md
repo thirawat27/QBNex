@@ -37,7 +37,7 @@ Before contributing, familiarize yourself with:
 
 **All platforms:** Git and the Rust toolchain (`cargo`, from https://rustup.rs).
 
-**For Linux:** `gcc` (only as the system linker Rust uses) and the development packages for
+**For Linux:** a system linker (the `gcc` package) and the development packages for
 ALSA, udev, xkbcommon and X11 with `pkg-config`:
 
 ```bash

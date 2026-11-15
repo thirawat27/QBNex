@@ -1,16 +1,16 @@
-//! The C runtime pieces Rust code for `*-windows-msvc` refers to, so a native
-//! program links without any C runtime library (`/nodefaultlib`).
+//! The runtime pieces Rust code for `*-windows-msvc` refers to, so a native
+//! program links without any default runtime library (`/nodefaultlib`).
 //!
 //! - Thread-local storage: Rust's `thread_local!` uses the PE TLS directory
-//!   (`_tls_used`, `_tls_index`), normally supplied by the C runtime.
+//!   (`_tls_used`, `_tls_index`), normally supplied by the default runtime library.
 //! - `_fltused`, `atexit`, the `type_info` vtable and `__CxxFrameHandler3`
-//!   (panics abort, so no C++-style unwinding ever reaches it).
+//!   (panics abort, so no Rust unwinding ever reaches it).
 //! - `memcpy`, `memset`, `strlen`, `__chkstk`, ... come from `ntdll.dll`
 //!   through the import libraries of the native kit.
 
 use std::sync::Mutex;
 
-/// Floating-point use marker the MSVC toolchain expects.
+/// Floating-point use marker the `*-windows-msvc` target expects.
 #[unsafe(no_mangle)]
 #[used]
 pub static _fltused: i32 = 0x9875;
@@ -68,7 +68,7 @@ pub static _tls_used: TlsDirectory = TlsDirectory {
 
 static AT_EXIT: Mutex<Vec<extern "C" fn()>> = Mutex::new(Vec::new());
 
-/// C `atexit`: functions run (last registered first) when the program ends.
+/// `atexit`: functions run (last registered first) when the program ends.
 #[unsafe(no_mangle)]
 pub extern "C" fn atexit(f: extern "C" fn()) -> i32 {
     match AT_EXIT.lock() {
@@ -87,14 +87,15 @@ pub(crate) fn run_atexit() {
     }
 }
 
-/// vtable of C++ `type_info`, referenced by the catch descriptors of Rust's
-/// MSVC unwinding code; never used (panics abort).
+/// vtable of `type_info`, referenced by the catch descriptors of Rust's
+/// `*-windows-msvc` unwinding code; never used (panics abort).
 #[unsafe(export_name = "??_7type_info@@6B@")]
 #[used]
 pub static TYPE_INFO_VTABLE: [usize; 2] = [0; 2];
 
-/// C++ exception frame handler named by Rust's unwind tables. Panics abort,
-/// so it only sees foreign exceptions: never handled here.
+/// The exception frame handler symbol the Windows target references in Rust's
+/// unwind tables. Panics abort, so it only sees foreign exceptions: never
+/// handled here.
 #[unsafe(no_mangle)]
 pub extern "C" fn __CxxFrameHandler3(
     _record: *mut core::ffi::c_void,

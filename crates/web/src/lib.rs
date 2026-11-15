@@ -20,8 +20,8 @@
 //!   clipboard (page-private), sound (silent). Any other import the module
 //!   needs is stubbed by the page with an error.
 //!
-//! C ABI: every export is `qb_web_*`; strings and buffers are (pointer,
-//! length) pairs in wasm memory, allocated with [`qb_web_alloc`].
+//! Export interface: every export is `qb_web_*`; strings and buffers are
+//! (pointer, length) pairs in wasm memory, allocated with [`qb_web_alloc`].
 
 pub mod screen;
 
@@ -106,7 +106,7 @@ pub fn run(src: &str, stdin: &[u8]) -> Outcome {
     }
 }
 
-// --- C ABI (www/qbnex.js) ----------------------------------------------------
+// --- exports (www/qbnex.js) --------------------------------------------------
 
 /// Allocates `n` bytes for the page to write into (freed by [`qb_web_free`]).
 #[unsafe(no_mangle)]

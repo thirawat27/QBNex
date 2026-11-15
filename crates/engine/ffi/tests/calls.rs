@@ -1,5 +1,5 @@
 //! Real calls through the qb-ffi thunks: in-process `extern "C"` functions with
-//! every argument kind and enough arguments to spill to the stack, C runtime
+//! every argument kind and enough arguments to spill to the stack, system runtime
 //! and system library symbols found without a header, and a DLL / shared
 //! object built from Rust source during the test.
 

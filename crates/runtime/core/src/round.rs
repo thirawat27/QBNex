@@ -6,11 +6,11 @@
 //! for NaN, infinities and out-of-range results.
 
 /// Raw bytes of an x87 80-bit extended value, little-endian, as stored in a
-/// C `long double` on x86 (8-byte significand with explicit integer bit,
+/// `long double` on x86 (8-byte significand with explicit integer bit,
 /// then 2 bytes of sign + 15-bit exponent).
 pub type F80 = [u8; 10];
 
-/// Exact `double` -> x87 extended conversion, for platforms whose C
+/// Exact `double` -> x87 extended conversion, for platforms whose
 /// `long double` is not the 80-bit format (e.g. AArch64).
 pub fn f80_from_f64(v: f64) -> F80 {
     let bits = v.to_bits();

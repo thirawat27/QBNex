@@ -1,4 +1,4 @@
-//! Generates the in-process symbol table of the qb-ext C ABI (`qb_ext_*`), so a
+//! Generates the in-process symbol table of the qb-ext export interface (`qb_ext_*`), so a
 //! QIR program's `DECLARE LIBRARY` finds the extension library linked into the
 //! runner before it looks at the platform's libraries.
 

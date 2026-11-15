@@ -232,7 +232,7 @@ fn floor_i64(x: f32) -> i64 {
 }
 
 /// `f32::floor`, bit-identical (signed zero included). Baseline x86 has no
-/// rounding instruction, so `floor` there is a C library call per texel.
+/// rounding instruction, so `floor` there is a math library call per texel.
 #[inline]
 fn floor(x: f32) -> f32 {
     if !cfg!(any(target_arch = "x86", target_arch = "x86_64")) {
@@ -246,7 +246,7 @@ fn floor(x: f32) -> f32 {
     (t - (t > x) as i32 as f32).copysign(x)
 }
 
-/// `f32::round` (halves away from zero), bit-identical, without the C library
+/// `f32::round` (halves away from zero), bit-identical, without the math library
 /// call baseline x86 needs.
 #[inline]
 fn round(x: f32) -> f32 {

@@ -149,7 +149,7 @@ pub fn qb_snd_rate() -> i32 {
 }
 
 fn path_from(name: &[u8]) -> PathBuf {
-    // QB64 handed a C string to its decoder: stop at the first NUL.
+    // QB64 handed a NUL-terminated string to its decoder: stop at the first NUL.
     let end = name.iter().position(|&c| c == 0).unwrap_or(name.len());
     os_path(&name[..end])
 }

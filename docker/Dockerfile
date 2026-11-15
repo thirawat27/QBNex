@@ -6,8 +6,8 @@
 # purpose: docker buildx imagetools inspect ubuntu:22.04
 FROM ubuntu:22.04@sha256:74b12b11ffa550fba1929ad4d8d16533c34f6612728469671afba1b03b66881c AS base
 
-# Build dependencies (QIR pipeline): Rust, plus gcc only as the system linker
-# that Rust uses on Linux.
+# Build dependencies (QIR pipeline): Rust, plus a system linker (the gcc
+# package) on Linux.
 RUN apt-get update && apt-get install -y \
     gcc \
     libasound2-dev \

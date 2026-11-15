@@ -4,7 +4,7 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
-description = "QBNex extension library: regex, hashing, Base64/hex, zip and HTTP(S) for the BASIC stdlib (qb_ext_* C ABI)."
+description = "QBNex extension library: regex, hashing, Base64/hex, zip and HTTP(S) for the BASIC stdlib (qb_ext_* functions)."
 publish = false
 
 [lib]

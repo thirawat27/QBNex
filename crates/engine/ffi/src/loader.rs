@@ -258,10 +258,10 @@ fn search_names(spec: &str, os: Os) -> Vec<String> {
     }
 }
 
-/// The C header QB64 would use for `DECLARE LIBRARY
+/// The header file QB64 would use for `DECLARE LIBRARY
 /// "spec"` (`name.h`, then `name.hpp`; next to the path, then bare, and in
-/// `/usr/include` on Linux/macOS). `Some` means the declaration needs a C
-/// compiler: report [`header_error`].
+/// `/usr/include` on Linux/macOS). `Some` means the declaration names a
+/// header file instead of a library: report [`header_error`].
 #[must_use]
 pub fn find_header(spec: &str, source_dir: Option<&Path>) -> Option<PathBuf> {
     header_candidates(spec, source_dir, Os::NATIVE).into_iter().find(|p| p.is_file())
@@ -284,14 +284,13 @@ fn header_candidates(spec: &str, source_dir: Option<&Path>, os: Os) -> Vec<PathB
     out.into_iter().map(PathBuf::from).collect()
 }
 
-/// Compile error for a `DECLARE LIBRARY` that names a C header: the text the
+/// Compile error for a `DECLARE LIBRARY` that names a header file: the text the
 /// BASIC compiler reports (compiler/qbnex.bas).
 #[must_use]
 pub fn header_error(spec: &str, header: &Path) -> String {
     format!(
-        "DECLARE LIBRARY \"{spec}\" names the C header {}: C headers are not supported \
-         (QBNex has no C/C++ compile step). Build the functions into a DLL (.so, .dylib) \
-         and declare that library",
+        "DECLARE LIBRARY \"{spec}\" names the header file {}: header files are not \
+         supported. Build the functions into a DLL (.so, .dylib) and declare that library",
         header.display()
     )
 }
@@ -396,7 +395,7 @@ impl Drop for Library {
 }
 
 /// Modules searched by a header-less `DECLARE LIBRARY` without a name, in
-/// order: the program itself, then the C runtime and system libraries a
+/// order: the program itself, then the system runtime and system libraries a
 /// QB64 program links.
 #[must_use]
 pub fn default_modules() -> &'static [&'static str] {
@@ -444,8 +443,8 @@ fn defaults() -> &'static Defaults {
 }
 
 /// Header-less `DECLARE LIBRARY`: looks `name` up in the program and the
-/// [`default_modules`]. On Windows a POSIX name the C runtime only exports
-/// with a leading underscore (`getpid` -> `_getpid`, as the MinGW `oldnames` library
+/// [`default_modules`]. On Windows a POSIX name the system runtime only exports
+/// with a leading underscore (`getpid` -> `_getpid`, as the legacy `oldnames` aliases
 /// mapped it) is found too.
 #[must_use]
 pub fn find_default_symbol(name: &str) -> Option<*const c_void> {
@@ -796,7 +795,7 @@ mod tests {
         let found = find_header(&spec, None).expect("header found");
         assert!(found.ends_with("helper.h"));
         let msg = header_error("helper", &found);
-        assert!(msg.contains("C headers are not supported") && msg.contains("helper.h") && msg.contains("declare that library"), "{msg}");
+        assert!(msg.contains("header files are not supported") && msg.contains("helper.h") && msg.contains("declare that library"), "{msg}");
         assert!(find_header(&format!("{}/nothing", dir.display()), None).is_none());
         let _ = std::fs::remove_dir_all(&dir);
     }

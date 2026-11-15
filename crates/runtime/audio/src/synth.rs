@@ -42,24 +42,24 @@ pub enum Waveform {
     Custom,
 }
 
-/// The C runtime `rand()` used by the legacy noise generators: the MSVCRT/UCRT
-/// LCG (`RAND_MAX` = 32767, seed 1). Using it on every platform makes noise
-/// deterministic and identical to the legacy Windows build (a deviation on
-/// Linux/macOS, where glibc/libc `rand()` differs).
+/// The `rand()` used by the legacy noise generators: the legacy Windows
+/// `rand()` LCG (`RAND_MAX` = 32767, seed 1). Using it on every platform
+/// makes noise deterministic and identical to the legacy Windows build (a deviation on
+/// Linux/macOS, where the system `rand()` differs).
 #[derive(Clone, Debug)]
-pub struct CRand {
+pub struct LegacyRand {
     state: u32,
 }
 
 pub const RAND_MAX: i32 = 32767;
 
-impl Default for CRand {
+impl Default for LegacyRand {
     fn default() -> Self {
-        CRand { state: 1 }
+        LegacyRand { state: 1 }
     }
 }
 
-impl CRand {
+impl LegacyRand {
     pub fn rand(&mut self) -> i32 {
         self.state = self.state.wrapping_mul(214013).wrapping_add(2531011);
         ((self.state >> 16) & 0x7fff) as i32
@@ -200,10 +200,10 @@ fn trim(s: &[u8]) -> &[u8] {
 }
 
 /// `strtod` that must consume the whole (already trimmed) token.
-/// Supports what C strtod accepts: optional sign, decimal with exponent,
+/// Supports what the legacy `strtod` accepted: optional sign, decimal with exponent,
 /// hexadecimal floats (`0x1.8p3`), `inf`/`infinity`, `nan`/`nan(...)`.
 pub fn strtod_full(tok: &[u8]) -> Option<f64> {
-    // C strtod skips leading whitespace (tokens are trimmed already).
+    // `strtod` skips leading whitespace (tokens are trimmed already).
     let s = std::str::from_utf8(tok).ok()?;
     let (neg, body) = match s.strip_prefix('-') {
         Some(rest) => (true, rest),
@@ -382,7 +382,7 @@ struct NoteState {
     pink2: f32,
 }
 
-fn sample_wave(voice: &mut Voice, rng: &mut CRand, phase: f64, st: &mut NoteState) -> f32 {
+fn sample_wave(voice: &mut Voice, rng: &mut LegacyRand, phase: f64, st: &mut NoteState) -> f32 {
     match voice.waveform {
         Waveform::Sine => (phase * PI * 2.0).sin() as f32,
         Waveform::Square => {
@@ -425,7 +425,7 @@ fn sample_wave(voice: &mut Voice, rng: &mut CRand, phase: f64, st: &mut NoteStat
     }
 }
 
-/// x86 `cvttsd2si` (C/C++ double -> int32 cast): truncates toward zero;
+/// x86 `cvttsd2si` (truncating double -> int32 cast): truncates toward zero;
 /// NaN and out-of-range values give 0x80000000 instead of saturating.
 pub use qb_float80::conv::cvttsd2si as cvtt_i32;
 
@@ -444,7 +444,7 @@ pub fn frames_for(rate: u32, length: f64) -> usize {
 /// block at a time while it plays instead of all at once.
 pub struct NoteGen {
     voice: Voice,
-    rng: CRand,
+    rng: LegacyRand,
     rate: u32,
     length: f64,
     volume_multiplier: f64,
@@ -459,7 +459,7 @@ pub struct NoteGen {
 
 impl NoteGen {
     /// Frequencies of 20000 Hz and above give silence (QuickBASIC behaviour).
-    pub fn new(voice: Voice, rng: CRand, rate: u32, frequency: f64, length: f64, volume: f64) -> Self {
+    pub fn new(voice: Voice, rng: LegacyRand, rate: u32, frequency: f64, length: f64, volume: f64) -> Self {
         let frames = frames_for(rate, length);
         let noise = matches!(voice.waveform, Waveform::WhiteNoise | Waveform::PinkNoise | Waveform::BrownNoise | Waveform::LfsrNoise);
         let sampled = frequency < 20000.0 && (frequency > 0.0 || noise);
@@ -489,7 +489,7 @@ impl NoteGen {
             let t = self.next as f64 / self.rate as f64;
             let env = envelope_amplitude(&self.voice.envelope, self.length, t);
             let w = sample_wave(&mut self.voice, &mut self.rng, self.phase - self.phase.floor(), &mut self.st);
-            // (float * float) * double, converted like the C++ cast to int16
+            // (float * float) * double, converted by a truncating cast (toward zero) to int16
             let x = cvtt_i32((w * env) as f64 * self.volume_multiplier) as i16;
             *f = [x, x];
             self.phase += self.phase_inc;
@@ -500,7 +500,7 @@ impl NoteGen {
 
     /// Moves `voice` and `rng` on as generating the whole note would (the
     /// noise generators draw one value per frame), without generating it.
-    pub fn advance_past(&self, voice: &mut Voice, rng: &mut CRand) {
+    pub fn advance_past(&self, voice: &mut Voice, rng: &mut LegacyRand) {
         if !self.sampled {
             return;
         }
@@ -538,7 +538,7 @@ fn lfsr_skip(mut lfsr: u32, n: u64) -> u32 {
 
 /// Generates `frames_for(rate, length)` interleaved 16-bit stereo frames.
 /// Frequencies of 20000 Hz and above give silence (QuickBASIC behaviour).
-pub fn generate_waveform(voice: &mut Voice, rng: &mut CRand, rate: u32, frequency: f64, length: f64, volume: f64) -> Vec<i16> {
+pub fn generate_waveform(voice: &mut Voice, rng: &mut LegacyRand, rate: u32, frequency: f64, length: f64, volume: f64) -> Vec<i16> {
     let mut g = NoteGen::new(std::mem::take(voice), rng.clone(), rate, frequency, length, volume);
     let mut out = vec![0i16; g.frames() * 2];
     g.fill(&mut out);
@@ -579,8 +579,8 @@ mod tests {
     }
 
     #[test]
-    fn crand_matches_msvcrt() {
-        let mut r = CRand::default();
+    fn legacy_rand_matches_the_legacy_lcg() {
+        let mut r = LegacyRand::default();
         assert_eq!([r.rand(), r.rand(), r.rand()], [41, 18467, 6334]);
     }
 
@@ -621,7 +621,7 @@ mod tests {
     #[test]
     fn waveform_lengths_and_silence() {
         let mut v = Voice::default();
-        let mut r = CRand::default();
+        let mut r = LegacyRand::default();
         assert_eq!(generate_waveform(&mut v, &mut r, 8000, 440.0, 0.5, 1.0).len(), 8000);
         assert_eq!(generate_waveform(&mut v, &mut r, 8000, 440.0, 0.0, 1.0).len(), 2);
         assert!(generate_waveform(&mut v, &mut r, 8000, 20000.0, 0.1, 1.0).iter().all(|&s| s == 0));
@@ -635,14 +635,14 @@ mod tests {
         assert_eq!(cvtt_i32(-2147483648.5), -2147483648);
         assert_eq!(cvtt_i32(-7.9), -7);
         let mut v = Voice { waveform: Waveform::Square, envelope: Envelope { attack: 0.0, decay: 0.0, sustain: 1.0, release: 0.0 }, ..Voice::default() };
-        let w = generate_waveform(&mut v, &mut CRand::default(), 8000, 1000.0, 0.01, 1e6);
+        let w = generate_waveform(&mut v, &mut LegacyRand::default(), 8000, 1000.0, 0.01, 1e6);
         assert_eq!(w[0], 0); // 32767e6 does not fit in int32: low 16 bits of 0x80000000
     }
 
     #[test]
-    fn crand_and_lfsr_jump_ahead() {
+    fn legacy_rand_and_lfsr_jump_ahead() {
         for n in [0u64, 1, 2, 7, 1000, 65534, 65535, 65536, 200_001] {
-            let (mut a, mut b) = (CRand::default(), CRand::default());
+            let (mut a, mut b) = (LegacyRand::default(), LegacyRand::default());
             for _ in 0..n {
                 a.rand();
             }
@@ -662,7 +662,7 @@ mod tests {
     fn note_in_pieces_matches_whole_note() {
         for w in [Waveform::Triangle, Waveform::WhiteNoise, Waveform::PinkNoise, Waveform::LfsrNoise] {
             let mut v = Voice { waveform: w, ..Voice::default() };
-            let mut r = CRand::default();
+            let mut r = LegacyRand::default();
             let whole = generate_waveform(&mut v.clone(), &mut r.clone(), 8000, 440.0, 0.7, 0.5);
             let mut g = NoteGen::new(v.clone(), r.clone(), 8000, 440.0, 0.7, 0.5);
             g.advance_past(&mut v, &mut r);
@@ -681,7 +681,7 @@ mod tests {
     #[test]
     fn square_wave_full_volume() {
         let mut v = Voice { waveform: Waveform::Square, envelope: Envelope { attack: 0.0, decay: 0.0, sustain: 1.0, release: 0.0 }, ..Voice::default() };
-        let mut r = CRand::default();
+        let mut r = LegacyRand::default();
         let w = generate_waveform(&mut v, &mut r, 8000, 1000.0, 0.01, 1.0);
         // 8 samples per period: 4 high, 4 low
         assert_eq!(&w[0..16], &[32767, 32767, 32767, 32767, 32767, 32767, 32767, 32767, -32767, -32767, -32767, -32767, -32767, -32767, -32767, -32767]);

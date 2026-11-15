@@ -48,7 +48,7 @@ pub fn inflate(src: &[u8], dst: &mut [u8]) -> (i32, usize) {
 mod tests {
     use super::*;
 
-    // zlib 1.3.1 `compress()` of "hello hello hello hello" (MinGW libz.a).
+    // zlib 1.3.1 `compress()` of "hello hello hello hello" (the legacy build's zlib).
     const HELLO_Z: [u8; 16] = [
         0x78, 0x9c, 0xcb, 0x48, 0xcd, 0xc9, 0xc9, 0x57, 0xc8, 0x40, 0x27, 0x01, 0x68, 0x03, 0x08, 0xb1,
     ];

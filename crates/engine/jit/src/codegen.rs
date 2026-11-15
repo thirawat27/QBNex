@@ -82,7 +82,7 @@ pub(crate) fn make_isa_for(t: Target, pic: bool, this_cpu: bool) -> OwnedTargetI
 }
 
 /// Cranelift parameter of a MIR type (narrow integers sign-extended, as the
-/// C calling conventions want).
+/// platform calling conventions want).
 #[doc(hidden)]
 pub fn abi(t: Ty) -> AbiParam {
     let p = AbiParam::new(clif_ty(t));

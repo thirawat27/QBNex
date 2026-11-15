@@ -15,7 +15,7 @@ pub enum Value {
 }
 
 impl Value {
-    /// Type code for the C ABI: 1 string, 2 number.
+    /// Type code for the export interface: 1 string, 2 number.
     pub fn kind(&self) -> i32 {
         match self {
             Value::Str(_) => 1,

@@ -55,7 +55,7 @@ fn a_function_of_a_named_library_is_called() {
 }
 
 /// An empty BYVAL STRING argument points at a zero byte, not at the dangling
-/// pointer of an empty buffer: `strlen("")` (C runtime, default modules) is 0.
+/// pointer of an empty buffer: `strlen("")` (system runtime, default modules) is 0.
 #[test]
 fn an_empty_string_argument_points_at_a_zero_byte() {
     let src = prog("-", "strlen", "i64", " str", "const.str %0 x\n", "rt %3 STR$.i64 %1\n");

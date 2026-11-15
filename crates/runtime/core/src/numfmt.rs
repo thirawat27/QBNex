@@ -1,6 +1,6 @@
 //! `STR$` number formatting (also used by `PRINT` for numbers).
 //!
-//! Matches QB64's `qbs_str`, which formats with C `printf`
+//! Matches QB64's `qbs_str`, which formats with `printf`
 //! ("% .6E" / "% .15E" / "% .Nf") and then edits the text; the
 //! port reproduces that text, including one legacy quirk that golden output
 //! depends on: non-finite values print as " 0".
@@ -16,7 +16,7 @@
 //! - Legacy SINGLE formatting of infinity/NaN read a stale buffer; the
 //!   port prints " 0" like DOUBLE does.
 
-/// `STR$` of any signed integer type (C `"% i"`).
+/// `STR$` of any signed integer type (`printf` `"% i"`).
 pub fn str_i64(v: i64) -> Vec<u8> {
     if v < 0 {
         v.to_string().into_bytes()
@@ -25,13 +25,13 @@ pub fn str_i64(v: i64) -> Vec<u8> {
     }
 }
 
-/// `STR$` of any unsigned integer type (C `" %u"`).
+/// `STR$` of any unsigned integer type (`printf` `" %u"`).
 pub fn str_u64(v: u64) -> Vec<u8> {
     format!(" {v}").into_bytes()
 }
 
-/// C `printf("% .{prec}E", v)`: sign column, exponent with at least 2 digits.
-fn c_sci(v: f64, prec: usize) -> Vec<u8> {
+/// `printf("% .{prec}E", v)`: sign column, exponent with at least 2 digits.
+fn printf_sci(v: f64, prec: usize) -> Vec<u8> {
     let sign = if v.is_sign_negative() { '-' } else { ' ' };
     let text = format!("{:.*e}", prec, v.abs());
     let (mantissa, exp) = text.split_once('e').expect("exponent");
@@ -40,8 +40,8 @@ fn c_sci(v: f64, prec: usize) -> Vec<u8> {
     format!("{sign}{mantissa}E{exp_sign}{:02}", exp.abs()).into_bytes()
 }
 
-/// C `printf("% .{decimals}f", v)`.
-fn c_fixed(v: f64, decimals: usize) -> Vec<u8> {
+/// `printf("% .{decimals}f", v)`.
+fn printf_fixed(v: f64, decimals: usize) -> Vec<u8> {
     let sign = if v.is_sign_negative() { '-' } else { ' ' };
     format!("{sign}{:.*}", decimals, v.abs()).into_bytes()
 }
@@ -64,7 +64,7 @@ pub fn str_f32(v: f32) -> Vec<u8> {
         return zero(); // legacy read a stale buffer here
     }
     let v = f64::from(v); // printf promotes float to double
-    let mut buf = c_sci(v, 6);
+    let mut buf = printf_sci(v, 6);
     if buf.len() == 13 {
         buf.insert(11, b'0'); // normalise to a 3-digit exponent
     }
@@ -87,7 +87,7 @@ pub fn str_f32(v: f32) -> Vec<u8> {
     }
     if exponent <= 6 && exponent - digits >= -8 {
         let decimals = (-(exponent - digits + 1)).max(0) as usize;
-        return cull_leading_zero(c_fixed(v, decimals));
+        return cull_leading_zero(printf_fixed(v, decimals));
     }
     let mut keep = (digits + 2) as usize;
     if digits == 1 {
@@ -105,9 +105,9 @@ pub fn str_f64(v: f64) -> Vec<u8> {
     if !v.is_finite() {
         return zero();
     }
-    let buf = c_sci(v, 15);
+    let buf = printf_sci(v, 15);
     let l = buf.len();
-    let at = |i: usize| buf.get(i).copied().unwrap_or(0); // index l is the C terminator
+    let at = |i: usize| buf.get(i).copied().unwrap_or(0); // index l is the NUL terminator
 
     // Exponent: scan backwards to the sign.
     let (mut exponent, mut mult) = (0i32, 1i32);
@@ -153,7 +153,7 @@ pub fn str_f64(v: f64) -> Vec<u8> {
     // as the count and printed one decimal too many: " 2.50" for 2.5.)
     let digits = if last == 1 { 1 } else { last as i32 - 1 };
     let decimals = (digits - 1 - exponent).max(0) as usize; // no 19 limit
-    cull_leading_zero(c_fixed(v, decimals))
+    cull_leading_zero(printf_fixed(v, decimals))
 }
 
 /// `STR$` of a `_FLOAT` given as the 10 bytes of an x87 `long double`: QB64's

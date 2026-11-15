@@ -13,8 +13,8 @@
 //!   (`qb_exec::run_linked`);
 //! - every runtime symbol native code imports (`qb_host_<i>`, `qb_vm_op`,
 //!   `qb_jit_*`; feature `native-syms` of qb-exec / qb-jit);
-//! - on Windows, the few C runtime pieces Rust code expects (`crt.rs`), so
-//!   the program links without a C runtime library (`/nodefaultlib`).
+//! - on Windows, the few runtime pieces Rust code expects (`crt.rs`), so
+//!   the program links without a default runtime library (`/nodefaultlib`).
 
 use std::io::{BufWriter, Write};
 
@@ -56,7 +56,7 @@ fn run() -> i32 {
     }
 }
 
-/// Process entry point on Windows (`/entry:qb_native_start`): no C runtime
+/// Process entry point on Windows (`/entry:qb_native_start`): no runtime
 /// start-up code runs before it.
 #[cfg(windows)]
 #[unsafe(no_mangle)]
@@ -67,7 +67,7 @@ pub extern "C" fn qb_native_start() -> ! {
     std::process::exit(code)
 }
 
-/// C `main` (the system C library's start-up code calls it).
+/// `main` (the system library's start-up code calls it).
 #[cfg(not(windows))]
 #[unsafe(no_mangle)]
 pub extern "C" fn main(_argc: i32, _argv: *const *const u8) -> i32 {

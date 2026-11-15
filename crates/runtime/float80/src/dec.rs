@@ -1,5 +1,5 @@
-//! Decimal text <-> [`F80`], exact (correctly rounded, ties to even), like MinGW
-//! `__mingw_strtold` and `__mingw_snprintf` with `%.*Le` / `%.*Lf` / `%.*Lg`.
+//! Decimal text <-> [`F80`], exact (correctly rounded, ties to even), like the
+//! legacy build's `strtold` and `snprintf` with `%.*Le` / `%.*Lf` / `%.*Lg`.
 
 use core::fmt::Write as _;
 
@@ -223,7 +223,7 @@ fn round_digits(digits: &[u8], point: i32, keep: i32) -> (Vec<u8>, i32) {
     }
 }
 
-/// How MinGW's printf sees an encoding: exponent 0x7FFF is `inf` (also the
+/// How the legacy build's printf sees an encoding: exponent 0x7FFF is `inf` (also the
 /// pseudo-infinity) or `nan` (NaNs never get a sign); a zero significand is
 /// zero; anything else is `mant * 2^(e-16446)`, with `e = 1` for a denormal
 /// but `e = 0` for a pseudo-denormal (half its x87 value), so unnormals print as
@@ -360,7 +360,7 @@ pub fn format_shortest(x: F80) -> String {
     format_g(x, 21)
 }
 
-/// `__mingw_strtold`: returns the value and the number of bytes consumed
+/// The legacy `strtold`: returns the value and the number of bytes consumed
 /// (0 when no number was found; the value is then +0).
 #[must_use]
 pub fn parse(s: &[u8]) -> (F80, usize) {

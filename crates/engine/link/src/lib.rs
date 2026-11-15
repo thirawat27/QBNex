@@ -161,8 +161,8 @@ pub fn link(obj: &[u8]) -> Result<Image, LinkError> {
     Ok(img)
 }
 
-/// Symbol name without the object format's C prefix: Mach-O stores every C
-/// name with a leading `_` (`qb_func_0` is `_qb_func_0` in the file), while
+/// Symbol name without the object format's symbol prefix: Mach-O stores every
+/// symbol name with a leading `_` (`qb_func_0` is `_qb_func_0` in the file), while
 /// the image and the runtime use the plain name.
 fn plain_name<'a>(file: &object::File, name: &'a str) -> &'a str {
     if file.format() == object::BinaryFormat::MachO {
