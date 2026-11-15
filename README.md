@@ -51,7 +51,11 @@ qb examples/showcase/raytrace.bas -o raytrace
   </tr>
   <tr>
     <td><img src="assets/showcase/fractal_tree.png" alt="Recursive fractal tree at sunset"></td>
-    <td valign="top"><b>Generative art and teaching</b> (<a href="examples/showcase/fractal_tree.bas">fractal_tree.bas</a>)<br>A recursive tree with blossoms over a per-pixel sunset gradient. Short enough to read in a lesson, and a good first look at recursion and trigonometry.</td>
+    <td><img src="assets/showcase/life.png" alt="Conway's Game of Life"></td>
+  </tr>
+  <tr>
+    <td><b>Generative art and teaching</b> (<a href="examples/showcase/fractal_tree.bas">fractal_tree.bas</a>)<br>A recursive tree with blossoms over a per-pixel sunset gradient. Short enough to read in a lesson, and a good first look at recursion and trigonometry.</td>
+    <td><b>Simulations</b> (<a href="examples/showcase/life.bas">life.bas</a>)<br>Conway's Game of Life on a wrapping grid, animated at 30 generations a second. Cells are coloured by age and leave fading trails; Space starts a new world.</td>
   </tr>
 </table>
 
