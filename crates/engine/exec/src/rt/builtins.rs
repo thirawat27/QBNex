@@ -424,6 +424,28 @@ pub(crate) enum Pure {
     Cvl,
     Val,
     ValF80,
+    /// one-argument numeric function of `call_main` (SQR, SIN, INT.f64, ...)
+    Num(NumFn),
+}
+
+/// The numeric builtins of [`Pure::Num`]: hot in loops, so they skip the
+/// argument vector and the modules' name dispatch like the string builtins.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum NumFn {
+    AbsF,
+    SgnI,
+    SgnF,
+    IntF32,
+    IntF64,
+    Fix,
+    Sqr,
+    Sin,
+    Cos,
+    Tan,
+    Atn,
+    Log,
+    ExpS,
+    Exp,
 }
 
 /// The [`Pure`] builtin `name` stands for, if any (same names and results as [`call`]).
@@ -442,6 +464,20 @@ pub(crate) fn pure(name: &str) -> Option<Pure> {
         "CVL" => Pure::Cvl,
         "VAL" => Pure::Val,
         "VAL.f80" => Pure::ValF80,
+        "ABS.f32" | "ABS.f64" => Pure::Num(NumFn::AbsF),
+        "SGN.i64" => Pure::Num(NumFn::SgnI),
+        "SGN.f64" => Pure::Num(NumFn::SgnF),
+        "INT.f32" => Pure::Num(NumFn::IntF32),
+        "INT.f64" => Pure::Num(NumFn::IntF64),
+        "FIX.f32" | "FIX.f64" => Pure::Num(NumFn::Fix),
+        "SQR" => Pure::Num(NumFn::Sqr),
+        "SIN" => Pure::Num(NumFn::Sin),
+        "COS" => Pure::Num(NumFn::Cos),
+        "TAN" => Pure::Num(NumFn::Tan),
+        "ATN" => Pure::Num(NumFn::Atn),
+        "LOG" => Pure::Num(NumFn::Log),
+        "EXP.s" => Pure::Num(NumFn::ExpS),
+        "EXP" => Pure::Num(NumFn::Exp),
         _ => return None,
     })
 }
@@ -463,6 +499,36 @@ pub(crate) fn pure_call(p: Pure, s: &[u8], v: &V) -> R<V> {
         Pure::Cvl => V::I(i32::from_le_bytes(fixed(s)?).into()),
         Pure::Val => V::F(val(s)),
         Pure::ValF80 => V::X(qb_float80::F80::from_bytes(qb_runtime::val::val(s).map_err(Stop::Err)?)),
+        Pure::Num(n) => num_call(n, v)?,
+    })
+}
+
+/// [`NumFn`] `n` of `v`: the same results and errors as its case in `call_main`.
+fn num_call(n: NumFn, v: &V) -> R<V> {
+    let x = v.f();
+    Ok(match n {
+        NumFn::AbsF => V::F(x.abs()),
+        NumFn::SgnI => V::I(v.i().signum()),
+        NumFn::SgnF => V::I(if x > 0.0 { 1 } else if x < 0.0 { -1 } else { 0 }),
+        NumFn::IntF32 => V::F(f64::from((x as f32).floor())),
+        NumFn::IntF64 => V::F(x.floor()),
+        NumFn::Fix => V::F(x.trunc()),
+        NumFn::Sqr if x < 0.0 => return Err(Stop::Err(5)),
+        NumFn::Sqr => V::F(x.sqrt()),
+        NumFn::Sin => V::F(x.sin()),
+        NumFn::Cos => V::F(x.cos()),
+        NumFn::Tan => V::F(x.tan()),
+        NumFn::Atn => V::F(x.atan()),
+        NumFn::Log if x <= 0.0 => return Err(Stop::Err(5)),
+        NumFn::Log => V::F(x.ln()),
+        NumFn::ExpS => V::F(qb_runtime::mathfn::exp_single(x).map_err(Stop::Err)?),
+        NumFn::Exp => {
+            let r = x.exp();
+            if r.is_infinite() {
+                return Err(Stop::Err(6));
+            }
+            V::F(r)
+        }
     })
 }
 
@@ -2656,7 +2722,38 @@ mod using_tests {
 
 #[cfg(test)]
 mod route_tests {
-    use super::DIRECT;
+    use super::{pure, Pure, DIRECT};
+
+    /// The numeric builtins of [`Pure::Num`] are cases of `call_main` only, so
+    /// running them through `pure_call` skips no module that would handle them.
+    #[test]
+    fn pure_numeric_names_are_only_in_call_main() {
+        let modules = [
+            include_str!("display.rs"),
+            include_str!("dosx.rs"),
+            include_str!("winx.rs"),
+            include_str!("audiox.rs"),
+            include_str!("scene3d.rs"),
+            include_str!("netx.rs"),
+            include_str!("files.rs"),
+            include_str!("memx.rs"),
+            include_str!("input.rs"),
+        ];
+        let me = include_str!("builtins.rs");
+        let main_at = me.find("fn call_main").unwrap();
+        let chain = &me[me.find("pub(crate) fn call<'a>").unwrap()..main_at];
+        let names = [
+            "ABS.f32", "ABS.f64", "SGN.i64", "SGN.f64", "INT.f32", "INT.f64", "FIX.f32", "FIX.f64", "SQR", "SIN", "COS",
+            "TAN", "ATN", "LOG", "EXP.s", "EXP",
+        ];
+        for n in names {
+            assert!(matches!(pure(n), Some(Pure::Num(_))), "{n} is not a pure numeric builtin");
+            let lit = format!("\"{n}\"");
+            assert!(modules.iter().all(|m| !m.contains(&lit)), "{n} is handled by an rt module");
+            assert!(!chain.contains(&lit), "{n} is handled before call_main");
+            assert!(me[main_at..].contains(&lit), "{n} is not a case of call_main");
+        }
+    }
 
     /// Every name of [`DIRECT`] is a case of `call_main` and of no module that
     /// `call` asks first (by its sources: a module's case is `"NAME" =>`,
