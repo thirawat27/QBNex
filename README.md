@@ -181,7 +181,7 @@ Repository: https://github.com/thirawat27/QBNex
 
 - **Graphics, window and sound**
   - All QBasic `SCREEN` modes (0-13) and QB64 32-bit images; `PSET`, `LINE`, `CIRCLE`, `PAINT`, `DRAW`, `GET`/`PUT`, `_PUTIMAGE`, `_LOADIMAGE` (PNG, JPEG, BMP, PCX, ...), TrueType fonts
-  - `_MAPTRIANGLE` 3D with a depth buffer (software renderer)
+  - `_MAPTRIANGLE` 3D with a depth buffer, batched on the GPU when there is one (software renderer otherwise)
   - High-level 3D (Preview) on the GPU (wgpu: Vulkan, DX12, Metal): `_LOADMODEL`, `_MESH*`, `_CAMERA`, `_LIGHT`, `_DRAW3D`, WGSL shaders with `_SHADER`
   - QB64 `SUB _GL` with an OpenGL context on the program window (`_GLRENDER`)
   - ALT+ENTER full screen (`_ALLOWFULLSCREEN`)

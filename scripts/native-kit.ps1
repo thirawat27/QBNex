@@ -7,7 +7,9 @@ param(
 )
 $ErrorActionPreference = "Stop"
 if (-not $env:CARGO_BUILD_JOBS) { $env:CARGO_BUILD_JOBS = "1" }
-cargo build --release -p qb-native -p qb-exec
+# GPU 3D in native programs as in the runner; QBNEX_GPU=0 leaves it out
+$features = if ($env:QBNEX_GPU -eq '0') { @() } else { @('--features', 'qb-exec/gpu') }
+cargo build --release -p qb-native -p qb-exec @features
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 $sysroot = (rustc --print sysroot).Trim()
 $host_triple = ((rustc -vV | Select-String '^host: ').Line -replace '^host: ', '').Trim()

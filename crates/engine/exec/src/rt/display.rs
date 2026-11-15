@@ -800,6 +800,7 @@ impl Display {
         // a new image may get this index
         self.depth.remove(&idx);
         self.depth_mode.remove(&idx);
+        qb_runtime::maptri3d::forget(idx);
         self.freeimg(idx);
     }
 
@@ -1478,6 +1479,7 @@ impl Display {
         if !self.started {
             return;
         }
+        qb_runtime::maptri3d::flush();
         // SAFETY: display page is valid.
         unsafe { gfx::capture::qb_fb_capture(self.dp(), kind) };
     }
@@ -1621,6 +1623,8 @@ pub(crate) fn memimage(vm: &mut dyn VmIface<'_>, handle: i32, given: bool) -> R<
     let idx = if given { d.resolve(handle) } else { Some(d.write_index) };
     chk(d)?;
     let Some(idx) = idx else { return Err(Stop::Err(258)) };
+    // its pixels can now be read without a builtin call: 3D _MAPTRIANGLE draws on it at once
+    qb_runtime::maptri3d::expose(idx);
     // SAFETY: a valid registry entry; the lock is created once per image and freed with it.
     unsafe {
         let s = im(idx);
@@ -2277,6 +2281,29 @@ pub(crate) fn call(vm: &mut dyn VmIface<'_>, name: &str, a: &[V]) -> Option<R<Op
                         let (tw, th) = ((*tp).width, (*tp).height);
                         let (sw, sh) = (usize::from((*sp).width), usize::from((*sp).height));
                         let mode = d.depth_mode.get(&tx).copied().unwrap_or(qb_runtime::raster::DEPTH_ON);
+                        let cull = match i(0) {
+                            1 => qb_runtime::raster::CULL_CLOCKWISE_ONLY,
+                            2 => qb_runtime::raster::CULL_ANTICLOCKWISE_ONLY,
+                            _ => qb_runtime::raster::CULL_NONE,
+                        };
+                        let dz = |k: usize, bit: i32| if po & bit != 0 { f32_(k) } else { 0.0 };
+                        let tri = qb_runtime::maptri3d::Tri {
+                            d: [[f32_(8), f32_(9), dz(10, 4)], [f32_(11), f32_(12), dz(13, 8)], [f32_(14), f32_(15), dz(16, 16)]],
+                            s: [[f32_(1), f32_(2)], [f32_(3), f32_(4)], [f32_(5), f32_(6)]],
+                            use_alpha: (*tp).alpha_disabled == 0,
+                            smooth: po & 64 != 0 && i(18) != 0,
+                            cull,
+                            depth: mode,
+                        };
+                        let (twu, thu) = (usize::from(tw), usize::from(th));
+                        // On the GPU: queued, and drawn in a batch before anything can see this
+                        // image (the next builtin of another kind, a shown or captured frame).
+                        let src_px = core::slice::from_raw_parts((*sp).offset as *const u32, sw * sh);
+                        let dst3 = qb_runtime::maptri3d::Dst { key: tx, px: (*tp).offset as *mut u32, w: twu, h: thu };
+                        let src3 = qb_runtime::maptri3d::SrcImg { key: sx, px: src_px, w: sw, h: sh };
+                        if qb_runtime::maptri3d::queue(dst3, src3, tri) {
+                            return Some(chk(d).map(|_| None));
+                        }
                         let entry = d.depth.entry(tx).or_insert_with(|| (0, 0, Vec::new()));
                         if entry.0 != tw || entry.1 != th {
                             *entry = (tw, th, vec![f32::INFINITY; usize::from(tw) * usize::from(th)]);
@@ -2287,22 +2314,17 @@ pub(crate) fn call(vm: &mut dyn VmIface<'_>, name: &str, a: &[V]) -> Option<R<Op
                         let dst = core::slice::from_raw_parts_mut((*tp).offset as *mut u32, n);
                         let mut target = qb_runtime::raster::Target { px: dst, w: usize::from(tw), h: usize::from(th) };
                         let source = qb_runtime::raster::Source { px: &src, w: sw, h: sh };
-                        let cull = match i(0) {
-                            1 => qb_runtime::raster::CULL_CLOCKWISE_ONLY,
-                            2 => qb_runtime::raster::CULL_ANTICLOCKWISE_ONLY,
-                            _ => qb_runtime::raster::CULL_NONE,
-                        };
-                        let dz = |k: usize, bit: i32| if po & bit != 0 { f32_(k) } else { 0.0 };
+                        let p = |v: [f32; 3]| (v[0], v[1], v[2]);
                         qb_runtime::raster::tri3d(
                             &mut target,
                             &mut entry.2,
                             source,
-                            [(f32_(8), f32_(9), dz(10, 4)), (f32_(11), f32_(12), dz(13, 8)), (f32_(14), f32_(15), dz(16, 16))],
-                            [(f32_(1), f32_(2)), (f32_(3), f32_(4)), (f32_(5), f32_(6))],
-                            (*tp).alpha_disabled == 0,
-                            po & 64 != 0 && i(18) != 0,
-                            cull,
-                            mode,
+                            [p(tri.d[0]), p(tri.d[1]), p(tri.d[2])],
+                            [(tri.s[0][0], tri.s[0][1]), (tri.s[1][0], tri.s[1][1]), (tri.s[2][0], tri.s[2][1])],
+                            tri.use_alpha,
+                            tri.smooth,
+                            tri.cull,
+                            tri.depth,
                         );
                     }
                 } else if let (Some(sx), Some(tx)) = (s, t) {
@@ -2343,6 +2365,7 @@ pub(crate) fn call(vm: &mut dyn VmIface<'_>, name: &str, a: &[V]) -> Option<R<Op
                             if let Some(e) = d.depth.get_mut(&x) {
                                 e.2.fill(f32::INFINITY);
                             }
+                            qb_runtime::maptri3d::clear_depth(x);
                         }
                         _ => gerr(d, 5),
                     }

@@ -21,8 +21,8 @@
 //! - alpha blending `glBlendFuncSeparate(SRC_ALPHA, ONE_MINUS_SRC_ALPHA, ONE, ONE)`
 //!   unless the source has `_DONTBLEND`.
 //!
-//! Near-plane clipping is the GPU's (z = -0.1); unlike the software path the
-//! far plane (z = -10000) also clips, as it did with legacy OpenGL.
+//! Near-plane clipping is the GPU's (z = -0.1). There is no far plane, as in
+//! the software path (legacy OpenGL clipped at z = -10000).
 
 use std::collections::HashMap;
 
@@ -213,13 +213,13 @@ fn fs(o: Out) -> @location(0) vec4<f32> {
 "#;
 
 const NEAR: f32 = 0.1;
-const FAR: f32 = 10000.0;
 
-/// The legacy 3D projection for a `width`×`height` destination.
+/// The legacy 3D projection for a `width`×`height` destination, without a
+/// far plane (the software renderer has none either).
 pub fn projection(width: u32, height: u32) -> Mat4 {
     let (w, h) = (width.max(1) as f32, height.max(1) as f32);
     let fov = if width > height { 90.0 * h / w } else { 90.0f32 };
-    glam::camera::rh::proj::directx::perspective(fov.to_radians(), w / h, NEAR, FAR)
+    glam::camera::rh::proj::directx::perspective_infinite(fov.to_radians(), w / h, NEAR)
 }
 
 type PipelineKey = (bool, Cull, DepthMode);
@@ -430,20 +430,22 @@ impl MapTriangle3d {
         for t in tris {
             self.pipeline(gpu, (t.use_alpha, t.cull, t.depth));
         }
-        let groups: Vec<wgpu::BindGroup> = tris
-            .iter()
-            .map(|t| {
-                let sampler = &self.samplers[t.smooth.index() * 2 + usize::from(t.wrap)];
+        // one bind group per source image and sampler (a frame of thousands of
+        // triangles usually has a handful)
+        let mut groups: HashMap<(usize, usize), wgpu::BindGroup> = HashMap::new();
+        for t in tris {
+            let sampler = t.smooth.index() * 2 + usize::from(t.wrap);
+            groups.entry((std::ptr::from_ref(t.src) as usize, sampler)).or_insert_with(|| {
                 gpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
                     label: Some("qb-gpu maptriangle texture"),
                     layout: &self.tex_layout,
                     entries: &[
                         wgpu::BindGroupEntry { binding: 0, resource: wgpu::BindingResource::TextureView(&t.src.view) },
-                        wgpu::BindGroupEntry { binding: 1, resource: wgpu::BindingResource::Sampler(sampler) },
+                        wgpu::BindGroupEntry { binding: 1, resource: wgpu::BindingResource::Sampler(&self.samplers[sampler]) },
                     ],
                 })
-            })
-            .collect();
+            });
+        }
         let vbuf = (!verts.is_empty()).then(|| {
             gpu.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
                 label: Some("qb-gpu maptriangle vertices"),
@@ -477,12 +479,20 @@ impl MapTriangle3d {
             if let Some(vbuf) = &vbuf {
                 pass.set_bind_group(0, &self.uniform_group, &[]);
                 pass.set_vertex_buffer(0, vbuf.slice(..));
-                for (i, t) in tris.iter().enumerate() {
-                    let p = &self.pipelines[&(t.use_alpha, t.cull, t.depth)];
-                    pass.set_pipeline(p);
-                    pass.set_bind_group(1, &groups[i], &[]);
-                    let v = (i * 3) as u32;
-                    pass.draw(v..v + 3, 0..1);
+                // one draw per run of triangles with the same pipeline and texture
+                // (the order of the triangles stays as given)
+                let key = |t: &Tri3d| ((t.use_alpha, t.cull, t.depth), (std::ptr::from_ref(t.src) as usize, t.smooth.index() * 2 + usize::from(t.wrap)));
+                let mut i = 0;
+                while i < tris.len() {
+                    let k = key(&tris[i]);
+                    let mut j = i + 1;
+                    while j < tris.len() && key(&tris[j]) == k {
+                        j += 1;
+                    }
+                    pass.set_pipeline(&self.pipelines[&k.0]);
+                    pass.set_bind_group(1, &groups[&k.1], &[]);
+                    pass.draw((i * 3) as u32..(j * 3) as u32, 0..1);
+                    i = j;
                 }
             }
         }

@@ -28,6 +28,7 @@ pub mod gpu_present;
 mod gpu_tests;
 pub mod image;
 pub mod keybuf;
+pub mod maptri3d;
 pub mod keymap;
 pub mod mathfn;
 pub mod mbf;

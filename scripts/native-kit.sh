@@ -11,11 +11,15 @@ set -eu
 out="${1:-target/release/native}"
 : "${CARGO_BUILD_JOBS:=1}"
 export CARGO_BUILD_JOBS
-cargo build --release -p qb-exec
+# GPU 3D in native programs as in the runner; QBNEX_GPU=0 leaves it out
+features="--features qb-exec/gpu"
+[ "${QBNEX_GPU:-1}" = "0" ] && features=""
+# shellcheck disable=SC2086
+cargo build --release -p qb-exec $features
 # Build the runtime library and capture the system libraries it needs.
 # --color never: with CARGO_TERM_COLOR=always (CI) the note ends in an ANSI reset
 # code that would stick to the last library (-lc becomes "-lc\033[0m").
-libs=$(cargo rustc --color never --release -p qb-native -- --print native-static-libs 2>&1 \
+libs=$(cargo rustc --color never --release -p qb-native $features -- --print native-static-libs 2>&1 \
     | sed -n 's/.*native-static-libs: //p' | tail -n 1)
 [ -n "$libs" ] || { echo "native-kit: rustc printed no native-static-libs" >&2; exit 1; }
 sysroot=$(rustc --print sysroot)

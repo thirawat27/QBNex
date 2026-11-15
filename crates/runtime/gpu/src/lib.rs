@@ -193,6 +193,11 @@ impl Gpu {
         self.failed.load(Ordering::SeqCst)
     }
 
+    /// The adapter renders on the CPU (WARP, llvmpipe, lavapipe).
+    pub fn is_software(&self) -> bool {
+        self.adapter.get_info().device_type == wgpu::DeviceType::Cpu
+    }
+
     /// Largest texture side the device accepts.
     pub fn max_texture_size(&self) -> u32 {
         self.device.limits().max_texture_dimension_2d

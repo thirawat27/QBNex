@@ -17,6 +17,6 @@ qb examples/showcase/starfighter.bas -o starfighter
 | [`mandelbrot.bas`](mandelbrot.bas) | Smooth-coloured Mandelbrot zoom | any key closes |
 | [`fractal_tree.bas`](fractal_tree.bas) | Recursive fractal tree at sunset | any key closes |
 | [`life.bas`](life.bas) | Conway's Game of Life, coloured by cell age | Space = new world, other keys close |
-| [`infinity3d.bas`](infinity3d.bas) | Spinning infinity tube, drawn on the GPU (`_DRAW3D`) or with `_MAPTRIANGLE` 3D | M = switch renderer, Esc |
+| [`shapes3d.bas`](shapes3d.bas) | Six spinning 3D shapes (infinity, trefoil and torus knots, Moebius strip, Klein bottle, seashell) on the GPU (`_DRAW3D`) or with `_MAPTRIANGLE` 3D | 1-6/N = shape, M = renderer, A = tour, Esc |
 
 ไฟล์ `.bas` ทุกไฟล์คอมไพล์และรันได้ทันทีด้วย `qb` ลองแก้ค่าในโค้ด (สี มุมกล้อง จำนวนวัตถุ) แล้วคอมไพล์ใหม่เพื่อดูผลได้เลย

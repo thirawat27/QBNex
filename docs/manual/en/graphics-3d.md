@@ -27,12 +27,17 @@ _DISPLAY
 
 Projection, depth buffer (`_DEPTHBUFFER ON|LOCK|OFF`), culling
 (`_CLOCKWISE`/`_ANTICLOCKWISE`), `_SMOOTH*` filtering and alpha follow
-QB64. The 3D form is always drawn by the software renderer, on 32-bit images
-only (error 5 otherwise), and each image keeps its depth buffer until
-`_DEPTHBUFFER _CLEAR` or until the image is freed. It has no far plane. The
-standard builds present the frames with wgpu (Vulkan, DX12, Metal), and
-present in software when there is no hardware adapter or
-`QB_GPU=off`.
+QB64. The 3D form draws on 32-bit images only (error 5 otherwise), and each
+image keeps its depth buffer until `_DEPTHBUFFER _CLEAR` or until the image is
+freed. It has no far plane. With a hardware GPU (a graphics card or an
+integrated one) the standard builds collect the 3D triangles and draw them on
+the GPU in one batch before the program looks at the image again, which makes
+large triangles many times faster; edge pixels can round differently than in
+software. Without one (only a software adapter such as WARP, or
+`QB_GPU=off`), and on an image whose pixels `_MEMIMAGE` handed out, the
+software renderer draws them. The standard builds present the frames with
+wgpu (Vulkan, DX12, Metal), and present in software when there is no hardware
+adapter or `QB_GPU=off`.
 
 ## High-level 3D: models, camera, lights (Preview)
 

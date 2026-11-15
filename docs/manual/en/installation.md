@@ -104,7 +104,8 @@ See the header of `scripts/setup_win.cmd` and `scripts/setup_lnx.sh`.
 toolchain's `rust-lld`) in `target/release/native` (or the folder given as
 the first argument). `native-kit.sh` needs the C library development files
 (`libc6-dev`) and the libasound and libudev development files on Linux, and
-the Xcode command line tools on macOS. Copied to `crates/engine/exec/bin/<os>/native/`, it makes
+the Xcode command line tools on macOS. The kit has GPU 3D like the runner
+(`QBNEX_GPU=0` builds it without). Copied to `crates/engine/exec/bin/<os>/native/`, it makes
 the compiler link ordinary executables instead of appending QIR to the runner
 (see [commands](commands.md)).
 

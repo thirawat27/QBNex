@@ -381,6 +381,8 @@ pub(crate) fn present(d: &Display) {
     if !d.started || d.screen_hide {
         return;
     }
+    // the 3D _MAPTRIANGLEs queued for the GPU are part of this frame
+    qb_runtime::maptri3d::flush();
     let frame = FRAME.fetch_add(1, Ordering::Relaxed);
     // SAFETY: the display page of a started screen is a live registry entry.
     let p = unsafe { &*d.display_page() };

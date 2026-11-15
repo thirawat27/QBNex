@@ -102,6 +102,7 @@ sh scripts/setup_osx.command
 toolchain Rust) ไว้ที่ `target/release/native` (หรือโฟลเดอร์ที่ส่งเป็น argument แรก)
 `native-kit.sh` ต้องมีไฟล์สำหรับพัฒนาของไลบรารี C (`libc6-dev`) และของ libasound
 กับ libudev บน Linux และต้องมี Xcode command line tools บน macOS
+kit นี้มี 3D บน GPU เหมือน runner (ตั้ง `QBNEX_GPU=0` เพื่อ build แบบไม่มี)
 ถ้าคัดลอกไปไว้ที่ `crates/engine/exec/bin/<os>/native/`
 คอมไพเลอร์จะลิงก์ executable ปกติแทนการต่อ QIR ท้าย runner
 (ดู[คำสั่ง](commands.md))

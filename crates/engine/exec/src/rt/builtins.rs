@@ -550,10 +550,25 @@ pub(crate) fn route(name: &str) -> bool {
 
 /// [`call`] of a builtin in [`DIRECT`]: the same result without the modules' name dispatch.
 pub(crate) fn call_direct<'a>(vm: &mut dyn Host<'a>, name: &'static str, a: Vec<V>) -> R<Option<V>> {
+    flush_triangles(name);
     if let Some(r) = print_on_screen(vm, name, &a) {
         return r;
     }
     call_main(vm, name, &a)
+}
+
+/// Draws the 3D `_MAPTRIANGLE`s queued for the GPU before builtin `name`
+/// runs, unless it cannot see or change an image: another `_MAPTRIANGLE`, or
+/// a function of its arguments only (math, strings, RND, TIMER). So a program
+/// that only computes between its triangles gets them drawn in one batch.
+#[inline]
+fn flush_triangles(name: &str) {
+    if qb_runtime::maptri3d::pending()
+        && !matches!(name, "sub__maptriangle" | "RND" | "RND.n" | "TIMER" | "TIMER.n" | "MID$" | "LEFT$" | "RIGHT$" | "INSTR" | "CHR$" | "ASC" | "STRING$" | "HEX$" | "OCT$" | "LEN")
+        && pure(name).is_none()
+    {
+        qb_runtime::maptri3d::flush();
+    }
 }
 
 /// PRINT to the console while a screen page is the destination: drawn on it.
@@ -581,6 +596,7 @@ fn print_on_screen<'a>(vm: &mut dyn Host<'a>, name: &str, a: &[V]) -> Option<R<O
 }
 
 pub(crate) fn call<'a>(vm: &mut dyn Host<'a>, name: &'static str, a: Vec<V>) -> R<Option<V>> {
+    flush_triangles(name);
     if let Some(r) = super::display::call(vm, name, &a) {
         return r;
     }
