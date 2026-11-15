@@ -83,6 +83,7 @@ ambient อย่างเดียว, depth ระหว่างสอง mod
 
 - `_DISPLAY` (ทั้งสองเส้นทางเรียก hook `qb_fb_capture`) ย้ายคิว `_DRAW3D` ไปเป็น layer ที่แสดง; หน้าต่างผสม layer ผ่าน `scene3d::compose` (เรียกจาก `present` ใน `crates/engine/exec/src/rt/window.rs`); โหมด `_AUTODISPLAY` แสดงคิวเมื่อยังไม่มี layer
 - ไม่มี feature `gpu` หรือไม่มี adapter: handle/error ทำงานครบ, ไม่วาด, `_GPU3D` = 0
+- device รายงาน error ระหว่างรัน (validation, หน่วยความจำไม่พอ): ไม่ panic; 3D ปิดตัวเอง (`_GPU3D` = 0) และหน้าต่างเปลี่ยนไปใช้ softbuffer
 - error: handle ผิด = 258, argument ผิด = 5 (`_LIGHT` kind ผิดก็ 5)
 - keyword ทั้งหมดอยู่ใน `compiler/subs_functions/subs_functions.bas` และ `crates/compiler/syntax/src/keywords.rs` (LSP/formatter) แล้ว
 

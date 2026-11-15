@@ -9,7 +9,7 @@ All QBasic and QB64 graphics run on the Rust runtime: `SCREEN` 0-13 and
 `VIEW`/`WINDOW`, `GET`/`PUT`, `PCOPY`, `_PUTIMAGE`, `_LOADIMAGE` (the formats
 QB64 reads: PNG, JPEG, BMP, PCX, ...), TrueType fonts with `_LOADFONT`, palettes, alpha
 blending, `_DISPLAY`, `_LIMIT`, keyboard, mouse and gamepads. The window
-uses winit + softbuffer; no OpenGL, FreeGLUT or FreeType is needed. The
+uses winit with wgpu or softbuffer; no OpenGL, FreeGLUT or FreeType is needed. The
 results are pixel-identical to the old C++ runtime in the conformance
 tests.
 
@@ -31,16 +31,17 @@ QB64. The default renderer is the software one: there the 3D form draws on
 32-bit images only (error 5 otherwise), and each image keeps its depth buffer
 until `_DEPTHBUFFER _CLEAR` or until the image is freed.
 
-**Preview:** a runtime built with the `gpu` feature presents frames and can
-draw 3D triangles with wgpu (Vulkan, DX12, Metal). It falls back to the
-software path when there is no adapter or `QB_GPU=off`. One known
-difference: on the GPU the far plane (10000) clips, as legacy OpenGL did.
+**GPU:** the standard builds present frames with wgpu (Vulkan, DX12, Metal);
+`_MAPTRIANGLE` 3D triangles are still drawn by the software renderer. The
+window keeps the software presenter when there is no hardware adapter or
+`QB_GPU=off`.
 
 ## High-level 3D: models, camera, lights (Preview)
 
-The compiler knows these statements and functions; they draw on a runtime
-built with GPU support (wgpu). Without a GPU every statement still runs
-without an error, `_DRAW3D` draws nothing and `_GPU3D` returns 0. Design:
+The compiler knows these statements and functions; the standard builds draw
+them on the GPU with wgpu, or on a software adapter (WARP, llvmpipe) when
+there is no GPU. With no adapter at all or `QB_GPU=off` every statement still
+runs without an error, `_DRAW3D` draws nothing and `_GPU3D` returns 0. Design:
 `docs/dev/3d-api.md`.
 
 ```basic

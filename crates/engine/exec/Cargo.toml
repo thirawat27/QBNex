@@ -19,7 +19,9 @@ path = "src/main.rs"
 # Statement hook + variable inspection for the debug adapter (qb-dap).
 # Off by default: without it the VM has no debugger code at all.
 debug = []
-# Draw the 3D layer (_DRAW3D) on the GPU in captured frames.
+# GPU (wgpu) window presentation and the 3D layer (_DRAW3D, _LOADMODEL, _SHADER).
+# The setup scripts and release bundles turn it on; without an adapter the runner
+# keeps the software presenter and _GPU3D returns 0.
 gpu = ["qb-runtime/gpu"]
 # Export the VM entry points native code calls under their AOT import names
 # (qb_host_<i>, qb_vm_op); used by the qb-native runtime library.

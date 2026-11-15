@@ -189,7 +189,7 @@ chmod +x scripts/setup_osx.command
 What the setup scripts do, step by step:
 
 ```bash
-cargo build --release -p qb-exec
+cargo build --release -p qb-exec --features gpu
 # copy target/release/qb-exec(.exe) to crates/engine/exec/bin/<os>/, then pack
 # bootstrap/qbnex.qir into a copy of it: that copy is qb-stage0
 # (scripts/qir_pack.ps1 on Windows; setup_lnx.sh does the same in shell)

@@ -4,7 +4,7 @@
 //! only the last step — scaling it into the window per [`raster::layout`] —
 //! runs on the GPU instead of `raster::scale_to_window` + softbuffer. When
 //! no adapter or surface is available (or `QB_GPU=off`), the window keeps
-//! the software presenter.
+//! the software presenter; it switches to it when the device reports an error.
 
 use std::sync::Arc;
 
@@ -38,7 +38,16 @@ impl Present {
     pub fn new(window: Arc<Window>) -> Result<Present, GpuError> {
         let (gpu, target) = Gpu::for_window(window)?;
         let blit = Blitter::new(&gpu, target.format());
+        if gpu.failed() {
+            return Err(GpuError("the GPU presenter could not be set up".into()));
+        }
         Ok(Present { gpu, target, blit })
+    }
+
+    /// The device reported an error: the window should switch to the
+    /// software presenter instead of drawing through it again.
+    pub fn failed(&self) -> bool {
+        self.gpu.failed()
     }
 
     pub fn adapter_name(&self) -> String {

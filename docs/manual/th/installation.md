@@ -75,7 +75,7 @@ sh scripts/setup_osx.command
 
 ### สิ่งที่สคริปต์ setup ทำ
 
-1. build runner `qb-exec` (`cargo build --release -p qb-exec`) ไว้ที่
+1. build runner `qb-exec` (`cargo build --release -p qb-exec --features gpu`) ไว้ที่
    `crates/engine/exec/bin/<os>/`
 2. แพ็ก `bootstrap/qbnex.qir` (คอมไพเลอร์ที่แปลเป็น QIR ไว้แล้ว) เข้ากับ
    runner ได้เป็นคอมไพเลอร์ stage-0

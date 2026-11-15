@@ -22,6 +22,7 @@ pub mod maptri;
 pub mod scene;
 pub mod three;
 
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 pub use glam;
@@ -33,6 +34,8 @@ pub struct Gpu {
     pub adapter: wgpu::Adapter,
     pub device: wgpu::Device,
     pub queue: wgpu::Queue,
+    /// Set by the first wgpu error on the device (see [`Gpu::failed`]).
+    failed: Arc<AtomicBool>,
 }
 
 #[derive(Debug)]
@@ -48,6 +51,11 @@ impl std::error::Error for GpuError {}
 
 fn instance() -> wgpu::Instance {
     wgpu::Instance::new(wgpu::InstanceDescriptor { backends: wgpu::Backends::PRIMARY, ..wgpu::InstanceDescriptor::new_without_display_handle_from_env() })
+}
+
+/// `QB_GPU_FALLBACK=1`: use the software adapter only.
+fn fallback_forced() -> bool {
+    std::env::var("QB_GPU_FALLBACK").is_ok_and(|v| v == "1")
 }
 
 /// The process's one instance and adapter, made on first use.
@@ -71,7 +79,7 @@ fn shared() -> Option<(wgpu::Instance, wgpu::Adapter)> {
                 }))
                 .ok()
             };
-            let adapter = if std::env::var("QB_GPU_FALLBACK").is_ok_and(|v| v == "1") {
+            let adapter = if fallback_forced() {
                 pick(true)
             } else {
                 pick(false).or_else(|| pick(true))
@@ -81,14 +89,31 @@ fn shared() -> Option<(wgpu::Instance, wgpu::Adapter)> {
         .clone()
 }
 
-fn device(adapter: &wgpu::Adapter) -> Result<(wgpu::Device, wgpu::Queue), GpuError> {
+/// A device on `adapter` whose errors are not fatal: wgpu's default handler
+/// panics, which would take the program down with a driver problem. The first
+/// error is printed to stderr and sets the returned flag; the caller then stops
+/// using the device and falls back to software.
+fn device(adapter: &wgpu::Adapter) -> Result<(wgpu::Device, wgpu::Queue, Arc<AtomicBool>), GpuError> {
     let desc = wgpu::DeviceDescriptor {
         label: Some("qb-gpu"),
         required_features: wgpu::Features::empty(),
         required_limits: wgpu::Limits::downlevel_defaults().using_resolution(adapter.limits()),
         ..Default::default()
     };
-    pollster::block_on(adapter.request_device(&desc)).map_err(|e| GpuError(e.to_string()))
+    let (device, queue) = pollster::block_on(adapter.request_device(&desc)).map_err(|e| GpuError(e.to_string()))?;
+    let failed = Arc::new(AtomicBool::new(false));
+    let flag = failed.clone();
+    device.on_uncaptured_error(Arc::new(move |e: wgpu::Error| {
+        if !flag.swap(true, Ordering::SeqCst) {
+            // Display is only the kind ("Validation Error"); the description says what failed
+            let what = match &e {
+                wgpu::Error::Validation { description, .. } | wgpu::Error::Internal { description, .. } => description.clone(),
+                other => other.to_string(),
+            };
+            eprintln!("qb-gpu: {}", what.trim_end());
+        }
+    }));
+    Ok((device, queue, failed))
 }
 
 impl Gpu {
@@ -101,17 +126,24 @@ impl Gpu {
             return None;
         }
         let (instance, adapter) = shared()?;
-        let (device, queue) = device(&adapter).ok()?;
-        Some(Gpu { instance, adapter, device, queue })
+        let (device, queue, failed) = device(&adapter).ok()?;
+        Some(Gpu { instance, adapter, device, queue, failed })
     }
 
     /// A GPU and a surface for `window`.
-    /// `QB_GPU=off` refuses (the caller keeps its software presenter).
+    /// `QB_GPU=off` refuses (the caller keeps its software presenter), and so
+    /// does a machine whose only adapter is a software one, unless `QB_GPU_FALLBACK=1`.
     pub fn for_window(window: Arc<winit::window::Window>) -> Result<(Gpu, Target), GpuError> {
         if std::env::var("QB_GPU").is_ok_and(|v| v == "off") {
             return Err(GpuError("disabled by QB_GPU=off".into()));
         }
         let (instance, shared_adapter) = shared().ok_or_else(|| GpuError("no adapter".into()))?;
+        // Only a software adapter (WARP, llvmpipe): presenting through it is no
+        // faster than the software presenter and adds a driver that can fail, so
+        // the window keeps softbuffer unless QB_GPU_FALLBACK=1 asks for it.
+        if shared_adapter.get_info().device_type == wgpu::DeviceType::Cpu && !fallback_forced() {
+            return Err(GpuError(format!("{} is a software adapter", shared_adapter.get_info().name)));
+        }
         let surface = instance.create_surface(window.clone()).map_err(|e| GpuError(e.to_string()))?;
         // the shared adapter when it can present here; asking for another one enumerates again
         let adapter = if shared_adapter.is_surface_supported(&surface) {
@@ -125,8 +157,8 @@ impl Gpu {
             }))
             .map_err(|e| GpuError(e.to_string()))?
         };
-        let (device, queue) = device(&adapter)?;
-        let gpu = Gpu { instance, adapter, device, queue };
+        let (device, queue, failed) = device(&adapter)?;
+        let gpu = Gpu { instance, adapter, device, queue, failed };
         let size = window.inner_size();
         let caps = surface.get_capabilities(&gpu.adapter);
         // Prefer a non-sRGB format: framebuffer values are shown as they are.
@@ -149,7 +181,16 @@ impl Gpu {
             color_space: Default::default(),
         };
         surface.configure(&gpu.device, &config);
+        if gpu.failed() {
+            return Err(GpuError("the window surface could not be configured".into()));
+        }
         Ok((gpu, Target::Window { surface, config, window }))
+    }
+
+    /// The device reported an error (validation, out of memory, ...): what it
+    /// draws can no longer be trusted, and the caller should fall back to software.
+    pub fn failed(&self) -> bool {
+        self.failed.load(Ordering::SeqCst)
     }
 
     /// Largest texture side the device accepts.

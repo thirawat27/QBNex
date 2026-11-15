@@ -176,3 +176,20 @@ fn oversized_and_short_images_do_not_panic() {
     let big = Target::offscreen(&g, w, 1);
     assert_eq!(big.size().0, max);
 }
+
+#[test]
+fn device_errors_set_a_flag_instead_of_panicking() {
+    let Some(g) = gpu() else { return };
+    assert!(!g.failed());
+    // MAP_READ with MAP_WRITE is a validation error: wgpu's default handler panics
+    let _ = g.device.create_buffer(&qb_gpu::wgpu::BufferDescriptor {
+        label: None,
+        size: 4,
+        usage: qb_gpu::wgpu::BufferUsages::MAP_READ | qb_gpu::wgpu::BufferUsages::MAP_WRITE,
+        mapped_at_creation: false,
+    });
+    assert!(g.failed());
+    // another device is not affected
+    let Some(h) = gpu() else { return };
+    assert!(!h.failed());
+}

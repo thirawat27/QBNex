@@ -595,13 +595,24 @@ mod gpu {
     /// `None` = not tried yet; `Some(None)` = no adapter.
     static SIDE: Mutex<Option<Option<Side>>> = Mutex::new(None);
 
-    /// Runs `f` with the GPU (created on first use); `None` without an adapter.
+    /// Runs `f` with the GPU (created on first use); `None` without an adapter,
+    /// or after the device reported an error (3D is then off, `_GPU3D` = 0).
     pub(super) fn with<T>(f: impl FnOnce(&mut Side) -> T) -> Option<T> {
         let mut g = SIDE.lock().unwrap_or_else(|e| e.into_inner());
         if g.is_none() {
             *g = Some(Gpu::headless().map(|gpu| Side { gpu, renderer: None, cache: None }));
         }
+        if g.as_ref().and_then(Option::as_ref).is_some_and(|s| s.gpu.failed()) {
+            eprintln!("qb-runtime: GPU error; 3D drawing is off");
+            *g = Some(None);
+        }
         g.as_mut().and_then(Option::as_mut).map(f)
+    }
+
+    /// Forgets the device, so the next use creates a new one.
+    #[cfg(test)]
+    pub(super) fn reset() {
+        *SIDE.lock().unwrap_or_else(|e| e.into_inner()) = None;
     }
 
     fn build(gpu: &Gpu, m: &Mesh) -> Option<Model> {
@@ -712,6 +723,10 @@ mod gpu {
             renderer.render(gpu, &frame, &camera(&s.camera), &lighting, Some(clear), &instances);
             frame.present(gpu);
             let mut px = target.read_pixels(gpu)?;
+            // an error while drawing: the pixels are not used, and 3D turns off
+            if gpu.failed() {
+                return None;
+            }
             // a frame above the device's texture limit was rendered smaller: scale up
             let (lw, lh) = target.size();
             if (lw, lh) != (w, h) {
@@ -919,6 +934,42 @@ mod tests {
         assert_eq!(shader("fn shade(i: ShadeIn) -> vec4<f32> {\n  return vec4<f32>(oops);\n}"), -1);
         let e = shader_error();
         assert!(e.starts_with("line 2"), "{e}");
+    }
+
+    #[cfg(feature = "gpu")]
+    #[test]
+    fn device_error_turns_3d_off_without_a_panic() {
+        let _g = fresh();
+        if qb_3d_available() == 0 {
+            eprintln!("skipped: no GPU adapter");
+            return;
+        }
+        /// The next test gets a new device.
+        struct NewDevice;
+        impl Drop for NewDevice {
+            fn drop(&mut self) {
+                gpu::reset();
+            }
+        }
+        let _d = NewDevice;
+        let m = qb_3d_mesh_cube(2.0);
+        assert_eq!(qb_3d_draw(m, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0), 0);
+        frame_done();
+        // MAP_READ with MAP_WRITE is a validation error: wgpu's default handler would panic
+        use qb_gpu::wgpu;
+        gpu::with(|s| {
+            s.gpu.device.create_buffer(&wgpu::BufferDescriptor {
+                label: None,
+                size: 4,
+                usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::MAP_WRITE,
+                mapped_at_creation: false,
+            })
+        });
+        assert_eq!(qb_3d_available(), 0);
+        // the shown draw composes nothing now
+        let mut px = vec![0xFF10_2030u32; 16 * 16];
+        compose(&mut px, 16, 16);
+        assert!(px.iter().all(|&p| p == 0xFF10_2030));
     }
 
     #[cfg(feature = "gpu")]

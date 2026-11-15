@@ -77,7 +77,7 @@ sh scripts/setup_osx.command
 
 ### What the setup does
 
-1. Builds the runner `qb-exec` (`cargo build --release -p qb-exec`) into
+1. Builds the runner `qb-exec` (`cargo build --release -p qb-exec --features gpu`) into
    `crates/engine/exec/bin/<os>/`.
 2. Packs `bootstrap/qbnex.qir` (the compiler, already translated to QIR)
    into that runner, giving a stage-0 compiler.

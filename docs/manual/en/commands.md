@@ -106,13 +106,13 @@ the VM with breakpoints, stepping and variable views. See
 | --- | --- |
 | `QBNEX_NO_ERROR_DIALOG=1` | Runtime errors go to stderr, exit code 1, no dialog. |
 | `QB_JIT=off` / `eager` / `<n>` | QIR runner: no JIT, compile at once, or after n loop iterations. |
-| `QB_GPU=off` / `verbose` | Builds with the GPU feature: never use the GPU / log the choice. |
+| `QB_GPU=off` / `verbose` | Never use the GPU (the window and 3D fall back to software, `_GPU3D` returns 0) / log the choice. |
 | `QBNEX_HEADLESS` | Run graphics programs without a window (tests). |
 | `QB_JIT_THREADS=<n>` | Number of threads the JIT compiles with (default: all CPU threads). |
 | `QB_JIT_STATS=1` | Print JIT statistics, including compile times, on stderr. |
 | `QB_PROFILE=<file>` | Write the hottest functions and source lines, with call counts and inclusive time, to the file when the program ends (a sample every millisecond; use it with `QB_JIT=off`). |
 | `QB_EXEC_DISASM=1` | Print the bytecode the runner made from the QIR on stderr. |
-| `QB_GPU_FALLBACK=1` | Builds with the GPU feature: the program uses only the software adapter, for example WARP on Windows (offscreen rendering, and the window when that adapter can present to it). |
+| `QB_GPU_FALLBACK=1` | The program uses only the software adapter, for example WARP on Windows (offscreen rendering, and the window when that adapter can present to it). |
 | `QBNEX_NATIVE_KIT=<dir>` | Native kit folder to use instead of `native/` next to the runner. |
 | `QBNEX_INPUT_SCRIPT=<file>` | Feed keyboard, mouse and window events from a script (tests; one command per line: `wait 100`, `key a`, `type Hi`, `click 1`, `close`, `snapshot`, `pixel x y`, ...; the full list is at the top of `crates/runtime/core/src/script.rs`). |
 | `QBNEX_FB_CAPTURE=<file>` | Append the display page to the file at each `_DISPLAY` and at the end (conformance tests). |

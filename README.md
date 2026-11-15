@@ -181,8 +181,8 @@ Repository: https://github.com/thirawat27/QBNex
 
 - **Graphics, window and sound**
   - All QBasic `SCREEN` modes (0-13) and QB64 32-bit images; `PSET`, `LINE`, `CIRCLE`, `PAINT`, `DRAW`, `GET`/`PUT`, `_PUTIMAGE`, `_LOADIMAGE` (PNG, JPEG, BMP, PCX, ...), TrueType fonts
-  - `_MAPTRIANGLE` 3D with a depth buffer (software renderer); optional wgpu GPU path
-  - High-level 3D (Preview): `_LOADMODEL`, `_MESH*`, `_CAMERA`, `_LIGHT`, `_DRAW3D`, WGSL shaders with `_SHADER`
+  - `_MAPTRIANGLE` 3D with a depth buffer (software renderer)
+  - High-level 3D (Preview) on the GPU (wgpu: Vulkan, DX12, Metal): `_LOADMODEL`, `_MESH*`, `_CAMERA`, `_LIGHT`, `_DRAW3D`, WGSL shaders with `_SHADER`
   - ALT+ENTER full screen (`_ALLOWFULLSCREEN`)
   - `SOUND`, `PLAY`, `BEEP` with QBasic's `MF`/`MB` music modes, `_SND*` sound files, 4-voice synthesis (`_VOICE`, `_ADSR`, `_WAVE`)
   - Audio through cpal: WASAPI (Windows), CoreAudio (macOS), ALSA (Linux); a silent device when there is no speaker
@@ -417,7 +417,7 @@ DebugInfo=False 'Managed by qbnex -s
 | `QB_JIT=off` / `eager` / `<n>` | No JIT, compile at once, or after n loop iterations |
 | `QB_JIT_THREADS=<n>`, `QB_JIT_STATS=1` | JIT compiler threads; JIT statistics on stderr |
 | `QB_PROFILE=<file>` | Write the hottest functions and lines to a file at the end |
-| `QB_GPU=off` / `verbose` | Runtimes with the GPU feature: never use the GPU / log the choice |
+| `QB_GPU=off` / `verbose` | Never use the GPU (window and 3D fall back to software) / log the choice |
 | `QB_GL=off` | No OpenGL context: `SUB _GL` is not run |
 | `QB_AUDIO_DEVICE=null` / `none` | Silent device that keeps time / no audio |
 | `QBNEX_LPRINT=<file>` | `LPRINT` appends to a text file |

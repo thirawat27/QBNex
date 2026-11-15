@@ -283,6 +283,11 @@ fn presenter(window: &Arc<Window>) -> Option<Presenter> {
             }
         }
     }
+    soft_presenter(window)
+}
+
+/// The softbuffer presenter.
+fn soft_presenter(window: &Arc<Window>) -> Option<Presenter> {
     let context = match softbuffer::Context::new(window.clone()) {
         Ok(c) => c,
         Err(e) => {
@@ -533,6 +538,15 @@ impl App {
                     win.last_serial = frame.serial;
                 }
                 p.present(target);
+                // a device error (driver, out of memory): the window goes on with softbuffer
+                if p.failed() {
+                    eprintln!("qb-runtime: GPU presenter failed; using the software presenter");
+                    if let Some(s) = soft_presenter(&win.window) {
+                        win.presenter = s;
+                        win.last_serial = u64::MAX;
+                        win.window.request_redraw();
+                    }
+                }
                 return;
             }
         };

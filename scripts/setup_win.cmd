@@ -10,6 +10,7 @@ rem
 rem Variables:
 rem   QBNEX_QB_EXEC       use this prebuilt qb-exec.exe instead of building it
 rem   QBNEX_RUST_TARGET   Rust target for qb-exec (default: rustc's host target)
+rem   QBNEX_GPU           0 = build qb-exec without the GPU feature (no wgpu, no GPU 3D)
 rem   QBNEX_BOOTSTRAP     bootstrap QIR (default: bootstrap\qbnex.qir)
 rem   QBNEX_QIR_PACK      ir (default) or native
 rem   QBNEX_STAGE1_ARGS   extra arguments for stage0 when building qb.exe
@@ -52,9 +53,13 @@ if not defined QBNEX_RUST_TARGET (
     goto fail
 )
 
+rem The runner draws 3D on the GPU (wgpu); without a usable adapter it falls back to software.
+set "RUNNER_FEATURES=--features gpu"
+if "%QBNEX_GPU%"=="0" set "RUNNER_FEATURES="
+
 echo Building the QIR runner 'qb-exec' for %QBNEX_RUST_TARGET%
 where rustup >nul 2>nul && rustup target add %QBNEX_RUST_TARGET% >nul 2>nul
-cargo build --release --locked -p qb-exec --target %QBNEX_RUST_TARGET% --target-dir target
+cargo build --release --locked -p qb-exec %RUNNER_FEATURES% --target %QBNEX_RUST_TARGET% --target-dir target
 if errorlevel 1 (
     echo Error: failed to build qb-exec.
     goto fail

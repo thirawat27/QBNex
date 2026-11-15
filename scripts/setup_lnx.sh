@@ -8,7 +8,7 @@
 #   3. stage0 compiles compiler/qbnex.bas into ./qb through QIR
 #
 # Variables: QBNEX_QB_EXEC (prebuilt runner), QBNEX_RUST_TARGET, QBNEX_BOOTSTRAP, QBNEX_QIR_PACK (ir|native),
-# QBNEX_STAGE1_ARGS, QBNEX_SKIP_SELFHOST=1, QBNEX_KEEP_STAGE0=1.
+# QBNEX_STAGE1_ARGS, QBNEX_SKIP_SELFHOST=1, QBNEX_KEEP_STAGE0=1, QBNEX_GPU=0 (runner without the GPU feature).
 
 set -eu
 
@@ -37,7 +37,13 @@ else
   TARGET="${QBNEX_RUST_TARGET:-$(rustc -vV | sed -n 's/^host: //p')}"
   echo "Building the QIR runner 'qb-exec' for $TARGET"
   if command -v rustup >/dev/null 2>&1; then rustup target add "$TARGET" >/dev/null 2>&1 || true; fi
-  cargo build --release --locked -p qb-exec --target "$TARGET" --target-dir target
+  # The runner draws 3D on the GPU (wgpu: Vulkan or Metal, loaded at run time); without a
+  # usable adapter it falls back to software. QBNEX_GPU=0 builds it without.
+  if [ "${QBNEX_GPU:-1}" = "0" ]; then
+    cargo build --release --locked -p qb-exec --target "$TARGET" --target-dir target
+  else
+    cargo build --release --locked -p qb-exec --features gpu --target "$TARGET" --target-dir target
+  fi
   cp "target/$TARGET/release/qb-exec" "$RUNNER"
 fi
 

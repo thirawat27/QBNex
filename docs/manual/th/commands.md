@@ -106,13 +106,13 @@ editor จะเรียกให้เอง (VS Code กด F5) ตัวม�
 | --- | --- |
 | `QBNEX_NO_ERROR_DIALOG=1` | runtime error ออกทาง stderr, exit code 1, ไม่มีกล่องข้อความ |
 | `QB_JIT=off` / `eager` / `<n>` | runner ของ QIR: ไม่ใช้ JIT, คอมไพล์ทันที หรือคอมไพล์หลัง loop วนครบ n รอบ |
-| `QB_GPU=off` / `verbose` | build ที่เปิดฟีเจอร์ GPU: ไม่ใช้ GPU เลย / log ว่าเลือกอะไร |
+| `QB_GPU=off` / `verbose` | ไม่ใช้ GPU เลย (หน้าต่างและ 3D กลับไปใช้ทางซอฟต์แวร์, `_GPU3D` คืน 0) / log ว่าเลือกอะไร |
 | `QBNEX_HEADLESS` | รันโปรแกรมกราฟิกโดยไม่เปิดหน้าต่าง (ใช้ตอนทดสอบ) |
 | `QB_JIT_THREADS=<n>` | จำนวน thread ที่ JIT ใช้คอมไพล์ (ค่าเริ่มต้น: ทุก thread ของ CPU) |
 | `QB_JIT_STATS=1` | พิมพ์สถิติของ JIT รวมถึงเวลาคอมไพล์ ออกทาง stderr |
 | `QB_PROFILE=<file>` | เขียนฟังก์ชันและบรรทัดที่ใช้เวลามากที่สุด พร้อมจำนวนครั้งที่เรียกและเวลารวม ลงไฟล์เมื่อโปรแกรมจบ (สุ่มเก็บทุก 1 มิลลิวินาที ควรใช้คู่กับ `QB_JIT=off`) |
 | `QB_EXEC_DISASM=1` | พิมพ์ bytecode ที่ runner แปลงจาก QIR ออกทาง stderr |
-| `QB_GPU_FALLBACK=1` | build ที่เปิดฟีเจอร์ GPU: โปรแกรมใช้เฉพาะ adapter แบบ software เช่น WARP บน Windows (ทั้งการวาดแบบ offscreen และหน้าต่าง ถ้า adapter นั้นแสดงผลบนหน้าต่างได้) |
+| `QB_GPU_FALLBACK=1` | โปรแกรมใช้เฉพาะ adapter แบบ software เช่น WARP บน Windows (ทั้งการวาดแบบ offscreen และหน้าต่าง ถ้า adapter นั้นแสดงผลบนหน้าต่างได้) |
 | `QBNEX_NATIVE_KIT=<dir>` | โฟลเดอร์ native kit ที่จะใช้แทน `native/` ข้าง runner |
 | `QBNEX_INPUT_SCRIPT=<file>` | ป้อนเหตุการณ์คีย์บอร์ด เมาส์ และหน้าต่างจาก script (ใช้ตอนทดสอบ บรรทัดละหนึ่งคำสั่ง: `wait 100`, `key a`, `type Hi`, `click 1`, `close`, `snapshot`, `pixel x y`, ... รายการเต็มอยู่ต้นไฟล์ `crates/runtime/core/src/script.rs`) |
 | `QBNEX_FB_CAPTURE=<file>` | เขียนต่อท้ายภาพของหน้าจอที่แสดงลงไฟล์ทุกครั้งที่ `_DISPLAY` และตอนจบโปรแกรม (ใช้ใน conformance test) |
