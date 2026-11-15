@@ -47,7 +47,7 @@ call :has examples "Examples:"
 call :has examples "qb -s:exewithsource=true"
 call :hasnot examples "Usage:"
 
-rem ---- building: <file>, -c, -o, -x, -p, -z build as usual ----
+rem ---- building: <file>, -o; the QB64 switches -c -x -p -z (not in the help) still build ----
 call :run clean 0 "%T%\clean.bas" -o "%T%\clean.exe"
 call :has clean "Build complete:"
 call :exists "%T%\clean.exe"

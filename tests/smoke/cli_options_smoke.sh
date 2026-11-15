@@ -69,7 +69,7 @@ has examples "Examples:"
 has examples "qb -s:exewithsource=true"
 hasnot examples "Usage:"
 
-# ---- building: <file>, -c, -o, -x, -p, -z build as usual ----
+# ---- building: <file>, -o; the QB64 switches -c -x -p -z (not in the help) still build ----
 run clean 0 "$T/clean.bas" -o "$T/clean"
 has clean "Build complete:"
 exists "$T/clean"

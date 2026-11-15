@@ -39,14 +39,10 @@ SUB ShowCommandLineHelp
     HelpRow "-g, --examples", "Show common command lines with what each does"
     PRINT
     HelpHead "Options:"
-    HelpRow "<file>", "Source file to load"
-    HelpRow "-c", "Compile the source file (default)"
+    HelpRow "<file>", "Source file to compile"
     HelpRow "-o <output file>", "Write output executable to <output file>"
     HelpRow "--exe-with-source", "Without -o: write the executable next to the"
     HelpRow "", "   source file (this build only)"
-    HelpRow "-x", "Compile with the messages in the console: the same"
-    HelpRow "", "   as -c here, since qb always prints to the console"
-    HelpRow "", "   (kept for QB64 scripts)"
     HelpRow "-w", "Show warnings, and a warning count at the end"
     HelpRow "-Werror, --warnings-as-errors", ""
     HelpRow "", "Treat warnings as blocking diagnostics (exit code 1)"
@@ -61,7 +57,6 @@ SUB ShowCommandLineHelp
     HelpRow "", "   mandatory (per-compilation; doesn't affect the"
     HelpRow "", "   source file or global settings)"
     HelpRow "-s[:switch=true/false]", "View/edit compiler settings (-s lists them)"
-    HelpRow "-p, -z", "Accepted for old scripts; they change nothing"
     HelpRow "--emit-ir", "Write the program's QIR text instead of an executable"
     HelpRow "", "   (also when -o names a .qir file; for qb-web)"
     PRINT
@@ -305,7 +300,7 @@ FUNCTION ParseCMDLineArgs$ ()
             SYSTEM
         CASE "-i"
             IF LCASE$(token$) = "-ir" THEN
-                cmdlineswitch = -1 'accepted for compatibility: QIR is the only output
+                cmdlineswitch = -1 'not in the help; accepted for old scripts: QIR is the only output
             ELSEIF LCASE$(token$) = "-irtext" THEN
                 IrEmitText = -1 'write the QIR text (qb-web) instead of an executable
                 cmdlineswitch = -1
@@ -316,7 +311,10 @@ FUNCTION ParseCMDLineArgs$ ()
         CASE "-g"
             ShowCommandExamples
             SYSTEM
-        CASE "-c"
+        CASE "-c", "-x", "-p", "-z"
+            'QB64 switches that change nothing here (compiling is what qb always does,
+            'it always prints to the console, nothing is precompiled and there is no C++
+            'step): not in the help, but accepted so old build scripts keep working
             cmdlineswitch = -1
         CASE "-o"
             IF LEN(COMMAND$(i + 1)) = 0 THEN
@@ -325,10 +323,6 @@ FUNCTION ParseCMDLineArgs$ ()
                 SYSTEM 1
             END IF
             outputfile_cmd$ = COMMAND$(i + 1): i = i + 1
-            cmdlineswitch = -1
-        CASE "-x"
-            'QB64's "compile, messages to the console" (its -c showed a window): qb
-            'always prints to the console, so -x builds exactly like -c
             cmdlineswitch = -1
         CASE "-w"
             ShowWarnings = -1
@@ -362,13 +356,6 @@ FUNCTION ParseCMDLineArgs$ ()
         CASE "-l"
             PRINT "The -l switch is no longer supported in the CLI compiler."
             SYSTEM 1
-        CASE "-p"
-            'nothing is precompiled any more; the switch is kept for old scripts
-            cmdlineswitch = -1
-        CASE "-z"
-            'QB64 wrote C++ without building it; there is no C++ step, so the switch is
-            'kept for old scripts and the program is built as usual
-            cmdlineswitch = -1
         CASE ELSE
             'a switch starts with "-" (or "/" on Windows); on macOS/Linux "/..." is an absolute path,
             'and an existing file is always a path. Keep the original case of file names.

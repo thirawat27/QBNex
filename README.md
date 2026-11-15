@@ -364,11 +364,9 @@ Exit code 0 means the program compiled.
 | `-v` | `--version` | Show the compiler version (one line) | `qb -v` |
 | `-i` | `--info`, `--about` | Show project information: folders, settings file, platform, license, links | `qb -i` |
 | `-g` | `--examples` | Show common command lines with what each does | `qb -g` |
-| `-c` | - | Compile the source file (default) | `qb file.bas -c` |
 | `-o <file>` | - | Output file; a name ending in `.qir` writes the QIR text (for qb-web) | `qb file.bas -o myapp.exe` |
 | `--emit-ir` | - | Write the QIR text instead of an executable | `qb file.bas --emit-ir -o file.qir` |
 | `--exe-with-source` | - | Without `-o`: write the executable next to the source file (this build only) | `qb file.bas --exe-with-source` |
-| `-x` | - | The same as `-c`: qb always prints to the console (kept for QB64 scripts; it does not run the program) | `qb file.bas -x` |
 | `-w` | - | Show warnings, and a warning count at the end | `qb file.bas -w` |
 | `-Werror` | `--warnings-as-errors` | Treat warnings as blocking diagnostics | `qb file.bas --warnings-as-errors` |
 | `-q` | - | Quiet mode: no banner or progress (warnings and errors are still shown) | `qb file.bas -q` |
@@ -377,8 +375,6 @@ Exit code 0 means the program compiled.
 | `-d` | `--verbose-errors` | Detailed diagnostics (the default) plus two source lines before and after each one | `qb file.bas -d` |
 | `-e` | - | `OPTION _EXPLICIT` for this compilation | `qb file.bas -e` |
 | `-s[:setting[=true/false]]` | - | Show or change compiler settings | `qb -s:exewithsource=true` |
-| `-p`, `-z` | - | Accepted for old scripts; they change nothing | `qb file.bas -z` |
-| `--ir` | - | Accepted, no effect (QIR is the only output) | `qb file.bas --ir` |
 
 Detailed diagnostics (`cause`, `example` and related notes) are shown by default:
 
