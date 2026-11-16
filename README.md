@@ -194,7 +194,7 @@ Repository: https://github.com/thirawat27/QBNex
   - `PEEK`/`POKE`/`DEF SEG` over an emulated 1 MB memory, `CALL ABSOLUTE` and `CALL INTERRUPT` (16-bit x86 emulator, INT 33h mouse)
   - `SHELL`, `CHAIN`, `RUN`, `COMMAND$`, `ENVIRON$`
 
-- **Standard library** (`'$IMPORT:'module'`, or `'$IMPORT:'qbnex'` for all): `collections` (`List`, `Dict`, `Set`), `strings`, `json`, `url`, `path`, `csv`, `math`, `sys`, `result`, OOP, and the Rust-backed `regex`, `hash`, `zip`, `http`, `utf8` and `datetime`; one `LastError$` for every module
+- **Standard library** (`'$IMPORT:'module'`, or `'$IMPORT:'qbnex'` for all): `collections` (`List`, `Dict`, `Set`), `strings`, `json`, `url`, `path`, `csv`, `math`, `sys`, `result`, OOP, and the Rust-backed `regex`, `hash`, `zip`, `http`, `utf8` and `datetime`; one `LastError` for every module
 
 - **Tools**
   - Formatter (`qbnex fmt`), language server (`qbnex lsp`), debugger (`qbnex dap`), VS Code extension (`packaging/vscode`)
@@ -472,9 +472,9 @@ string helpers, built-in `_LIST`/`_DICT`, CLASS virtual dispatch.
 ## Standard Library
 
 The modules are BASIC files in `compiler/stdlib/` with short names in the style of Python and
-JavaScript (`List`, `Dict`, `Json_Parse`, `Str_Trim$`). `regex`, `hash`, `zip`, `http`, `utf8` and
+JavaScript (`List`, `Dict`, `Json_Parse`, `Str_Trim`). `regex`, `hash`, `zip`, `http`, `utf8` and
 `datetime` call Rust code linked into every runner (`crates/runtime/ext`); they are not in the web
-build. Every module reports a failed call through one `LastError$` (`""` after a call that worked).
+build. Every module reports a failed call through one `LastError` (`""` after a call that worked).
 Reference: [docs/manual/en/stdlib.md](docs/manual/en/stdlib.md).
 
 ### Importing Modules
@@ -524,8 +524,8 @@ myList.Add "Hello"
 
 ```basic
 SUB Main ()
-    PRINT Sys_Platform$
-    PRINT Path_Join$("root", "demo.txt")
+    PRINT Sys_Platform
+    PRINT Path_Join("root", "demo.txt")
 END SUB
 
 '$IMPORT:'sys'
@@ -547,15 +547,15 @@ END CLASS
 | Module | Import | Contents |
 |--------|--------|----------|
 | All | `'$IMPORT:'qbnex'` | Every module below in one import, plus CLASS support (`compiler/stdlib/qbnex.bas`) |
-| Core | `'$IMPORT:'core'` | `LastError$`; every other module imports it |
-| Collections | `'$IMPORT:'collections'` | `List`, `Dict` and `Set` of strings: `l.Add`, `l.Get$(i)`, `l.Join$`, `d.Set`, `d.Get$(key$)`, `s.Has`, ... |
-| Strings | `'$IMPORT:'strings'` | `Str_Has&`, `Str_Replace$`, `Str_Trim$`, `Str_PadLeft$`, `Str_Repeat$`, ... |
-| JSON | `'$IMPORT:'json'` | RFC 8259 JSON: `Json_Parse`, `Json_Str$(root, "users[0].name")`, `Json_Object`, `Json_SetStr`, `Json_Stringify$`, ... |
-| URL | `'$IMPORT:'url'` | `Url` TYPE (`u.Parse`, `u.Query$`, `u.SetQuery`, `u.Format$`), `Url_Encode$`, `Url_Decode$`, `Url_Resolve$`, ... |
-| Paths, CSV | `path`, `csv` | `Path_Join$`, `Path_Base$`, `Path_Dir$`, `Path_Ext$`, ...; `Csv_Row$`, `Csv_Parse` (a row is a `List`) |
-| System | `sys` | `Sys_Platform$`, `Sys_Env$`, `Sys_Home$`, `Sys_ArgCount&`, `Sys_Arg$` |
-| Math, results | `math`, `result` | `Math_Clamp#`, `Math_Radians#`, ...; the `Result` TYPE |
-| Rust-backed | `regex`, `hash`, `zip`, `http`, `utf8`, `datetime` | `Regex_Find$`, `Hash_Sha256$`, `Base64_Encode$`, `Zip_Read$`, `Http_Get$`, `Utf8_Len&`, `Date_Now#`, ... (not in the web build) |
+| Core | `'$IMPORT:'core'` | `LastError`; every other module imports it |
+| Collections | `'$IMPORT:'collections'` | `List`, `Dict` and `Set` of strings: `l.Add`, `l.Get(i)`, `l.Join`, `d.Set`, `d.Get(key$)`, `s.Has`, ... |
+| Strings | `'$IMPORT:'strings'` | `Str_Has`, `Str_Replace`, `Str_Trim`, `Str_PadLeft`, `Str_Repeat`, ... |
+| JSON | `'$IMPORT:'json'` | RFC 8259 JSON: `Json_Parse`, `Json_Str(root, "users[0].name")`, `Json_Object`, `Json_SetStr`, `Json_Stringify`, ... |
+| URL | `'$IMPORT:'url'` | `Url` TYPE (`u.Parse`, `u.Query`, `u.SetQuery`, `u.Format`), `Url_Encode`, `Url_Decode`, `Url_Resolve`, ... |
+| Paths, CSV | `path`, `csv` | `Path_Join`, `Path_Base`, `Path_Dir`, `Path_Ext`, ...; `Csv_Row`, `Csv_Parse` (a row is a `List`) |
+| System | `sys` | `Sys_Platform`, `Sys_Env`, `Sys_Home`, `Sys_ArgCount`, `Sys_Arg` |
+| Math, results | `math`, `result` | `Math_Clamp`, `Math_Radians`, ...; the `Result` TYPE |
+| Rust-backed | `regex`, `hash`, `zip`, `http`, `utf8`, `datetime` | `Regex_Find`, `Hash_Sha256`, `Base64_Encode`, `Zip_Read`, `Http_Get`, `Utf8_Len`, `Date_Now`, ... (not in the web build) |
 | Native plumbing | `ext` | Shared code of the Rust-backed modules |
 | OOP | `oop.class`, `oop.interface` | Class registry used by CLASS |
 
@@ -588,25 +588,25 @@ SUB Demo_Collections ()
 
     ' Build report
     report.Add "Loaded modules:"
-    report.Add "  " + modules.Join$(", ")
-    report.Add "First module: " + modules.Get$(0)
-    report.Add "Set members: " + features.Join$(" | ")
-    report.Add "Latest step: " + history.Pop$
+    report.Add "  " + modules.Join(", ")
+    report.Add "First module: " + modules.Get(0)
+    report.Add "Set members: " + features.Join(" | ")
+    report.Add "Latest step: " + history.Pop
 
-    PRINT report.Join$(CHR$(10))
+    PRINT report.Join(CHR$(10))
 END SUB
 ```
 
 **Example: Using System Modules**
 ```basic
 SUB Demo_System ()
-    PRINT "Platform: "; Sys_Platform$
-    PRINT "64-bit: "; Sys_Is64Bit&
-    PRINT "Home: "; Sys_Home$
-    PRINT "Joined path: "; Path_Join$(Sys_Home$, "qbnex", "demo", "output.txt")
-    PRINT "File name: "; Path_Base$("src/stdlib/demo.bas")
-    PRINT "Arg count: "; Sys_ArgCount&
-    PRINT "Date ISO: "; Date_Iso$(Date_Now#)
+    PRINT "Platform: "; Sys_Platform
+    PRINT "64-bit: "; Sys_Is64Bit
+    PRINT "Home: "; Sys_Home
+    PRINT "Joined path: "; Path_Join(Sys_Home, "qbnex", "demo", "output.txt")
+    PRINT "File name: "; Path_Base("src/stdlib/demo.bas")
+    PRINT "Arg count: "; Sys_ArgCount
+    PRINT "Date ISO: "; Date_Iso(Date_Now)
 END SUB
 
 '$IMPORT:'sys'
@@ -625,14 +625,14 @@ SUB Demo_Data ()
     metadata.Set "layer", "stdlib"
 
     PRINT "Dict count: "; metadata.Count
-    PRINT "Dict name: "; metadata.Get$("name")
+    PRINT "Dict name: "; metadata.Get("name")
 
     o = Json_Object
     FOR i = 0 TO metadata.Count - 1
-        Json_SetStr o, metadata.Key$(i), metadata.Value$(i)
+        Json_SetStr o, metadata.Key(i), metadata.Value(i)
     NEXT i
     Json_SetStr o, "status", "ok"
-    PRINT "JSON sample: "; Json_Stringify$(o)
+    PRINT "JSON sample: "; Json_Stringify(o)
     Json_Free o
 
     outcome.Ok "stable"
@@ -656,9 +656,9 @@ Dynamic array, like a Python list. Indexes start at 0; a negative index counts f
 (`-1` is the last item). With `Pop$` it is also a stack, and with `Pop$(0)` a queue.
 
 - `l.Add item$` · `l.Insert index&, item$` · `l.Set index&, item$` · `l.RemoveAt index&` · `l.Remove item$`
-- `l.Get$(index&)` (`""` outside the list) · `l.Pop$` / `l.Pop$(index&)` · `l.Count`
+- `l.Get(index&)` (`""` outside the list) · `l.Pop` / `l.Pop(index&)` · `l.Count`
 - `l.IndexOf(item$)` (`-1` when missing) · `l.Has(item$)`
-- `l.Join$(sep$)` (default `", "`) · `l.Split text$, sep$` (default `","`)
+- `l.Join(sep$)` (default `", "`) · `l.Split text$, sep$` (default `","`)
 - `l.Sort` (`l.Sort -1` descending) · `l.Reverse` · `l.Clear` · `l.Free`
 
 **Example:**
@@ -671,20 +671,20 @@ fruits.Add "Banana"
 fruits.Sort
 
 PRINT "Items:"; fruits.Count
-PRINT "All: "; fruits.Join$(", ")
-PRINT "Last: "; fruits.Get$(-1)
+PRINT "All: "; fruits.Join(", ")
+PRINT "Last: "; fruits.Get(-1)
 ' Output: Items: 3
 ' Output: All: Apple, Banana, Cherry
 ' Output: Last: Cherry
 
 DIM history AS List                 ' a stack
 history.Add "init": history.Add "registry": history.Add "ready"
-PRINT "Latest: "; history.Pop$
+PRINT "Latest: "; history.Pop
 ' Output: Latest: ready
 
 DIM loadOrder AS List               ' a queue
 loadOrder.Add "core": loadOrder.Add "collections"
-PRINT "Next: "; loadOrder.Pop$(0)
+PRINT "Next: "; loadOrder.Pop(0)
 ' Output: Next: core
 ```
 
@@ -692,7 +692,7 @@ PRINT "Next: "; loadOrder.Pop$(0)
 Set of unique strings, backed by a `List`: lookups are a linear search and the insertion order is kept.
 
 - `s.Add item$` (a duplicate is ignored) · `s.Remove item$` · `s.Clear` · `s.Free`
-- `s.Has(item$)` · `s.Count` · `s.Join$(sep$)`
+- `s.Has(item$)` · `s.Count` · `s.Join(sep$)`
 
 **Example:**
 <!-- docs-test: prepend qbnex -->
@@ -702,7 +702,7 @@ features.Add "OOP"
 features.Add "Collections"
 features.Add "OOP"  ' Duplicate, ignored
 
-PRINT "Members: "; features.Join$(" | ")
+PRINT "Members: "; features.Join(" | ")
 PRINT "Count:"; features.Count
 ' Output: Members: OOP | Collections
 ' Output: Count: 2
@@ -712,8 +712,8 @@ PRINT "Count:"; features.Count
 `Dict`: key-value store with string keys, like a Python dict; keys keep the order they were added in.
 
 - `d.Set key$, value$` · `d.Remove key$` · `d.Clear` · `d.Free`
-- `d.Get$(key$)` (`""` when missing) or `d.Get$(key$, fallback$)` · `d.Has(key$)` · `d.Count`
-- `d.Key$(index&)` · `d.Value$(index&)` (0-based, in insertion order)
+- `d.Get(key$)` (`""` when missing) or `d.Get(key$, fallback$)` · `d.Has(key$)` · `d.Count`
+- `d.Key(index&)` · `d.Value(index&)` (0-based, in insertion order)
 
 **Example:**
 <!-- docs-test: prepend qbnex -->
@@ -723,8 +723,8 @@ metadata.Set "name", "QBNex"
 metadata.Set "layer", "stdlib"
 metadata.Set "kind", "compiler"
 
-PRINT "Name: "; metadata.Get$("name")
-PRINT "Owner: "; metadata.Get$("owner", "nobody")
+PRINT "Name: "; metadata.Get("name")
+PRINT "Owner: "; metadata.Get("owner", "nobody")
 PRINT "Count:"; metadata.Count
 ' Output: Name: QBNex
 ' Output: Owner: nobody
@@ -736,22 +736,22 @@ PRINT "Count:"; metadata.Count
 #### Text Utilities (`strings`)
 
 Like Python's str methods. Splitting a text into parts and joining them are `l.Split` and
-`l.Join$` of a `List`; to build a long text, add the pieces to a `List` and `Join$` them.
+`l.Join` of a `List`; to build a long text, add the pieces to a `List` and `Join$` them.
 
-- `Str_Has&(text$, part$)` · `Str_StartsWith&(text$, prefix$)` · `Str_EndsWith&(text$, suffix$)`
-- `Str_Replace$(text$, find$, replacement$)` (every match) · `Str_Trim$(text$)` (spaces, tabs and line breaks)
-- `Str_PadLeft$(text$, size&, fill$)` · `Str_PadRight$(text$, size&, fill$)` · `Str_Repeat$(text$, count&)`
+- `Str_Has(text$, part$)` · `Str_StartsWith(text$, prefix$)` · `Str_EndsWith(text$, suffix$)`
+- `Str_Replace(text$, find$, replacement$)` (every match) · `Str_Trim(text$)` (spaces, tabs and line breaks)
+- `Str_PadLeft(text$, size&, fill$)` · `Str_PadRight(text$, size&, fill$)` · `Str_Repeat(text$, count&)`
 
 **Example:**
 <!-- docs-test: prepend qbnex -->
 ```basic
-PRINT Str_PadRight$("QBNex", 10, ".")
+PRINT Str_PadRight("QBNex", 10, ".")
 ' Output: QBNex.....
 
-PRINT Str_PadLeft$("123", 8, "0")
+PRINT Str_PadLeft("123", 8, "0")
 ' Output: 00000123
 
-PRINT Str_Replace$("a-b-c", "-", "+")
+PRINT Str_Replace("a-b-c", "-", "+")
 ' Output: a+b+c
 ```
 
@@ -759,22 +759,22 @@ PRINT Str_Replace$("a-b-c", "-", "+")
 
 Like Python's re, with Rust regex syntax (`\d \w \s`, classes, groups, `(?<name>...)`, `(?i)`; no
 backreferences or look-around). Positions are 1-based bytes like `INSTR`. A bad pattern gives `0` or
-`""` and `LastError$` says why.
+`""` and `LastError` says why.
 
-- `Regex_Test&(pattern$, text$)` · `Regex_Find$(pattern$, text$[, start&])`, then `Regex_Group$(n)` and `Regex_Pos&`
-- `Regex_Replace$(pattern$, text$, replacement$[, firstOnly&])` (`$1`, `${name}`)
+- `Regex_Test(pattern$, text$)` · `Regex_Find(pattern$, text$[, start&])`, then `Regex_Group(n)` and `Regex_Pos`
+- `Regex_Replace(pattern$, text$, replacement$[, firstOnly&])` (`$1`, `${name}`)
 - `Regex_Split pattern$, text$, parts` · `Regex_FindAll pattern$, text$, found` (into a `List`)
 
 **Example:**
 <!-- docs-test: prepend qbnex -->
 ```basic
-m$ = Regex_Find$("(\w+)@(\w+)", "mail ann@example now")
-PRINT m$; " user="; Regex_Group$(1); " at"; Regex_Pos&
+m$ = Regex_Find("(\w+)@(\w+)", "mail ann@example now")
+PRINT m$; " user="; Regex_Group(1); " at"; Regex_Pos
 ' Output: ann@example user=ann at 6
 
 DIM found AS List
 Regex_FindAll "\d+", "1 apple, 22 pears, 333 plums", found
-PRINT found.Join$(" ")
+PRINT found.Join(" ")
 ' Output: 1 22 333
 ```
 
@@ -782,18 +782,18 @@ PRINT found.Join$(" ")
 
 BASIC strings are bytes; these functions treat them as UTF-8 text, character by character.
 
-- `Utf8_Len&(text$)` · `Utf8_Mid$(text$, start&[, count&])` · `Utf8_Left$` · `Utf8_Right$`
-- `Utf8_Upper$` · `Utf8_Lower$` · `Utf8_Normalize$(text$[, "NFC"|"NFD"|"NFKC"|"NFKD"])` · `Utf8_IsValid&`
-- `Utf8_Asc&(text$[, index&])` · `Utf8_Chr$(codePoint&)` · `Utf8_FromCp437$` · `Utf8_ToCp437$`
+- `Utf8_Len(text$)` · `Utf8_Mid(text$, start&[, count&])` · `Utf8_Left` · `Utf8_Right`
+- `Utf8_Upper` · `Utf8_Lower` · `Utf8_Normalize(text$[, "NFC"|"NFD"|"NFKC"|"NFKD"])` · `Utf8_IsValid`
+- `Utf8_Asc(text$[, index&])` · `Utf8_Chr(codePoint&)` · `Utf8_FromCp437` · `Utf8_ToCp437`
 
 **Example:**
 <!-- docs-test: prepend qbnex -->
 ```basic
 s$ = "สวัสดี"
-PRINT Utf8_Len&(s$); LEN(s$)
+PRINT Utf8_Len(s$); LEN(s$)
 ' Output:  6  18
 
-PRINT Utf8_Upper$("straße")
+PRINT Utf8_Upper("straße")
 ' Output: STRASSE
 ```
 
@@ -803,19 +803,19 @@ PRINT Utf8_Upper$("straße")
 
 Like Python's os.path. `/` and `\` are both accepted; results use the separator of the computer.
 
-- `Path_Join$(a$, b$[, c$, d$])` · `Path_Normalize$(path$)` · `Path_Sep$`
-- `Path_Base$(path$)` · `Path_Dir$(path$)` · `Path_Ext$(path$)` · `Path_Stem$(path$)` · `Path_Exists&(path$)`
+- `Path_Join(a$, b$[, c$, d$])` · `Path_Normalize(path$)` · `Path_Sep`
+- `Path_Base(path$)` · `Path_Dir(path$)` · `Path_Ext(path$)` · `Path_Stem(path$)` · `Path_Exists(path$)`
 
 **Example:**
 <!-- docs-test: prepend qbnex -->
 ```basic
-PRINT Path_Join$("src", "stdlib", "demo.bas")
+PRINT Path_Join("src", "stdlib", "demo.bas")
 ' Output: src/stdlib/demo.bas (on Windows: src\stdlib\demo.bas)
 
-PRINT Path_Base$("src/stdlib/demo.bas")
+PRINT Path_Base("src/stdlib/demo.bas")
 ' Output: demo.bas
 
-PRINT Path_Ext$("src/stdlib/demo.bas")
+PRINT Path_Ext("src/stdlib/demo.bas")
 ' Output: .bas
 ```
 
@@ -823,7 +823,7 @@ PRINT Path_Ext$("src/stdlib/demo.bas")
 
 One CSV row (RFC 4180) to and from a `List`, like Python's csv module.
 
-- `Csv_Row$(row[, sep$])`: the fields of a `List` as one line; a field that holds the separator, a quote or a line break is quoted
+- `Csv_Row(row[, sep$])`: the fields of a `List` as one line; a field that holds the separator, a quote or a line break is quoted
 - `Csv_Parse row, text$[, sep$]`: the fields of a line back in the `List`
 
 **Example:**
@@ -831,11 +831,11 @@ One CSV row (RFC 4180) to and from a `List`, like Python's csv module.
 ```basic
 DIM row AS List
 row.Add "Alice": row.Add "100": row.Add "a,b"
-PRINT Csv_Row$(row)
+PRINT Csv_Row(row)
 ' Output: Alice,100,"a,b"
 
 Csv_Parse row, "name,score,status"
-PRINT row.Count; row.Get$(2)
+PRINT row.Count; row.Get(2)
 ' Output:  3 status
 ```
 
@@ -845,26 +845,26 @@ RFC 8259 JSON, like Python's json. A value is a handle (an `INTEGER`, 0 = none).
 with a path of names and 0-based indexes: `"user.tags.0"` or `"items[2].id"`. Objects keep the
 order of their members.
 
-- `Json_Parse(text$)` (0 on error: `LastError$`, `Json_ErrorPos&`) · `Json_Free v` · `Json_FreeAll`
-- `Json_Str$(v, path$)` (`""` when missing) · `Json_Num#` · `Json_Bool%` · `Json_Type$` (`"object"`, `"array"`, ...) · `Json_Has%` · `Json_Count` · `Json_Key$(v, index[, path$])` · `Json_Get`
+- `Json_Parse(text$)` (0 on error: `LastError`, `Json_ErrorPos`) · `Json_Free v` · `Json_FreeAll`
+- `Json_Str(v, path$)` (`""` when missing) · `Json_Num` · `Json_Bool` · `Json_Type` (`"object"`, `"array"`, ...) · `Json_Has` · `Json_Count` · `Json_Key(v, index[, path$])` · `Json_Get`
 - `Json_Object` · `Json_Array` · `Json_SetStr o, key$, text$` (also `Json_SetNum`, `Json_SetBool`, `Json_SetNull`, `Json_Set o, key$, value`) · `Json_Remove o, key$`
 - `Json_PushStr a, text$` (also `Json_PushNum`, `Json_PushBool`, `Json_Push a, value`)
-- `Json_Stringify$(v)` · `Json_Stringify$(v, indent)` (pretty-printed)
+- `Json_Stringify(v)` · `Json_Stringify(v, indent)` (pretty-printed)
 
 **Example:**
 <!-- docs-test: prepend qbnex -->
 ```basic
 DIM root AS INTEGER, o AS INTEGER, tags AS INTEGER
-text$ = Str_Replace$("{'name': 'QBNex', 'tags': ['basic', 'rust']}", "'", CHR$(34))
+text$ = Str_Replace("{'name': 'QBNex', 'tags': ['basic', 'rust']}", "'", CHR$(34))
 root = Json_Parse(text$)
-PRINT Json_Str$(root, "name"); " "; Json_Str$(root, "tags[1]"); Json_Count(root, "tags")
+PRINT Json_Str(root, "name"); " "; Json_Str(root, "tags[1]"); Json_Count(root, "tags")
 ' Output: QBNex rust 2
 
 o = Json_Object
 Json_SetStr o, "name", "QBNex"
 Json_SetNum o, "stars", 5
 tags = Json_Array: Json_PushStr tags, "basic": Json_Set o, "tags", tags
-PRINT Json_Stringify$(o)
+PRINT Json_Stringify(o)
 ' Output: {"name":"QBNex","stars":5,"tags":["basic"]}
 ```
 
@@ -874,9 +874,9 @@ Like JavaScript's URL object and Python's urllib.parse (RFC 3986). The `Url` TYP
 `href`, `protocol`, `username`, `password`, `hostname`, `port` (a `LONG`), `pathname`, `search`,
 `hash`, `host` and `origin`.
 
-- `u.Parse text$` · `u.Format$` · `u.Query$(key$)` (decoded) · `u.SetQuery key$, value$`
-- `Url_Encode$(text$)` · `Url_Decode$(text$)` · `Url_Resolve$(base$, relative$)`
-- `Url_ToPath$(fileUrl$)` · `Url_FromPath$(path$)`
+- `u.Parse text$` · `u.Format` · `u.Query(key$)` (decoded) · `u.SetQuery key$, value$`
+- `Url_Encode(text$)` · `Url_Decode(text$)` · `Url_Resolve(base$, relative$)`
+- `Url_ToPath(fileUrl$)` · `Url_FromPath(path$)`
 
 **Example:**
 <!-- docs-test: prepend qbnex -->
@@ -886,42 +886,42 @@ u.Parse "https://Example.com:8080/a/b.txt?q=1&s=a+b#top"
 PRINT u.hostname; u.port; u.pathname
 ' Output: example.com 8080 /a/b.txt
 
-PRINT u.Query$("s")
+PRINT u.Query("s")
 ' Output: a b
 
-PRINT Url_Resolve$("http://a/b/c/d", "../g")
+PRINT Url_Resolve("http://a/b/c/d", "../g")
 ' Output: http://a/b/g
 ```
 
 #### Hashes, ZIP and HTTP (`hash`, `zip`, `http`)
 
-- `Hash_Sha256$(s$)` · `Hash_Sha512$` · `Hash_Sha1$` · `Hash_Md5$` (lower-case hex) · `Hash_Crc32~&(s$)`
-- `Base64_Encode$(s$[, urlSafe&])` · `Base64_Decode$(b$)` · `Hex_Encode$(s$)` · `Hex_Decode$(h$)`
-- `Zip_List archive$, names` (a `List`) · `Zip_Read$(archive$, member$)` · `Zip_Extract archive$, folder$`
-- `z& = Zip_Create&(archive$)` · `Zip_Write z&, member$, text$` · `Zip_AddFile z&, member$, file$` · `Zip_AddFolder z&, member$` · `Zip_Close z&`
-- `Http_Get$(url$[, timeoutMs&])` · `Http_Post$(url$, body$[, contentType$])` · `Http_Request$(method$, url$, body$, headers$)` return the body; `Http_Status&` (-1 when no answer came back, see `LastError$`) · `Http_Header$(name$)` · `Http_Headers$`
+- `Hash_Sha256(s$)` · `Hash_Sha512` · `Hash_Sha1` · `Hash_Md5` (lower-case hex) · `Hash_Crc32(s$)`
+- `Base64_Encode(s$[, urlSafe&])` · `Base64_Decode(b$)` · `Hex_Encode(s$)` · `Hex_Decode(h$)`
+- `Zip_List archive$, names` (a `List`) · `Zip_Read(archive$, member$)` · `Zip_Extract archive$, folder$`
+- `z& = Zip_Create(archive$)` · `Zip_Write z&, member$, text$` · `Zip_AddFile z&, member$, file$` · `Zip_AddFolder z&, member$` · `Zip_Close z&`
+- `Http_Get(url$[, timeoutMs&])` · `Http_Post(url$, body$[, contentType$])` · `Http_Request(method$, url$, body$, headers$)` return the body; `Http_Status` (-1 when no answer came back, see `LastError`) · `Http_Header(name$)` · `Http_Headers`
 
 **Example:**
 <!-- docs-test: prepend qbnex -->
 ```basic
-PRINT Hash_Sha256$("abc")
+PRINT Hash_Sha256("abc")
 ' Output: ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad
 
-PRINT Base64_Encode$("hello"); " "; Hex_Encode$("AZ")
+PRINT Base64_Encode("hello"); " "; Hex_Encode("AZ")
 ' Output: aGVsbG8= 415a
 
-z& = Zip_Create&("demo.zip")
+z& = Zip_Create("demo.zip")
 Zip_Write z&, "hello.txt", "hello"
 Zip_Close z&
-PRINT Zip_Read$("demo.zip", "hello.txt")
+PRINT Zip_Read("demo.zip", "hello.txt")
 ' Output: hello
 ```
 
 <!-- docs-test: skip needs the network -->
 ```basic
-page$ = Http_Get$("https://example.com/")
-IF Http_Status& <> 200 THEN PRINT "failed:"; Http_Status&; LastError$ ELSE PRINT LEN(page$); "bytes"
-PRINT Http_Header$("content-type")
+page$ = Http_Get("https://example.com/")
+IF Http_Status <> 200 THEN PRINT "failed:"; Http_Status; LastError ELSE PRINT LEN(page$); "bytes"
+PRINT Http_Header("content-type")
 ```
 
 ### System Libraries
@@ -930,16 +930,16 @@ PRINT Http_Header$("content-type")
 
 The computer and the command line, like Python's sys and os.environ.
 
-- `Sys_Platform$`: `"windows"`, `"linux"`, `"macos"` or `"unknown"`
-- `Sys_Is64Bit&` (-1 or 0) · `Sys_Home$`
-- `Sys_Env$(name$)` or `Sys_Env$(name$, fallback$)` · `Sys_HasEnv&(name$)`
+- `Sys_Platform`: `"windows"`, `"linux"`, `"macos"` or `"unknown"`
+- `Sys_Is64Bit` (-1 or 0) · `Sys_Home`
+- `Sys_Env(name$)` or `Sys_Env(name$, fallback$)` · `Sys_HasEnv(name$)`
 
 **Example:**
 <!-- docs-test: prepend qbnex -->
 ```basic
-PRINT "Platform: "; Sys_Platform$
-PRINT "64-bit: "; Sys_Is64Bit&
-PRINT "Home: "; Sys_Home$
+PRINT "Platform: "; Sys_Platform
+PRINT "64-bit: "; Sys_Is64Bit
+PRINT "Home: "; Sys_Home
 ' Output (Linux):
 ' Platform: linux
 ' 64-bit: -1
@@ -948,16 +948,16 @@ PRINT "Home: "; Sys_Home$
 
 #### Arguments (`sys`)
 
-- `Sys_ArgCount&` · `Sys_Arg$(index&)` or `Sys_Arg$(index&, fallback$)`
+- `Sys_ArgCount` · `Sys_Arg(index&)` or `Sys_Arg(index&, fallback$)`
 
-Arguments count from 1 (`Sys_Arg$` returns `fallback$`, default `""`, when there is no such argument); `Sys_Arg$(0)` is the program itself.
+Arguments count from 1 (`Sys_Arg` returns `fallback$`, default `""`, when there is no such argument); `Sys_Arg(0)` is the program itself.
 
 **Example:**
 <!-- docs-test: prepend qbnex -->
 ```basic
-PRINT "Argument count: "; Sys_ArgCount&
-FOR i = 1 TO Sys_ArgCount&
-    PRINT "Arg "; i; ": "; Sys_Arg$(i)
+PRINT "Argument count: "; Sys_ArgCount
+FOR i = 1 TO Sys_ArgCount
+    PRINT "Arg "; i; ": "; Sys_Arg(i)
 NEXT i
 ```
 
@@ -965,22 +965,22 @@ NEXT i
 
 A point in time is a `DOUBLE`: milliseconds since 1970-01-01 00:00:00 UTC, like JavaScript's
 `Date.now()`. Every function works in UTC; give `-1` as the last (`local`) argument for the
-computer's time zone. Invalid input gives NaN (`Date_IsValid&(t#) = 0`) and sets `LastError$`.
+computer's time zone. Invalid input gives NaN (`Date_IsValid(t#) = 0`) and sets `LastError`.
 
-- `Date_Now#` · `Date_Make#(year&, month&, day&[, hour&, minute&, second&, ms&, local&])` (month 1 to 12)
-- `Date_Parse#(text$[, pattern$, local&])`: ISO 8601 / RFC 3339, or the strftime `pattern$`
-- `Date_Iso$(t#[, local&])` · `Date_Format$(t#[, pattern$, local&])` (`%Y %m %d %H %M %S %A %B %z ...`)
-- `Date_Year&`, `Date_Month&`, `Date_Day&`, `Date_Hour&`, `Date_Minute&`, `Date_Second&`, `Date_Millisecond&`, `Date_Weekday&` (0 = Sunday), `Date_YearDay&`, `Date_IsoWeek&`
-- `Date_AddDays#(t#, days#)` · `Date_DiffDays#(a#, b#)` · `Date_Offset&(t#)` (seconds the local zone is ahead of UTC)
+- `Date_Now` · `Date_Make(year&, month&, day&[, hour&, minute&, second&, ms&, local&])` (month 1 to 12)
+- `Date_Parse(text$[, pattern$, local&])`: ISO 8601 / RFC 3339, or the strftime `pattern$`
+- `Date_Iso(t#[, local&])` · `Date_Format(t#[, pattern$, local&])` (`%Y %m %d %H %M %S %A %B %z ...`)
+- `Date_Year`, `Date_Month`, `Date_Day`, `Date_Hour`, `Date_Minute`, `Date_Second`, `Date_Millisecond`, `Date_Weekday` (0 = Sunday), `Date_YearDay`, `Date_IsoWeek`
+- `Date_AddDays(t#, days#)` · `Date_DiffDays(a#, b#)` · `Date_Offset(t#)` (seconds the local zone is ahead of UTC)
 
 **Example:**
 <!-- docs-test: prepend qbnex -->
 ```basic
-t# = Date_Make#(2024, 3, 5, 7, 8, 9)
-PRINT "ISO: "; Date_Iso$(t#)
-PRINT "In 30 days: "; Date_Format$(Date_AddDays#(t#, 30), "%d/%m/%Y")
-PRINT "Weekday:"; Date_Weekday&(t#)
-PRINT "Now: "; Date_Iso$(Date_Now#, -1)
+t# = Date_Make(2024, 3, 5, 7, 8, 9)
+PRINT "ISO: "; Date_Iso(t#)
+PRINT "In 30 days: "; Date_Format(Date_AddDays(t#, 30), "%d/%m/%Y")
+PRINT "Weekday:"; Date_Weekday(t#)
+PRINT "Now: "; Date_Iso(Date_Now, -1)
 ' Output:
 ' ISO: 2024-03-05T07:08:09.000Z
 ' In 30 days: 04/04/2024
@@ -992,16 +992,16 @@ PRINT "Now: "; Date_Iso$(Date_Now#, -1)
 
 #### Numeric Utilities (`math`)
 
-- `Math_Min#(a#, b#)` · `Math_Max#(a#, b#)` · `Math_Clamp#(x#, low#, high#)` · `Math_Lerp#(a#, b#, t#)`
-- `Math_Radians#(degrees#)` · `Math_Degrees#(radians#)` · `Math_Pi#`
+- `Math_Min(a#, b#)` · `Math_Max(a#, b#)` · `Math_Clamp(x#, low#, high#)` · `Math_Lerp(a#, b#, t#)`
+- `Math_Radians(degrees#)` · `Math_Degrees(radians#)` · `Math_Pi`
 
 **Example:**
 <!-- docs-test: prepend qbnex -->
 ```basic
-PRINT Math_Clamp#(15#, 0#, 10#)
+PRINT Math_Clamp(15#, 0#, 10#)
 ' Output: 10
 
-PRINT Math_Clamp#(5#, 0#, 10#)
+PRINT Math_Clamp(5#, 0#, 10#)
 ' Output: 5
 ```
 

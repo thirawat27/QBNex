@@ -4,7 +4,7 @@
 ' Used by regex, hash, zip, http, utf8 and datetime. The work is done by the
 ' Rust library crates/runtime/ext, linked into every native program (the web
 ' build does not have it). A call leaves its text result in a buffer that
-' Ext_Text$ copies out, and its error message, which becomes LastError$.
+' Ext_Text copies out, and its error message, which becomes LastError.
 '===============================================================================
 
 '$IMPORT:'core'
@@ -28,7 +28,7 @@ FUNCTION Ext_Result$ ()
     Ext_Result$ = LEFT$(buffer, copied)
 END FUNCTION
 
-' Copies the error of the last native call into LastError$.
+' Copies the error of the last native call into LastError.
 SUB Ext_Sync ()
     DIM n AS _INTEGER64, copied AS _INTEGER64, buffer AS STRING
     n = qb_ext_error_len&&

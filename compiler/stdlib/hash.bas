@@ -4,11 +4,11 @@
 ' Digests and encodings of the bytes of a string, like Python's hashlib,
 ' base64 and binascii. Digests are lower-case hex.
 '
-'   Hash_Sha256$(s$)  Hash_Sha512$(s$)  Hash_Sha1$(s$)  Hash_Md5$(s$)
-'   Hash_Crc32~&(s$)                    CRC32 as a number (zip, PNG)
-'   Base64_Encode$(s$)                  Base64_Encode$(s$, -1): URL-safe, no padding
-'   Base64_Decode$(b$)                  either kind; "" and LastError$ when invalid
-'   Hex_Encode$("AZ") = "415a"          Hex_Decode$("41 42") = "AB"
+'   Hash_Sha256(s$)  Hash_Sha512(s$)  Hash_Sha1(s$)  Hash_Md5(s$)
+'   Hash_Crc32(s$)                    CRC32 as a number (zip, PNG)
+'   Base64_Encode(s$)                  Base64_Encode(s$, -1): URL-safe, no padding
+'   Base64_Decode(b$)                  either kind; "" and LastError when invalid
+'   Hex_Encode("AZ") = "415a"          Hex_Decode("41 42") = "AB"
 '===============================================================================
 
 '$IMPORT:'ext'

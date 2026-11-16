@@ -209,7 +209,7 @@ are; the bytes are kept. UTF-8 files (with or without BOM) work too.
 <!-- docs-test: output -->
 ```basic
 '$IMPORT:'url'
-PRINT Url_Encode$("a b&c")
+PRINT Url_Encode("a b&c")
 ```
 
 <!-- expected output -->
@@ -262,7 +262,7 @@ brackets, a statement `x.Add "a"` calls `T_Add x, "a"` and `x.Clear` calls
 always wins, so existing programs are unchanged, and a CLASS method wins over
 a procedure of the same name. This is how the library types `List`, `Dict`,
 `Set`, `Url` and `Result` are used (`names.Add "Ann"`,
-`PRINT names.Join$(", ")`); see [Standard library](stdlib.md).
+`PRINT names.Join(", ")`); see [Standard library](stdlib.md).
 
 ### CLASS (text lowering, with `'$IMPORT:'oop.class'`)
 

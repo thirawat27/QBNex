@@ -776,7 +776,9 @@ FUNCTION ClassSyntax_ProcessLine$ (rawLine$)
     DIM savedQueue$
     DIM methodHeader$
 
+    classSyntaxSourceLine = rawLine$
     IF rawLine$ = CHR$(13) THEN
+        classSyntaxSourceLine = ""
         ClassSyntax_ProcessLine$ = rawLine$
         EXIT FUNCTION
     END IF
@@ -1029,6 +1031,7 @@ FUNCTION ClassSyntax_DequeueDeferredLine$ ()
     DIM separatorPos AS LONG
 
     IF LEN(classSyntaxDeferredQueue$) = 0 THEN EXIT FUNCTION
+    classSyntaxSourceLine = "" 'generated after the last source line
 
     separatorPos = INSTR(classSyntaxDeferredQueue$, CHR$(10))
     IF separatorPos = 0 THEN

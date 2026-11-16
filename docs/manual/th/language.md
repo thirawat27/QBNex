@@ -208,7 +208,7 @@ asserts passed
 <!-- docs-test: output -->
 ```basic
 '$IMPORT:'url'
-PRINT Url_Encode$("a b&c")
+PRINT Url_Encode("a b&c")
 ```
 
 <!-- expected output -->
@@ -260,7 +260,7 @@ field ชื่อนั้น `x.Name(args)` จะเรียก `T_Name(x, a
 `x.Count` เรียก `T_Count(x)` field จริงมาก่อนเสมอ โปรแกรมเดิมจึงไม่เปลี่ยน และ
 method ของ CLASS มาก่อน procedure ชื่อเดียวกัน TYPE ของไลบรารี `List`, `Dict`,
 `Set`, `Url` และ `Result` ใช้งานแบบนี้ (`names.Add "Ann"`,
-`PRINT names.Join$(", ")`) ดู[ไลบรารีมาตรฐาน](stdlib.md)
+`PRINT names.Join(", ")`) ดู[ไลบรารีมาตรฐาน](stdlib.md)
 
 ### CLASS (แปลงเป็นโค้ดธรรมดาก่อนคอมไพล์ ใช้คู่กับ `'$IMPORT:'oop.class'`)
 

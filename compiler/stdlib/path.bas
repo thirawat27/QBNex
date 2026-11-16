@@ -2,14 +2,14 @@
 ' QBNex Standard Library - path ('$IMPORT:'path')
 '===============================================================================
 ' File paths, like Python's os.path. "/" and "\" are both accepted; results
-' use the separator of the computer (Path_Sep$).
+' use the separator of the computer (Path_Sep).
 '
-'   Path_Join$("dir", "sub", "f.txt")   "dir/sub/f.txt" (up to 4 parts)
-'   Path_Base$("a/b/c.txt")             "c.txt"
-'   Path_Dir$("a/b/c.txt")              "a/b"
-'   Path_Ext$("a/b/c.txt")              ".txt"
-'   Path_Stem$("a/b/c.txt")             "c"
-'   Path_Exists&(p$)                    -1 for a file or a folder
+'   Path_Join("dir", "sub", "f.txt")   "dir/sub/f.txt" (up to 4 parts)
+'   Path_Base("a/b/c.txt")             "c.txt"
+'   Path_Dir("a/b/c.txt")              "a/b"
+'   Path_Ext("a/b/c.txt")              ".txt"
+'   Path_Stem("a/b/c.txt")             "c"
+'   Path_Exists(p$)                    -1 for a file or a folder
 '===============================================================================
 
 ' "\" on Windows, "/" elsewhere.

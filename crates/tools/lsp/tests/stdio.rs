@@ -170,7 +170,7 @@ fn full_session() {
     // Completion: user symbols from the include and built-ins.
     let comp = c.request("textDocument/completion", json!({"textDocument": {"uri": uri}, "position": pos(9, 0)}));
     let labels: Vec<&str> = comp.as_array().unwrap().iter().map(|i| i["label"].as_str().unwrap()).collect();
-    for want in ["helper", "pt", "MAXN", "LEFT$", "_RGB32", "PRINT", "_IIF", "EACH", "_MESHCUBE", "_DRAW3D", "Http_Get$", "Date_Now#", "List_Add"] {
+    for want in ["helper", "pt", "MAXN", "LEFT$", "_RGB32", "PRINT", "_IIF", "EACH", "_MESHCUBE", "_DRAW3D", "Http_Get", "Date_Now", "List_Add"] {
         assert!(labels.contains(&want), "missing {want}");
     }
 
@@ -301,7 +301,7 @@ PRINT q.\n";
         r.as_array().unwrap().iter().map(|i| i["label"].as_str().unwrap().to_string()).collect()
     };
     let labels = complete(&mut c, 11, 12);
-    for want in ["Add", "Count", "Get$", "Join$", "Free"] {
+    for want in ["Add", "Count", "Get", "Join", "Free"] {
         assert!(labels.iter().any(|l| l == want), "missing {want}: {labels:?}");
     }
     assert!(!labels.iter().any(|l| l == "PRINT" || l == "Handle"), "{labels:?}");
@@ -356,7 +356,7 @@ PRINT boxes(2).\n";
     };
     for (line, ch) in [(6, 8), (9, 15)] {
         let labels = complete(&mut c, line, ch);
-        assert!(labels.iter().any(|l| l == "Add") && !labels.iter().any(|l| l == "Key$"), "{labels:?}");
+        assert!(labels.iter().any(|l| l == "Add") && !labels.iter().any(|l| l == "Key"), "{labels:?}");
     }
     c.request("shutdown", Value::Null);
     c.notify("exit", Value::Null);

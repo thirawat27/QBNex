@@ -5,17 +5,17 @@
 ' like JavaScript's Date.now(). Every function works in UTC; give local = -1
 ' for the computer's time zone. Not available in the web build.
 '
-'   t# = Date_Now#
-'   Date_Iso$(t#)                        "2024-03-05T07:08:09.010Z"
-'   Date_Iso$(t#, -1)                    "2024-03-05T14:08:09.010+07:00"
-'   Date_Format$(t#, "%d/%m/%Y %H:%M")   strftime codes (below)
-'   t# = Date_Parse#("2024-03-05T07:08:09Z")   ISO 8601 / RFC 3339
-'   t# = Date_Parse#("05/03/2024", "%d/%m/%Y")
-'   t# = Date_Make#(2024, 3, 5)          y, month 1-12, day [, h, mi, s, ms]
-'   Date_Year&(t#), Date_Month&, Date_Day&, Date_Hour&, Date_Minute&,
-'   Date_Second&, Date_Weekday& (0 = Sunday), Date_YearDay&, Date_IsoWeek&
-'   Date_AddDays#(t#, 7), Date_DiffDays#(a#, b#), Date_Offset&(t#)
-' Invalid input gives NaN (Date_IsValid&(t#) = 0) and sets LastError$.
+'   t# = Date_Now
+'   Date_Iso(t#)                        "2024-03-05T07:08:09.010Z"
+'   Date_Iso(t#, -1)                    "2024-03-05T14:08:09.010+07:00"
+'   Date_Format(t#, "%d/%m/%Y %H:%M")   strftime codes (below)
+'   t# = Date_Parse("2024-03-05T07:08:09Z")   ISO 8601 / RFC 3339
+'   t# = Date_Parse("05/03/2024", "%d/%m/%Y")
+'   t# = Date_Make(2024, 3, 5)          y, month 1-12, day [, h, mi, s, ms]
+'   Date_Year(t#), Date_Month, Date_Day, Date_Hour, Date_Minute,
+'   Date_Second, Date_Weekday (0 = Sunday), Date_YearDay, Date_IsoWeek
+'   Date_AddDays(t#, 7), Date_DiffDays(a#, b#), Date_Offset(t#)
+' Invalid input gives NaN (Date_IsValid(t#) = 0) and sets LastError.
 '
 ' Format codes: %Y year, %m month 01-12, %d day, %H hour 00-23, %I 01-12,
 ' %M minute, %S second, %3f milliseconds, %p AM/PM, %A/%a weekday name,

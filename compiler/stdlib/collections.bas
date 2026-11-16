@@ -7,12 +7,12 @@
 '
 '   DIM names AS List
 '   names.Add "Ann": names.Add "Bob"
-'   PRINT names.Count, names.Get$(-1), names.Join$(", ")
+'   PRINT names.Count, names.Get(-1), names.Join(", ")
 '   DIM ages AS Dict
-'   ages.Set "Ann", "42": PRINT ages.Get$("Ann")
+'   ages.Set "Ann", "42": PRINT ages.Get("Ann")
 '
 ' Indexes start at 0; a negative index counts from the end (-1 = last).
-' Numbers are stored as text: names.Add STR$(n), VAL(names.Get$(0)).
+' Numbers are stored as text: names.Add STR$(n), VAL(names.Get(0)).
 '===============================================================================
 
 TYPE List

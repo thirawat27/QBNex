@@ -3,11 +3,11 @@
 '===============================================================================
 ' The computer and the command line, like Python's sys and os.environ.
 '
-'   Sys_Platform$       "windows", "linux" or "macos"
-'   Sys_Env$("HOME")    an environment variable; Sys_Env$(name$, "default")
-'   Sys_HasEnv&(name$)  Sys_Home$  Sys_Is64Bit&
-'   Sys_ArgCount&       arguments after the program name
-'   Sys_Arg$(1)         argument 1; Sys_Arg$(0) is the program
+'   Sys_Platform       "windows", "linux" or "macos"
+'   Sys_Env("HOME")    an environment variable; Sys_Env(name$, "default")
+'   Sys_HasEnv(name$)  Sys_Home  Sys_Is64Bit
+'   Sys_ArgCount       arguments after the program name
+'   Sys_Arg(1)         argument 1; Sys_Arg(0) is the program
 '===============================================================================
 
 ' "windows", "linux", "macos" (or "unknown").

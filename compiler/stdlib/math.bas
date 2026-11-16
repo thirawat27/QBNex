@@ -1,9 +1,9 @@
 '===============================================================================
 ' QBNex Standard Library - math ('$IMPORT:'math')
 '===============================================================================
-'   Math_Min#(a, b)  Math_Max#(a, b)  Math_Clamp#(x, low, high)
-'   Math_Lerp#(a, b, t)               a + (b - a) * t
-'   Math_Radians#(deg)  Math_Degrees#(rad)  Math_Pi#
+'   Math_Min(a, b)  Math_Max(a, b)  Math_Clamp(x, low, high)
+'   Math_Lerp(a, b, t)               a + (b - a) * t
+'   Math_Radians(deg)  Math_Degrees(rad)  Math_Pi
 '===============================================================================
 
 ' The smaller of a and b.

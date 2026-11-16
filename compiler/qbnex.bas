@@ -483,6 +483,7 @@ FUNCTION getpid& ()
     DIM SHARED classSyntaxOwnFieldLines AS STRING
     DIM SHARED classSyntaxRegistryCount AS LONG
     DIM SHARED classSyntaxTypedVars AS LONG 'a variable of a TYPE was seen: x.Method(...) may need rewriting
+    DIM SHARED classSyntaxSourceLine AS STRING 'the source line as written, before method syntax and CLASS rewrite it (for diagnostics)
     DIM SHARED classSyntaxRegistryName(1 TO 256) AS STRING
     DIM SHARED classSyntaxRegistryBase(1 TO 256) AS STRING
     DIM SHARED classSyntaxRegistryOwnFields(1 TO 256) AS STRING
@@ -1167,6 +1168,7 @@ DIM SHARED incRangeFrom AS LONG, incRangeTo AS LONG, incRangeSkip AS LONG, incRa
                 linenumber = 0
                 wholeline$ = ""
                 diagnosticSourceLine = ""
+                classSyntaxSourceLine = ""
                 linefragment$ = ""
                 idn = 0
                 subfuncn = 0
@@ -1346,6 +1348,7 @@ DIM SHARED incRangeFrom AS LONG, incRangeTo AS LONG, incRangeSkip AS LONG, incRa
 
                         IF lastLine <> 0 OR firstLine <> 0 THEN
                             lineBackup$ = wholeline$ 'backup the real line (will be blank when lastline is set)
+                            sourceLineBackup$ = classSyntaxSourceLine
                             IF firstLine <> 0 THEN StdLib_PrepareHoistedImports
                             forceIncludeFromRoot$ = ""
                             IF vWatchOn THEN
@@ -1361,9 +1364,12 @@ DIM SHARED incRangeFrom AS LONG, incRangeTo AS LONG, incRangeSkip AS LONG, incRa
                             IF LEN(forceIncludeFromRoot$) THEN GOTO forceInclude_prepass
                             forceIncludeCompleted_prepass:
                             wholeline$ = lineBackup$
+                            classSyntaxSourceLine = sourceLineBackup$
                         END IF
 
+                        'errors show the line as written, not as method syntax rewrote it
                         diagnosticSourceLine = wholeline$
+                        IF LEN(_TRIM$(classSyntaxSourceLine)) THEN diagnosticSourceLine = _TRIM$(classSyntaxSourceLine)
                         wholestv$ = wholeline$ '### STEVE EDIT FOR CONST EXPANSION 10/11/2013
 
                         prepass = 1
@@ -2443,6 +2449,7 @@ DIM SHARED incRangeFrom AS LONG, incRangeTo AS LONG, incRangeSkip AS LONG, incRa
 
                             IF lastLine <> 0 OR firstLine <> 0 THEN
                                 lineBackup$ = a3$ 'backup the real first line (will be blank when lastline is set)
+                                sourceLineBackup$ = classSyntaxSourceLine
                                 IF firstLine <> 0 THEN StdLib_PrepareHoistedImports
                                 forceIncludeFromRoot$ = ""
                                 IF vWatchOn THEN
@@ -2458,6 +2465,7 @@ DIM SHARED incRangeFrom AS LONG, incRangeTo AS LONG, incRangeSkip AS LONG, incRa
                                 IF LEN(forceIncludeFromRoot$) THEN GOTO forceInclude
                                 forceIncludeCompleted:
                                 a3$ = lineBackup$
+                                classSyntaxSourceLine = sourceLineBackup$
                             END IF
 
                             prepass = 0
@@ -2512,6 +2520,7 @@ DIM SHARED incRangeFrom AS LONG, incRangeTo AS LONG, incRangeSkip AS LONG, incRa
 
                             a3$ = LTRIM$(RTRIM$(a3$))
                             diagnosticSourceLine = a3$
+                            IF LEN(_TRIM$(classSyntaxSourceLine)) THEN diagnosticSourceLine = _TRIM$(classSyntaxSourceLine)
                             wholeline = a3$
 
                             layoutoriginal$ = a3$

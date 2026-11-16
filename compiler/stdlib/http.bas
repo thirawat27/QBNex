@@ -3,15 +3,15 @@
 '===============================================================================
 ' HTTP and HTTPS client, like Python's requests. TLS is rustls with the
 ' Mozilla root certificates; redirects are followed. A call returns the body;
-' Http_Status& is the status (200, 404, ...) or -1 when no answer came back
-' (bad URL, refused, DNS, TLS, timeout: see LastError$). timeoutMs 0 means 30
+' Http_Status is the status (200, 404, ...) or -1 when no answer came back
+' (bad URL, refused, DNS, TLS, timeout: see LastError). timeoutMs 0 means 30
 ' seconds for the whole request. Not available in the web build.
 '
-'   page$ = Http_Get$("https://example.com/")
-'   IF Http_Status& <> 200 THEN PRINT "failed:"; Http_Status&; LastError$
-'   PRINT Http_Header$("content-type")
-'   reply$ = Http_Post$(url$, json$)                     sent as application/json
-'   reply$ = Http_Request$("PUT", url$, body$, "Authorization: Bearer x")
+'   page$ = Http_Get("https://example.com/")
+'   IF Http_Status <> 200 THEN PRINT "failed:"; Http_Status; LastError
+'   PRINT Http_Header("content-type")
+'   reply$ = Http_Post(url$, json$)                     sent as application/json
+'   reply$ = Http_Request("PUT", url$, body$, "Authorization: Bearer x")
 '===============================================================================
 
 '$IMPORT:'ext'

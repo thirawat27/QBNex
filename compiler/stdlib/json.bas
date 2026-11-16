@@ -4,13 +4,13 @@
 ' RFC 8259 JSON, like Python's json. A value is a handle (an INTEGER, 0 = none).
 ' Read with a path: names and 0-based indexes, "user.tags.0" or "items[2].id".
 '
-'   root = Json_Parse(text$)                 0 on error: LastError$, Json_ErrorPos&
-'   PRINT Json_Str$(root, "name")            text of a value ("" when missing)
-'   PRINT Json_Num#(root, "tags[1]")         Json_Bool%, Json_Type$ ("object", ...)
-'   FOR i = 0 TO Json_Count(root, "tags") - 1 ...     Json_Has%, Json_Key$
+'   root = Json_Parse(text$)                 0 on error: LastError, Json_ErrorPos
+'   PRINT Json_Str(root, "name")            text of a value ("" when missing)
+'   PRINT Json_Num(root, "tags[1]")         Json_Bool, Json_Type ("object", ...)
+'   FOR i = 0 TO Json_Count(root, "tags") - 1 ...     Json_Has, Json_Key
 '   o = Json_Object: Json_SetStr o, "name", "Ann": Json_SetNum o, "age", 42
 '   a = Json_Array: Json_PushStr a, "x": Json_Set o, "list", a
-'   PRINT Json_Stringify$(o)                 Json_Stringify$(o, 2) indents
+'   PRINT Json_Stringify(o)                 Json_Stringify(o, 2) indents
 '   Json_Free root                           gives a document back
 '
 ' Strings are bytes: \uXXXX escapes (with surrogate pairs) become UTF-8.
@@ -32,7 +32,7 @@ CONST JSON_TYPE_OBJECT = 5
 CONST JSON_POOL_MAX = 32767
 CONST JSON_MAX_DEPTH = 500
 
-' Value pool: grown by JsonAllocValue% (the arrays are declared without a size,
+' Value pool: grown by JsonAllocValue (the arrays are declared without a size,
 ' so this line does not reset them wherever the module is placed). A free
 ' value has type JSON_TYPE_FREE; JsonNextSibling% links the free values.
 CONST JSON_TYPE_FREE = -1
@@ -502,7 +502,7 @@ END FUNCTION
 '-------------------------------------------------------------------- parser
 
 ' Parses a complete JSON text. Returns the root value, or 0 on error
-' (LastError$ / Json_ErrorPos& describe it).
+' (LastError / Json_ErrorPos describe it).
 FUNCTION Json_Parse% (jsonString AS STRING)
     DIM v%, i&
     JsonParsing = -1

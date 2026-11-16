@@ -5,7 +5,7 @@
 '
 '   DIM row AS List
 '   row.Add "plain": row.Add "a,b"
-'   PRINT Csv_Row$(row)                 plain,"a,b"
+'   PRINT Csv_Row(row)                 plain,"a,b"
 '   Csv_Parse row, text$                the fields of a row back in a List
 '===============================================================================
 

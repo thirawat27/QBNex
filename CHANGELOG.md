@@ -76,6 +76,8 @@ the standard builds, faster 3D drawing and `qb --help` options that do what they
 - Native modules: `Regex_Test&` replaces `Regex_IsMatch&`; `Regex_Find$` returns the match (with `Regex_Group$`, `Regex_Pos&`) instead of `Regex_Find&` + `Regex_Match$`; `Regex_Split` and `Regex_FindAll` fill a `List`; `Http_Get$`, `Http_Post$` and `Http_Request$` return the body, with `Http_Status&` and `Http_Header$`; `Zip_List` fills a `List`; the `DT_*` functions are `Date_*` (`Date_Now#`, `Date_Make#`, `Date_Iso$`, `Date_Format$`, `Date_Parse#`, ...) and take an optional last argument for local time.
 - One `LastError$` (module `core`) holds the message of the last failed library call for every module, `""` after a call that worked; it replaces `Ext_LastError$`, `JSON_LastError$` and `UrlLastError$`.
 - `LIST` is no longer a reserved word, so a TYPE or a variable can be named `List`.
+- The manual, the README, the VS Code snippets and the language server's completion write library calls without the type suffix of the FUNCTION (`names.Get(0)`, `Json_Str(root, "user.name")`, `LastError`); writing the suffix still works.
+- A compile error on a line that method syntax rewrote shows the line as written (for `x = l.Get(0)` it showed `x = LIST_Get(l, 0)`).
 
 #### In 2.0.0-preview.3
 

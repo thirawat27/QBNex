@@ -4,16 +4,16 @@
 ' BASIC strings are bytes; these treat them as UTF-8 text, by character.
 ' Bytes that are not valid UTF-8 count as one character each and are kept.
 '
-'   Utf8_Len&("สวัสดี")        6 characters (LEN gives 18 bytes)
-'   Utf8_Mid$(s$, 2, 3)       like MID$; Utf8_Mid$(s$, 2) to the end
-'   Utf8_Left$ / Utf8_Right$  Utf8_Upper$ / Utf8_Lower$ ("ß" -> "SS")
-'   Utf8_Normalize$(s$)       NFC; or "NFD", "NFKC", "NFKD"
-'   Utf8_Asc&(s$, i)          code point of character i (like ASC)
-'   Utf8_Chr$(3647)           character of a code point (like CHR$)
-'   Utf8_IsValid&(s$)         -1 for valid UTF-8
-'   Utf8_FromCp437$(s$)       DOS text to UTF-8; Utf8_FromCp437$(s$, -1) also
+'   Utf8_Len("สวัสดี")        6 characters (LEN gives 18 bytes)
+'   Utf8_Mid(s$, 2, 3)       like MID$; Utf8_Mid(s$, 2) to the end
+'   Utf8_Left / Utf8_Right  Utf8_Upper / Utf8_Lower ("ß" -> "SS")
+'   Utf8_Normalize(s$)       NFC; or "NFD", "NFKC", "NFKD"
+'   Utf8_Asc(s$, i)          code point of character i (like ASC)
+'   Utf8_Chr(3647)           character of a code point (like CHR$)
+'   Utf8_IsValid(s$)         -1 for valid UTF-8
+'   Utf8_FromCp437(s$)       DOS text to UTF-8; Utf8_FromCp437(s$, -1) also
 '                             maps bytes 1-31 and 127 to the PC symbols
-'   Utf8_ToCp437$(s$)         back to DOS text; "?" where there is no glyph
+'   Utf8_ToCp437(s$)         back to DOS text; "?" where there is no glyph
 '===============================================================================
 
 '$IMPORT:'ext'

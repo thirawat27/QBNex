@@ -5,6 +5,7 @@ REPO_ROOT="$(cd -- "$ROOT/../.." >/dev/null 2>&1 && pwd)"
 QB="$REPO_ROOT/qb"
 SRC_REL="tests/fixtures/diagnostics_compile_error.bas"
 SRC_INCLUDE_REL="tests/fixtures/diagnostics_include_chain_main.bas"
+SRC_METHOD_REL="tests/fixtures/diagnostics_method_source.bas"
 
 if [ ! -x "$QB" ]; then
   echo "[FAIL] qb not found at \"$QB\""
@@ -35,6 +36,7 @@ fi
 OUT_DEFAULT="$SMOKE_TMP/default_diagnostics.txt"
 OUT_COMPACT="$SMOKE_TMP/compact_diagnostics.txt"
 OUT_INCLUDE="$SMOKE_TMP/include_chain_diagnostics.txt"
+OUT_METHOD="$SMOKE_TMP/method_source_diagnostics.txt"
 
 set +e
 "$QB" "$SRC_REL" > "$OUT_DEFAULT" 2>&1
@@ -45,6 +47,8 @@ EC_COMPACT=$?
 
 "$QB" "$SRC_INCLUDE_REL" > "$OUT_INCLUDE" 2>&1
 EC_INCLUDE=$?
+
+"$QB" "$SRC_METHOD_REL" > "$OUT_METHOD" 2>&1
 set -e
 # Runtime errors go to stderr (exit code 1) instead of a modal dialog.
 export QBNEX_NO_ERROR_DIALOG=1
@@ -104,6 +108,12 @@ if [ "$COUNT_INCLUDE" -ne 1 ]; then
   echo "[FAIL] Include-chain diagnostics should render the blocking error once."
   FAIL=1
 fi
+
+# An error on a line that method syntax rewrote shows the line as written.
+grep -F "| x = l.Get(0)" "$OUT_METHOD" >/dev/null 2>&1 || {
+  echo "[FAIL] Method-syntax diagnostics do not show the source line as written."
+  FAIL=1
+}
 
 if [ "$FAIL" -eq 0 ]; then
   echo "DIAGNOSTICS_SMOKE_OK"

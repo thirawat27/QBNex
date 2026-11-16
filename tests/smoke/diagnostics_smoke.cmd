@@ -8,6 +8,7 @@ set "REPO_ROOT=%ROOT%..\.."
 set "QB=%REPO_ROOT%\qb.exe"
 set "SRC=%ROOT%..\fixtures\diagnostics_compile_error.bas"
 set "SRC_INCLUDE=%ROOT%..\fixtures\diagnostics_include_chain_main.bas"
+set "SRC_METHOD=%ROOT%..\fixtures\diagnostics_method_source.bas"
 
 if not exist "%QB%" (
     echo [FAIL] qb.exe not found at "%QB%"
@@ -35,6 +36,7 @@ if errorlevel 1 (
 set "OUT_DEFAULT=%TMPDIR%\default_diagnostics.txt"
 set "OUT_COMPACT=%TMPDIR%\compact_diagnostics.txt"
 set "OUT_INCLUDE=%TMPDIR%\include_chain_diagnostics.txt"
+set "OUT_METHOD=%TMPDIR%\method_source_diagnostics.txt"
 
 "%QB%" "%SRC%" > "%OUT_DEFAULT%" 2>&1
 set "EC_DEFAULT=%ERRORLEVEL%"
@@ -44,6 +46,8 @@ set "EC_COMPACT=%ERRORLEVEL%"
 
 "%QB%" "%SRC_INCLUDE%" > "%OUT_INCLUDE%" 2>&1
 set "EC_INCLUDE=%ERRORLEVEL%"
+
+"%QB%" "%SRC_METHOD%" > "%OUT_METHOD%" 2>&1
 
 set "FAIL=0"
 
@@ -98,6 +102,12 @@ findstr /L /C:"Triggered while compiling an included module." "%OUT_INCLUDE%" >n
 for /f %%C in ('findstr /L /C:"File diagnostics_include_chain_missing.bas not found" "%OUT_INCLUDE%" ^| find /c /v ""') do set "COUNT_INCLUDE=%%C"
 if not "%COUNT_INCLUDE%"=="1" (
     echo [FAIL] Include-chain diagnostics should render the blocking error once.
+    set "FAIL=1"
+)
+
+rem An error on a line that method syntax rewrote shows the line as written.
+findstr /L /C:"| x = l.Get(0)" "%OUT_METHOD%" >nul || (
+    echo [FAIL] Method-syntax diagnostics do not show the source line as written.
     set "FAIL=1"
 )
 

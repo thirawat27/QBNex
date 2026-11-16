@@ -679,8 +679,8 @@ impl Server {
             });
         }
         let prefix = format!("{}_", ty.to_ascii_uppercase());
-        // Numeric suffixes are optional on a call; `$` stays, as the library docs write it.
-        let method_label = |name: &str| name[prefix.len()..].trim_end_matches(['%', '&', '!', '#', '~', '`']).to_string();
+        // A call needs no type suffix, and the library docs write none.
+        let method_label = |name: &str| bare_name(&name[prefix.len()..]).to_string();
         let is_method = |name: &str| name.len() > prefix.len() && name.to_ascii_uppercase().starts_with(&prefix);
         for d in files {
             for s in d.analysis.symbols.iter().filter(|s| matches!(s.kind, SymbolKind::Sub | SymbolKind::Function)) {
@@ -752,11 +752,12 @@ impl Server {
         let mut libs: Vec<_> = qb_syntax::library::all().collect();
         libs.sort_by(|a, b| a.name.cmp(b.name));
         for p in libs {
-            if !seen.insert(p.name.to_ascii_uppercase()) {
+            let label = bare_name(p.name);
+            if !seen.insert(label.to_ascii_uppercase()) {
                 continue;
             }
             items.push(lt::CompletionItem {
-                label: p.name.to_string(),
+                label: label.to_string(),
                 kind: Some(if p.is_function { lt::CompletionItemKind::FUNCTION } else { lt::CompletionItemKind::METHOD }),
                 detail: Some(format!("{} — {}", p.module, p.syntax)),
                 documentation: (!p.doc.is_empty()).then(|| lt::Documentation::String(p.doc.to_string())),
@@ -788,6 +789,11 @@ fn segments(name: &str, start: usize) -> Vec<(&str, Range<usize>)> {
         pos += seg.len() + 1;
     }
     v
+}
+
+/// A procedure name without its type suffix (`Http_Get$` -> `Http_Get`), as a call may write it.
+fn bare_name(name: &str) -> &str {
+    name.trim_end_matches(['%', '&', '!', '#', '$', '~', '`'])
 }
 
 /// Whether two loaded documents are the same file.

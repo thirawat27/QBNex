@@ -4,13 +4,13 @@
 ' Regular expressions, like Python's re. Rust regex syntax
 ' (https://docs.rs/regex): \d \w \s, classes, (groups), (?<name>...), (?i) for
 ' case-insensitive. No backreferences or look-around. Positions are 1-based
-' bytes like INSTR. A bad pattern gives 0 / "" and LastError$ says why.
+' bytes like INSTR. A bad pattern gives 0 / "" and LastError says why.
 '
-'   Regex_Test&("^\d+$", s$)                -1 when s$ matches
-'   m$ = Regex_Find$("(\w+)@(\w+)", s$)     the first match ("" if none);
-'        Regex_Group$(1), Regex_Pos& of that match
-'   Regex_Replace$("\s+", s$, " ")          every match ($1, ${name}, $$)
-'   Regex_Replace$("\s+", s$, " ", -1)      the first match only
+'   Regex_Test("^\d+$", s$)                -1 when s$ matches
+'   m$ = Regex_Find("(\w+)@(\w+)", s$)     the first match ("" if none);
+'        Regex_Group(1), Regex_Pos of that match
+'   Regex_Replace("\s+", s$, " ")          every match ($1, ${name}, $$)
+'   Regex_Replace("\s+", s$, " ", -1)      the first match only
 '   Regex_Split ",\s*", s$, parts           parts (a List) between matches
 '   Regex_FindAll "\d+", s$, found          every match in a List
 '===============================================================================
@@ -37,7 +37,7 @@ FUNCTION Regex_Test& (pattern AS STRING, text AS STRING)
 END FUNCTION
 
 ' The first match of pattern in text at or after byte start; "" when none.
-' Regex_Pos& and Regex_Group$ then describe it.
+' Regex_Pos and Regex_Group then describe it.
 FUNCTION Regex_Find$ (pattern AS STRING, text AS STRING, OPTIONAL start AS LONG = 1)
     DIM r AS _INTEGER64, i AS LONG, m AS STRING
     r = qb_ext_regex_find&&(_OFFSET(pattern), LEN(pattern), _OFFSET(text), LEN(text), start)
@@ -53,12 +53,12 @@ FUNCTION Regex_Find$ (pattern AS STRING, text AS STRING, OPTIONAL start AS LONG 
     Regex_Find$ = m
 END FUNCTION
 
-' Byte position of the last Regex_Find$ match (0 = no match).
+' Byte position of the last Regex_Find match (0 = no match).
 FUNCTION Regex_Pos& ()
     Regex_Pos& = Regex_LastPos
 END FUNCTION
 
-' Group index of the last Regex_Find$ match (0 = the whole match).
+' Group index of the last Regex_Find match (0 = the whole match).
 FUNCTION Regex_Group$ (index AS LONG)
     Regex_Group$ = List_Get$(Regex_Groups, index)
 END FUNCTION

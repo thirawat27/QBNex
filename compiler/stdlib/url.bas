@@ -6,15 +6,15 @@
 '   DIM u AS Url
 '   u.Parse "https://user@Example.com:8080/a/b.txt?q=1&s=a+b#top"
 '   PRINT u.hostname, u.port, u.pathname    example.com  8080  /a/b.txt
-'   PRINT u.Query$("s")                     a b
-'   u.SetQuery "q", "two words": PRINT u.Format$
-'   PRINT Url_Encode$("a b/c"), Url_Decode$("a%20b")
-'   PRINT Url_Resolve$("http://a/b/c/d;p?q", "../g")   http://a/b/g
+'   PRINT u.Query("s")                     a b
+'   u.SetQuery "q", "two words": PRINT u.Format
+'   PRINT Url_Encode("a b/c"), Url_Decode("a%20b")
+'   PRINT Url_Resolve("http://a/b/c/d;p?q", "../g")   http://a/b/g
 '
 ' The fields are variable-length strings (port is a LONG). A port that is
-' not a number from 0 to 65535 is an error: port stays 0 and LastError$
+' not a number from 0 to 65535 is an error: port stays 0 and LastError
 ' says why. Query parameters are kept encoded, one "key=value" per line in
-' queryData; Url_Query$ decodes them ("+" is a space).
+' queryData; Url_Query decodes them ("+" is a space).
 '===============================================================================
 
 '$IMPORT:'core'

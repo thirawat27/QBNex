@@ -8,7 +8,7 @@
 '   json         parse, read, build       url       Url TYPE, encode, resolve
 '   path         file paths               csv       CSV rows
 '   math         Math_*                   sys       platform, env, arguments
-'   result       Result TYPE              core      LastError$
+'   result       Result TYPE              core      LastError
 '   regex, hash, zip, http, utf8, datetime   (native: not in the web build)
 '   oop.class, oop.interface                  (used by CLASS)
 '===============================================================================

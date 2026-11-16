@@ -1,7 +1,7 @@
 '===============================================================================
 ' QBNex Standard Library - core ('$IMPORT:'core')
 '===============================================================================
-' LastError$ is the message of the last library call that failed, for every
+' LastError is the message of the last library call that failed, for every
 ' module ("" after a call that worked). Every other module imports this one.
 '===============================================================================
 
@@ -12,7 +12,7 @@ FUNCTION LastError$ ()
     LastError$ = Core_ErrorText
 END FUNCTION
 
-' Sets LastError$ ("" clears it). For modules that report errors.
+' Sets LastError ("" clears it). For modules that report errors.
 SUB Core_SetError (message AS STRING)
     Core_ErrorText = message
 END SUB

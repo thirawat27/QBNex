@@ -2,14 +2,14 @@
 ' QBNex Standard Library - strings ('$IMPORT:'strings')
 '===============================================================================
 ' Text helpers like Python's str methods. Splitting into parts and joining
-' them are List_Split / List_Join$ ('$IMPORT:'collections').
+' them are List_Split / List_Join ('$IMPORT:'collections').
 '
-'   Str_Has&("hello", "ell")            -1        Python "ell" in s
-'   Str_StartsWith&(s$, "he")           Str_EndsWith&(s$, "lo")
-'   Str_Replace$("a-b-c", "-", "+")     "a+b+c"   every match
-'   Str_Trim$(s$)                       spaces, tabs and line breaks off both ends
-'   Str_PadLeft$("7", 3, "0")           "007"     Str_PadRight$ fills on the right
-'   Str_Repeat$("ab", 3)                "ababab"
+'   Str_Has("hello", "ell")            -1        Python "ell" in s
+'   Str_StartsWith(s$, "he")           Str_EndsWith(s$, "lo")
+'   Str_Replace("a-b-c", "-", "+")     "a+b+c"   every match
+'   Str_Trim(s$)                       spaces, tabs and line breaks off both ends
+'   Str_PadLeft("7", 3, "0")           "007"     Str_PadRight fills on the right
+'   Str_Repeat("ab", 3)                "ababab"
 '===============================================================================
 
 ' -1 when text contains part ("" is in every text).

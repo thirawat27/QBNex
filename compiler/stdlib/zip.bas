@@ -2,13 +2,13 @@
 ' QBNex Standard Library - zip ('$IMPORT:'zip')
 '===============================================================================
 ' Zip archives, like Python's zipfile. Member names use "/" between folders.
-' Errors leave LastError$ set.
+' Errors leave LastError set.
 '
 '   DIM names AS List
 '   Zip_List "a.zip", names              the member names
-'   s$ = Zip_Read$("a.zip", "dir/f.txt") one member
+'   s$ = Zip_Read("a.zip", "dir/f.txt") one member
 '   Zip_Extract "a.zip", "outdir"        every member (refuses "../x" names)
-'   z& = Zip_Create&("new.zip")
+'   z& = Zip_Create("new.zip")
 '   Zip_Write z&, "hello.txt", "hello"   a member from a string
 '   Zip_AddFile z&, "docs/a.md", "a.md"  a member from a file
 '   Zip_Close z&
