@@ -79,7 +79,7 @@ the standard builds, faster 3D drawing and `qb --help` options that do what they
 - 3D speed: the `_DRAW3D` layer keeps its target and readback buffers between frames (about 330 to 1000 fps at 800x600); `_MAPTRIANGLE` skips the builtin name lookup and reuses its GPU buffers; the 3D layer and batched `_MAPTRIANGLE` share one GPU device (half the GPU memory); the software triangle rasterizer finds each row's span from the edges and works in runs of 16 pixels, with bit-identical pixels and depth (a large textured mesh: 1289 to 619 ms per frame).
 - `qb --help`: `-s:<name>=value` saves the setting without printing the help, `-d` shows the source lines around a diagnostic, `-k` hides detail notes also with `-Werror`, `-w` prints warnings on their own lines and ends with a warning count, `-i`, `-g` and `-s` show more, and `-m` works anywhere on the line. `-c`, `-x`, `-p`, `-z` and `--ir` change nothing and are no longer listed, but are still accepted.
 - `DECLARE LIBRARY` and `DECLARE DYNAMIC LIBRARY` are checked at compile time with the same search order the runner uses to load the library.
-- `examples/showcase`: eight runnable programs shown in the README (among them `life.bas`, Conway's Game of Life), and `shapes3d.bas` (six 3D shapes drawn with `_DRAW3D` or `_MAPTRIANGLE` 3D).
+- `examples/showcase`: eight runnable programs shown in the README (among them `life.bas`, Conway's Game of Life), `shapes3d.bas` (six 3D shapes drawn with `_DRAW3D` or `_MAPTRIANGLE` 3D), and `physics3d.bas` (five animated physics scenes on the GPU with `_SHADER` highlights and soft shadows).
 
 ### Added
 

@@ -42,11 +42,11 @@ qb examples/showcase/raytrace.bas -o raytrace
     <td><b>Classic text-mode applications</b> (<a href="examples/showcase/textui.bas">textui.bas</a>)<br>Menu bar, windows with drop shadows, a data table and a dialog, drawn with CP437 box characters and the 8x16 VGA font, just as QuickBASIC programs looked.</td>
   </tr>
   <tr>
-    <td><img src="assets/showcase/shapes3d.png" alt="A (3, 7) torus knot drawn on the GPU"></td>
+    <td><img src="assets/showcase/physics3d.png" alt="Forty colliding balls with highlights and soft shadows, drawn on the GPU"></td>
     <td><img src="assets/showcase/mandelbrot.png" alt="Mandelbrot set zoom"></td>
   </tr>
   <tr>
-    <td><b>Maths in 3D</b> (<a href="examples/showcase/shapes3d.bas">shapes3d.bas</a>)<br>Six mathematical shapes (trefoil and torus knots, a Moebius strip, a Klein bottle, a seashell) built vertex by vertex in BASIC and spun on the GPU with <code>_DRAW3D</code>, or drawn with <code>_MAPTRIANGLE</code> 3D. For a surface plot with its own rasteriser in plain BASIC, see <a href="examples/showcase/surface3d.bas">surface3d.bas</a>.</td>
+    <td><b>Physics in 3D</b> (<a href="examples/showcase/physics3d.bas">physics3d.bas</a>)<br>Five animated scenes on the GPU: a pendulum wave, planets under gravity, 40 colliding balls, wave interference on 1,936 columns and the Lorenz attractor. Drawn with <code>_MESH*</code>, <code>_CAMERA</code>, <code>_LIGHT</code> and <code>_DRAW3D</code>; highlights, glow and soft shadows come from small WGSL shaders (<code>_SHADER</code>). More 3D: <a href="examples/showcase/shapes3d.bas">shapes3d.bas</a>, <a href="examples/showcase/surface3d.bas">surface3d.bas</a>.</td>
     <td><b>Fractals</b> (<a href="examples/showcase/mandelbrot.bas">mandelbrot.bas</a>)<br>A smooth-coloured zoom into the Mandelbrot set in double precision: 256,000 pixels at up to 600 iterations each.</td>
   </tr>
   <tr>
