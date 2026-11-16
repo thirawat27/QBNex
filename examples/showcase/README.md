@@ -10,6 +10,7 @@ qb examples/showcase/starfighter.bas -o starfighter
 | File | What it shows | Keys |
 | --- | --- | --- |
 | [`raytrace.bas`](raytrace.bas) | Ray tracer: spheres, shadows, reflections, anti-aliasing | any key closes |
+| [`raytrace_gpu.bas`](raytrace_gpu.bas) | Animated ray tracer on the GPU: six scenes (bouncing spheres, glass, Newton's cradle, coloured lamps, double helix, sphere wave) traced live by a WGSL `_SHADER`, with reflections, refraction, soft shadows and 4x anti-aliasing; the scene name and frame rate are in the window title | 1-6/N = scene, A = tour, Q = anti-aliasing, Space = pause, Esc |
 | [`starfighter.bas`](starfighter.bas) | Playable shooter with sprites, particles and sound | Left/Right, Space, Esc |
 | [`dashboard.bas`](dashboard.bas) | Sales dashboard: KPI cards, bar chart, trend line, donut | any key closes |
 | [`textui.bas`](textui.bas) | DOS-style text application with windows and a dialog | any key closes |

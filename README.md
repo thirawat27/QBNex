@@ -30,7 +30,7 @@ qb examples/showcase/raytrace.bas -o raytrace
     <td width="50%"><img src="assets/showcase/starfighter.png" alt="Star Patrol, a playable shooter"></td>
   </tr>
   <tr>
-    <td><b>Ray tracer</b> (<a href="examples/showcase/raytrace.bas">raytrace.bas</a>)<br>Spheres, shadows, reflections and 2x2 anti-aliasing in about 100 lines. The pixel loops run through the Cranelift JIT, so a full 640x400 frame takes seconds, not minutes.</td>
+    <td><b>Ray tracer</b> (<a href="examples/showcase/raytrace.bas">raytrace.bas</a>)<br>Spheres, shadows, reflections and 2x2 anti-aliasing in about 100 lines. The pixel loops run through the Cranelift JIT, so a full 640x400 frame takes seconds, not minutes. The animated version, <a href="examples/showcase/raytrace_gpu.bas">raytrace_gpu.bas</a>, traces six moving scenes (glass, a Newton's cradle, coloured lamps, a double helix) live on the GPU with a WGSL <code>_SHADER</code>.</td>
     <td><b>Games</b> (<a href="examples/showcase/starfighter.bas">starfighter.bas</a>)<br>A playable shooter: <code>_KEYDOWN</code> input, <code>_DISPLAY</code> double buffering, <code>_LIMIT</code> at 60 FPS, sprites from <code>DATA</code>, particles, <code>SOUND</code>, and an off-screen image drawn with <code>_PUTIMAGE</code>. It plays itself until you press Space.</td>
   </tr>
   <tr>
