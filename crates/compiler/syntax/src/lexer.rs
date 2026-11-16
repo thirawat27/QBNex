@@ -225,7 +225,13 @@ impl<'a> Lexer<'a> {
             '"' => {
                 let line_end = self.line_end();
                 let body = &self.src[start + 1..line_end];
-                let close = if start > 0 && self.src.as_bytes()[start - 1] == b'$' {
+                // As the compiler's SyntaxExt_Interpolate$: a `$` that ends a name
+                // (`a$"..."`) is the name's suffix, not an interpolated string.
+                let b = self.src.as_bytes();
+                let interp = start > 0
+                    && b[start - 1] == b'$'
+                    && (start < 2 || !(b[start - 2].is_ascii_alphanumeric() || b[start - 2] == b'_'));
+                let close = if interp {
                     interp_end(body)
                 } else {
                     body.find('"')
@@ -502,6 +508,8 @@ mod tests {
         // a plain string is unchanged
         assert_eq!(kinds("PRINT \"{\" + \"x\"")[1], (String, "\"{\""));
         assert_eq!(kinds("PRINT $\"{a + \"b")[2], (UnterminatedString, "\"{a + \"b"));
+        // the `$` of a name is its suffix: `a$"open{"` is a plain string
+        assert_eq!(kinds("a$\"open{\"s\"}\"")[1], (String, "\"open{\""));
     }
 
     #[test]
