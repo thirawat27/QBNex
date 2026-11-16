@@ -2,8 +2,8 @@
 ' Stdlib helpers are loaded before compiler-specific wrappers so the compiler can
 ' reuse the same generic path/text behavior instead of copying logic again.
 
-'$INCLUDE:'..\stdlib\strings\text.bas'
-'$INCLUDE:'..\stdlib\io\path.bas'
+'$INCLUDE:'..\stdlib\strings.bas'
+'$INCLUDE:'..\stdlib\path.bas'
 '$INCLUDE:'..\utilities\strings.bas'
 '$INCLUDE:'..\utilities\config.bas'
 '$INCLUDE:'..\utilities\file.bas'

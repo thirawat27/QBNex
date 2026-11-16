@@ -32,16 +32,7 @@ FUNCTION StdLib_NormalizeImportKey$ (module$)
 END FUNCTION
 
 FUNCTION StdLib_CanonicalImportKey$ (module$)
-    DIM normalizedKey AS STRING
-
-    normalizedKey = StdLib_NormalizeImportKey$(module$)
-
-    SELECT CASE normalizedKey
-    CASE "qbnex", "stdlib", "stdlib.all", "qbnex_stdlib", "all"
-        StdLib_CanonicalImportKey$ = "qbnex"
-    CASE ELSE
-        StdLib_CanonicalImportKey$ = normalizedKey
-    END SELECT
+    StdLib_CanonicalImportKey$ = StdLib_NormalizeImportKey$(module$)
 END FUNCTION
 
 FUNCTION StdLib_ImportPath$ (module$)
@@ -51,11 +42,6 @@ FUNCTION StdLib_ImportPath$ (module$)
 
     normalizedKey = StdLib_CanonicalImportKey$(module$)
     IF LEN(normalizedKey) = 0 THEN EXIT FUNCTION
-
-    IF normalizedKey = "qbnex" THEN
-        StdLib_ImportPath$ = QBNexRoot$ + "compiler" + pathsep$ + "stdlib" + pathsep$ + "stdlib.bas"
-        EXIT FUNCTION
-    END IF
 
     FOR i = 1 TO LEN(normalizedKey)
         importChar = MID$(normalizedKey, i, 1)
@@ -80,6 +66,10 @@ FUNCTION StdLib_QueueImport$ (module$)
 
     importedModules$ = importedModules$ + normalizedKey + "@"
     importPath = StdLib_ImportPath$(normalizedKey)
+    IF _FILEEXISTS(importPath) = 0 THEN
+        Give_Error "No standard library module named '" + normalizedKey + "' (modules: core, collections, strings, json, url, path, csv, math, sys, result, regex, hash, zip, http, utf8, datetime, qbnex)"
+        EXIT FUNCTION
+    END IF
     StdLib_QueueImport$ = importPath
 END FUNCTION
 
@@ -328,7 +318,7 @@ END SUB
 SUB StdLib_HoistIncludeImports (path$, headText$, bodyText$, depth AS LONG)
     'hoists the $IMPORT lines of an $INCLUDE file of the main source and of the files
     'it includes in turn. In place, a module would come after the SUBs of the code before it,
-    'where its CONST and DIM SHARED cannot be (an include of qbnex_stdlib.bas imports them all).
+    'where its CONST and DIM SHARED cannot be (an include of stdlib/qbnex.bas imports them all).
     DIM text AS STRING
     DIM lineText AS STRING
     DIM argText AS STRING

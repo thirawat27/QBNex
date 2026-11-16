@@ -83,5 +83,25 @@
     "prefix": "include",
     "body": ["'\\$INCLUDE: '${1:file.bi}'"],
     "description": "Include another source file"
+  },
+  "IMPORT": {
+    "prefix": "import",
+    "body": ["'\\$IMPORT:'${1|qbnex,collections,strings,json,url,path,csv,math,sys,result,regex,hash,zip,http,utf8,datetime|}'"],
+    "description": "Import a standard library module (qbnex imports all of them)"
+  },
+  "List": {
+    "prefix": "list",
+    "body": ["DIM ${1:names} AS List", "${1:names}.Add ${2:\"Ann\"}", "FOR ${3:i} = 0 TO ${1:names}.Count - 1", "    PRINT ${1:names}.Get\\$(${3:i})", "NEXT ${3:i}"],
+    "description": "List of strings from '$IMPORT:'collections'"
+  },
+  "Dict": {
+    "prefix": "dict",
+    "body": ["DIM ${1:ages} AS Dict", "${1:ages}.Set ${2:\"Ann\"}, ${3:\"42\"}", "IF ${1:ages}.Has(${2:\"Ann\"}) THEN PRINT ${1:ages}.Get\\$(${2:\"Ann\"})"],
+    "description": "Dictionary of strings from '$IMPORT:'collections'"
+  },
+  "JSON parse": {
+    "prefix": "json",
+    "body": ["${1:root} = Json_Parse(${2:text\\$})", "IF ${1:root} = 0 THEN PRINT \"JSON error: \"; LastError\\$: END", "PRINT Json_Str\\$(${1:root}, \"${3:name}\")", "Json_Free ${1:root}"],
+    "description": "Parse JSON and read a value ('$IMPORT:'json')"
   }
 }

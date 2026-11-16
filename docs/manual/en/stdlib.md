@@ -3,176 +3,467 @@
 [Manual index](../README.md) · [ภาษาไทย](../th/stdlib.md)
 
 The standard library is BASIC source under `compiler/stdlib`, imported per
-module:
+module by its short name:
 
 ```basic
-'$IMPORT:'json'
-'$IMPORT:'ext.regex'
+'$IMPORT:'collections'
+'$IMPORT:'regex'
 ```
 
 The import line can be anywhere in the main file (see
-[language](language.md#standard-library-modules-importname)). Procedure
-names carry their type suffix (`Http_Get&`, `Regex_Replace$`); you may call
-them with or without it where QBasic allows. The language server shows the
+[language](language.md#standard-library-modules-importname)). Each module is
+loaded once, whatever the order, even when another module imports it too.
+`'$IMPORT:'qbnex'` imports every module at once:
+
+<!-- docs-test: output -->
+```basic
+'$IMPORT:'qbnex'
+DIM words AS List
+words.Split "pear fig apple", " "
+words.Sort
+PRINT words.Join$(" "); " "; Str_PadLeft$("7", 3, "0"); " "; Path_Ext$("game.bas")
+```
+
+<!-- expected output -->
+```text
+apple fig pear 007 .bas
+```
+
+Procedures are named `Module_Name` and carry their type suffix
+(`Str_Replace$`, `Regex_Test&`); you may call them with or without it where
+QBasic allows. The library types `List`, `Dict`, `Set`, `Url` and `Result` are
+used with [method calls](language.md#method-calls-on-type-values):
+`names.Add "Ann"` is `List_Add names, "Ann"` and `names.Count` is
+`List_Count&(names)`. Both forms work. The language server shows the
 declaration and the module of every library procedure on hover.
 
-Status: all modules on this page are **Available**. In the
-[web build](web.md) `ext.http` reports "not available".
+Status: all modules on this page are **Available**. The native modules
+(`regex`, `hash`, `zip`, `http`, `utf8`, `datetime`) call the Rust library
+`crates/runtime/ext` (pure Rust, no OpenSSL), which is linked into every
+native program; they are not available in the [web build](web.md). The BASIC
+modules work in native programs and in the web build.
 
 ## Overview
 
 | Module | What |
 | --- | --- |
-| `json` | RFC 8259 JSON: parse, access, build, serialize |
-| `url` | URL parsing, query strings, encoding, RFC 3986 resolution |
-| `ext.regex` | Regular expressions |
-| `ext.hash` | CRC32, MD5, SHA-1/256/512 (`Hash_SHA512$`), Base64, Base64Url (`Base64Url_Encode$`), hex |
-| `ext.zip` | Read, extract and create zip archives |
-| `ext.http` | HTTP/HTTPS client (pure-Rust TLS) |
-| `ext.utf8` | UTF-8 strings by character, case, normalization, CP437 conversion |
-| `ext.collections` | Lists and dictionaries of strings and numbers (handles) |
-| `ext.datetime` | Dates as Unix milliseconds: ISO 8601, formatting, parsing, parts |
-| `ext.core` | Shared helpers: `Ext_LastError$` |
-| `collections.list`, `.dictionary`, `.queue`, `.stack`, `.set` | Collections in BASIC (TYPE based), no fixed limit on lists or items |
-| `strings.text`, `strings.strbuilder` | Text helpers, string builder |
-| `io.path`, `io.csv`, `io.json` | Paths, CSV rows, small JSON builders |
-| `math.numeric` | `Math_Min#`, `Math_Max#`, `Math_Clamp#`, `Math_Lerp#`, degrees/radians with `Math_Deg2Rad#` / `Math_Rad2Deg#` |
-| `sys.env`, `sys.args`, `sys.datetime` | Platform, environment, arguments, dates |
-| `error.result` | Result values with error codes and context |
-| `oop.class`, `oop.interface` | Runtime registry used by CLASS |
-| `qbnex` | `collections`, `strings`, `io`, `sys`, `math`, `error` and `oop` in one import; `json`, `url` and `ext.*` are imported next to it. It imports each of those modules by name, so it combines with any of them in any order. `stdlib`, `all` and `qbnex_stdlib` are the same as `qbnex` |
+| [`core`](#core) | `LastError$`: why the last library call failed (every module) |
+| [`collections`](#collections) | `List`, `Dict` and `Set` of strings |
+| [`strings`](#strings) | `Str_*` text helpers: contains, starts/ends with, replace, trim, pad, repeat |
+| [`json`](#json) | RFC 8259 JSON: parse, read by path, build, stringify |
+| [`url`](#url) | `Url` TYPE (parse, query, format), encode/decode, RFC 3986 resolution |
+| [`path`](#path) | File paths: join, base name, folder, extension, exists |
+| [`csv`](#csv) | One CSV row (RFC 4180) to and from a `List` |
+| [`math`](#math) | `Math_Min#`, `Math_Max#`, `Math_Clamp#`, `Math_Lerp#`, `Math_Pi#`, degrees/radians |
+| [`sys`](#sys) | Platform, environment variables, home folder, command-line arguments |
+| [`result`](#result) | `Result` TYPE: a value or an error from your own SUBs |
+| [`regex`](#regex) | Regular expressions (native) |
+| [`hash`](#hash) | MD5, SHA-1/256/512, CRC32, Base64, hex (native) |
+| [`zip`](#zip) | Read, extract and create zip archives (native) |
+| [`http`](#http) | HTTP/HTTPS client (native) |
+| [`utf8`](#utf8) | UTF-8 text by character, case, normalization, CP437 (native) |
+| [`datetime`](#datetime) | Dates as milliseconds since 1970: ISO 8601, formatting, parsing, parts (native) |
+| `qbnex` | Every module in one import |
 
-The `ext.*` modules call the Rust library `crates/runtime/ext` (pure Rust, no
-OpenSSL). Errors: functions return 0 / an empty string and
-`Ext_LastError$` says why.
+`ext` is the plumbing the native modules share, and `oop.class` /
+`oop.interface` are the runtime used by [CLASS](language.md); programs do not
+call them directly.
+
+## core
+
+Every module reports errors the same way: a call that fails returns 0 or an
+empty string and sets `LastError$` to the reason; a call that works sets it
+back to "". Every module imports `core`.
+
+<!-- docs-test: output -->
+```basic
+'$IMPORT:'url'
+DIM u AS Url
+u.Parse "http://example.com:99999/"
+PRINT u.port; "["; LastError$; "]"
+u.Parse "http://example.com:80/"
+PRINT u.port; "["; LastError$; "]"
+```
+
+<!-- expected output -->
+```text
+ 0 [invalid port: 99999]
+ 80 []
+```
+
+## collections
+
+<!-- docs-test: output -->
+```basic
+'$IMPORT:'collections'
+DIM fruit AS List
+fruit.Add "pear": fruit.Add "fig"
+fruit.Insert 0, "apple"
+PRINT fruit.Count; fruit.Get$(0); " "; fruit.Get$(-1)
+fruit.Sort
+PRINT fruit.Join$(", ")
+PRINT fruit.IndexOf("fig"); fruit.Has("kiwi")
+last$ = fruit.Pop$
+PRINT last$; fruit.Count
+fruit.Split "a,b,c"
+PRINT fruit.Join$(" | ")
+
+DIM ages AS Dict
+ages.Set "Ann", "42": ages.Set "Bob", "7"
+PRINT ages.Get$("Ann"); " "; ages.Get$("Zed", "?")
+PRINT ages.Has("Bob"); ages.Has("Zed")
+FOR i = 0 TO ages.Count - 1
+    PRINT ages.Key$(i); "="; ages.Value$(i)
+NEXT
+
+DIM seen AS Set
+seen.Add "x": seen.Add "y": seen.Add "x"
+PRINT seen.Count; seen.Join$
+```
+
+<!-- expected output -->
+```text
+ 3 apple fig
+apple, fig, pear
+ 1  0
+pear 2
+a | b | c
+42 ?
+-1  0
+Ann=42
+Bob=7
+ 2 x, y
+```
+
+A new `List`, `Dict` or `Set` variable is ready to use (no init). Items are
+strings: store numbers with `STR$` and read them with `VAL`. Indexes start at
+0 and a negative index counts from the end (-1 = the last item). A copy
+(`b = a`) is the same collection, as in Python. `Free` gives the memory back
+early; otherwise it lasts until the program ends. Lists work as fields of
+your own TYPEs, as array elements and as SUB parameters.
+
+- **List**: `Add item$`, `Insert index, item$`, `Count`, `Get$(index)` (""
+  outside the list), `Set index, item$`, `Pop$` (removes and returns the
+  last item; `Pop$(0)` the first), `RemoveAt index`, `Remove item$` (the
+  first equal item), `IndexOf(item$)` (-1 when missing), `Has(item$)`,
+  `Join$(sep$)` (default `", "`), `Split text$, sep$` (replaces the items;
+  default `","`; "" splits into characters), `Sort` (by bytes; `Sort -1`
+  descending), `Reverse`, `Clear`, `Free`. A stack is `Add` + `Pop$`, a queue
+  `Add` + `Pop$(0)`, a string builder `Add` + `Join$("")`.
+- **Dict**: `Set key$, value$` (a new key goes at the end; keys keep their
+  order), `Get$(key$, fallback$)`, `Has(key$)`, `Remove key$`, `Count`,
+  `Key$(index)`, `Value$(index)`, `Clear`, `Free`.
+- **Set**: `Add item$` (only when it is not there yet), `Has(item$)`,
+  `Remove item$`, `Count`, `Join$(sep$)` (in the order added), `Clear`,
+  `Free`.
+
+## strings
+
+<!-- docs-test: output -->
+```basic
+'$IMPORT:'strings'
+t$ = Str_Trim$("   hello world  ")
+PRINT "["; t$; "]"
+PRINT Str_Has(t$, "lo w"); Str_StartsWith(t$, "he"); Str_EndsWith(t$, "x")
+PRINT Str_Replace$("a-b-c", "-", "+")
+PRINT Str_PadLeft$("7", 3, "0"); " "; Str_PadRight$("ab", 5, "."); "|"
+PRINT Str_Repeat$("ab", 3)
+```
+
+<!-- expected output -->
+```text
+[hello world]
+-1 -1  0
+a+b+c
+007 ab...|
+ababab
+```
+
+`Str_Has&` ("" is in every text), `Str_StartsWith&`, `Str_EndsWith&`,
+`Str_Replace$` (every match), `Str_Trim$` (spaces, tabs and line breaks off
+both ends), `Str_PadLeft$` / `Str_PadRight$` (default fill: a space),
+`Str_Repeat$`. Splitting and joining are `List.Split` and `List.Join$`
+([collections](#collections)); text by character is [utf8](#utf8).
 
 ## json
 
 <!-- docs-test: output -->
 ```basic
 '$IMPORT:'json'
-Json_Init
 q$ = CHR$(34)                                 ' QBasic strings have no escapes
-root% = JSON_Parse%("{" + q$ + "name" + q$ + ": " + q$ + "QBNex" + q$ + ", " + q$ + "tags" + q$ + ": [" + q$ + "basic" + q$ + ", 3]}")
-IF root% = 0 THEN PRINT JSON_LastError$; " at byte"; JSON_ErrorPosition&: END
-PRINT JsonGetString$(JsonObjectGet%(root%, "name"))
-tags% = JsonObjectGet%(root%, "tags")
-FOR i% = 0 TO JsonArrayLength%(tags%) - 1
-    PRINT JSON_Stringify$(JsonArrayGet%(tags%, i%))
+text$ = "{'name': 'QBNex', 'tags': ['basic', 3], 'user': {'age': 42, 'admin': true}}"
+FOR i = 1 TO LEN(text$)                       ' turn every ' into "
+    IF MID$(text$, i, 1) = "'" THEN MID$(text$, i, 1) = q$
 NEXT
-o% = JsonCreateObject%
-JsonObjectSet o%, "ok", JsonCreateBoolean%(-1)
-PRINT JSON_Stringify$(o%)                      ' JSON_StringifyPretty$ indents
+root = Json_Parse(text$)
+IF root = 0 THEN PRINT LastError$; " at byte"; Json_ErrorPos&: END
+PRINT Json_Str$(root, "name")
+PRINT Json_Num#(root, "user.age"); Json_Bool%(root, "user.admin")
+PRINT Json_Type$(root, "tags"); Json_Count(root, "tags")
+PRINT Json_Str$(root, "tags[0]"); " "; Json_Str$(root, "tags.1")
+PRINT Json_Key$(root, 2); Json_Has%(root, "user.email")
+o = Json_Object
+Json_SetStr o, "name", "Ann"
+Json_SetNum o, "age", 42
+a = Json_Array
+Json_PushStr a, "x": Json_PushBool a, 0
+Json_Set o, "list", a
+PRINT Json_Stringify$(o)
+Json_Free o: Json_Free root
 ```
 
 <!-- expected output -->
 ```text
 QBNex
-"basic"
-3
-{"ok":true}
+ 42 -1
+array 2
+basic 3
+user 0
+{"name":"Ann","age":42,"list":["x",false]}
 ```
 
-Values are handles (0 = none). Parsing: objects, arrays, all string escapes
-(`\uXXXX` and surrogate pairs become UTF-8), strict numbers, depth limit 500.
-Access: `JsonGetType%`, `JsonObjectGet%`, `JsonObjectKey$`,
-`JsonObjectCount%`, `JsonObjectHas%`, `JsonObjectRemove`, `JsonArrayGet%`
-(0-based), `JsonArrayLength%`, `JsonGetString$`, `JsonGetNumber#`.
-Building: `JsonCreate*`, `JsonArrayPush`, `JsonObjectSet`. Parse ->
-stringify gives the same text back for parsed numbers.
+A value is a handle (an INTEGER, 0 = none). Read with a path of member names
+and 0-based indexes: `"user.tags.0"` or `"items[2].id"` (`""` is the value
+itself).
 
-Up to 32767 values exist at a time (handles are INTEGERs). `JsonFree v%`
-gives back a value and everything in it (free a document's root when you are
-done with it; a member or element is first removed from its parent), and
-`Json_Cleanup` gives back all. A parse that fails keeps nothing. When the
-pool is full, `JSON_Parse%` returns 0 with `JSON_LastError$` "out of JSON
-value space".
+- **Parse**: `Json_Parse%(text$)` returns the root, or 0 with `LastError$`
+  and `Json_ErrorPos&` (1-based byte). Strings are bytes: `\uXXXX` escapes
+  (with surrogate pairs) become UTF-8. Numbers are strict, nesting is
+  limited to 500 levels, and a parse that fails keeps nothing.
+- **Read**: `Json_Get%(v, path$)` (the handle), `Json_Str$` (a string as its
+  text, a number or `true`/`false` as JSON text, null or missing as ""),
+  `Json_Num#`, `Json_Bool%`, `Json_Type$` (`"object"`, `"array"`,
+  `"string"`, `"number"`, `"boolean"`, `"null"`; "" when missing),
+  `Json_Has%`, `Json_Count%`, `Json_Key$(v, index[, path$])`.
+- **Build**: `Json_Object%`, `Json_Array%`, `Json_Set` (an object or array
+  value), `Json_SetStr`, `Json_SetNum`, `Json_SetBool`, `Json_SetNull`,
+  `Json_Remove`, `Json_Push`, `Json_PushStr`, `Json_PushNum`,
+  `Json_PushBool`. Objects keep member order; setting a key that is there
+  replaces its value; adding a value that already belongs to an array or
+  object adds a copy.
+- **Write**: `Json_Stringify$(v)`; `Json_Stringify$(v, 2)` indents by 2.
+  Parsed numbers are written back exactly as they were.
+- **Memory**: up to 32767 values exist at a time. `Json_Free v` gives back a
+  value and everything in it (first removing it from its parent);
+  `Json_FreeAll` gives back every value. When the pool is full,
+  `Json_Parse%` returns 0 with `LastError$` "out of JSON value space".
 
 ## url
 
 <!-- docs-test: output -->
 ```basic
 '$IMPORT:'url'
-DIM u AS UrlParts
-UrlParse "https://user@Example.com:8080/a/b.txt?q=1&s=a+b#top", u
-PRINT u.hostname
-PRINT u.port
-PRINT u.pathname
-PRINT UrlGetQueryParam$(u, "s")          ' "a b"
-UrlSetQueryParam u, "q", "two words"
-PRINT UrlFormat$(u)
-PRINT UrlEncodeComponent$("a b/c")
-PRINT UrlDecode$("a%20b")
-DIM r AS UrlParts
-UrlResolve "http://a/b/c/d;p?q", "../g", r: PRINT UrlFormat$(r)   ' http://a/b/g
+DIM u AS Url
+u.Parse "https://user@Example.com:8080/a/b.txt?q=1&s=a+b#top"
+PRINT u.hostname; u.port; u.pathname; " "; u.hash
+PRINT u.Query$("s")
+u.SetQuery "q", "two words"
+PRINT u.Format$
+PRINT Url_Encode$("a b/c"); " "; Url_Decode$("a%20b")
+PRINT Url_Resolve$("http://a/b/c/d;p?q", "../g")
+PRINT Url_FromPath$("C:\My Files\a.txt")
 ```
 
 <!-- expected output -->
 ```text
-example.com
- 8080
-/a/b.txt
+example.com 8080 /a/b.txt #top
 a b
 https://user@example.com:8080/a/b.txt?q=two%20words&s=a+b#top
-a%20b%2Fc
-a b
+a%20b%2Fc a b
 http://a/b/g
+file:///C:/My%20Files/a.txt
 ```
 
-Also `UrlNormalizePath$`, `UrlBasename$`, `UrlExtname$`, `UrlDirname$`,
-`UrlBuildQueryString$`, `UrlPathToFile$`, `UrlFileToPath$`.
+The fields of a `Url` are named as in JavaScript's `URL`: `href`,
+`protocol` (`"https:"`), `username`, `password`, `hostname`, `port` (a LONG),
+`pathname`, `search`, `hash`, `host`, `origin`; they are variable-length
+strings, so a component of any length is kept whole. Methods: `Parse text$`,
+`Query$(key$)` (decoded; `+` is a space), `SetQuery key$, value$` (replaces
+the key or adds it at the end, and updates `search` and `href`), `Format$`.
+A port that is not a number from 0 to 65535 is an error: `port` stays 0 and
+`LastError$` says why.
 
-The `UrlParts` fields are variable-length strings: a component of any length
-is kept whole. A port that is not a number from 0 to 65535 (`http://h:99999/`)
-is an error: `UrlParse` leaves `port` 0 and `UrlLastError$` says why (it is
-"" after a URL that parsed).
+`Url_Encode$` encodes everything except the RFC 3986 unreserved characters
+(JavaScript `encodeURIComponent`), `Url_Decode$` decodes `%XX`,
+`Url_Resolve$(base$, ref$)` resolves a reference (RFC 3986 section 5.2,
+Python `urljoin`), and `Url_FromPath$` / `Url_ToPath$` convert between file
+paths and `file:///` URLs.
 
-## ext.regex
+## path
 
 <!-- docs-test: output -->
 ```basic
-'$IMPORT:'ext.regex'
-PRINT Regex_IsMatch&("^\d{3}-\d{4}$", "555-1234")           ' -1
-p& = Regex_Find&("(\w+)@(\w+)\.com", "mail bob@example.com", 1)
-PRINT p&
-PRINT Regex_Match$
-PRINT Regex_Group$(1)
-PRINT Regex_GroupCount&
-PRINT Regex_Replace$("(\d+)", "a1b22", "<$1>")               ' a<1>b<22>
-n& = Regex_Split&("\s*,\s*", "a , b,c")
-FOR i& = 0 TO n& - 1: PRINT Regex_Part$(i&): NEXT
+'$IMPORT:'path'
+f$ = Path_Join$("docs", "manual", "stdlib.md")   ' docs\manual\stdlib.md on Windows
+PRINT Path_Base$(f$); " "; Path_Stem$(f$); " "; Path_Ext$(f$)
+PRINT Path_Dir$(f$) = Path_Join$("docs", "manual")
+PRINT f$ = "docs" + Path_Sep$ + "manual" + Path_Sep$ + "stdlib.md"
+PRINT Path_Exists("no-such-file.txt")
+```
+
+<!-- expected output -->
+```text
+stdlib.md stdlib .md
+-1
+-1
+ 0
+```
+
+`/` and `\` are both accepted; results use the separator of the computer
+(`Path_Sep$`: `\` on Windows, `/` elsewhere). `Path_Join$` takes 2 to 4
+parts. Also `Path_Normalize$` (the computer's separator, no doubled
+separators) and `Path_Exists&` (-1 for a file or a folder).
+
+## csv
+
+<!-- docs-test: output -->
+```basic
+'$IMPORT:'csv'
+DIM row AS List
+row.Add "plain": row.Add "a,b": row.Add "say " + CHR$(34) + "hi" + CHR$(34)
+line$ = Csv_Row$(row)
+PRINT line$
+Csv_Parse row, line$
+PRINT row.Count; row.Get$(2)
+Csv_Parse row, "x;y;z", ";"
+PRINT row.Join$("/")
+```
+
+<!-- expected output -->
+```text
+plain,"a,b","say ""hi"""
+ 3 say "hi"
+x/y/z
+```
+
+`Csv_Row$(row[, sep$])` writes the items of a `List` as one line (a cell
+with a separator, quote or line break is quoted), `Csv_Parse row, text$[,
+sep$]` replaces the items with the fields of one line, and `Csv_Quote$`
+quotes one cell. Importing `csv` imports `collections`.
+
+## math
+
+<!-- docs-test: output -->
+```basic
+'$IMPORT:'math'
+PRINT Math_Min#(3, 8); Math_Max#(3, 8); Math_Clamp#(15, 0, 10)
+PRINT Math_Lerp#(0, 10, .25); Math_Degrees#(Math_Pi#); Math_Radians#(180) = Math_Pi#
+```
+
+<!-- expected output -->
+```text
+ 3  8  10
+ 2.5  180 -1
+```
+
+`Math_Lerp#(a, b, t)` is `a + (b - a) * t`; `Math_Radians#` and
+`Math_Degrees#` convert angles. Everything else is built into the language
+(`ABS`, `SQR`, `INT`, ...).
+
+## sys
+
+<!-- docs-test: run -->
+```basic
+'$IMPORT:'sys'
+PRINT Sys_Platform$; Sys_Is64Bit
+PRINT Sys_Env$("EDITOR", "notepad")
+PRINT Sys_HasEnv("PATH"), Sys_Home$
+PRINT Sys_ArgCount; "arguments after "; Sys_Arg$(0)
+FOR i = 1 TO Sys_ArgCount: PRINT Sys_Arg$(i): NEXT
+```
+
+`Sys_Platform$` is `"windows"`, `"linux"` or `"macos"`. `Sys_Env$(name$[,
+fallback$])` reads an environment variable, `Sys_HasEnv&` tells whether it is
+set, `Sys_Home$` is the user's home folder, `Sys_Is64Bit&` is -1 in a 64-bit
+program. `Sys_ArgCount&` counts the arguments after the program name and
+`Sys_Arg$(index[, fallback$])` returns one (0 = the program).
+
+## result
+
+<!-- docs-test: output -->
+```basic
+'$IMPORT:'result'
+DIM r AS Result
+LoadConfig r, "missing.ini"
+IF r.Failed THEN r.Context "starting": PRINT r.Message; r.Code ELSE PRINT r.Value
+LoadConfig r, ""
+IF r.Failed THEN PRINT r.Message ELSE PRINT r.Value
+SYSTEM
+
+SUB LoadConfig (r AS Result, file AS STRING)
+    IF file = "" THEN r.Ok "defaults": EXIT SUB
+    IF _FILEEXISTS(file) = 0 THEN r.Fail file + " is missing", 53: EXIT SUB
+    r.Ok "loaded " + file
+END SUB
+```
+
+<!-- expected output -->
+```text
+starting: missing.ini is missing 53
+defaults
+```
+
+A `Result` is returned from your own SUBs instead of raising `ERROR`. Read
+its fields directly: `Failed` (-1 or 0), `Value`, `Message`, `Code`. The
+methods set them: `Ok [value$]` (success; clears an earlier error),
+`Fail message$[, code]` (default code 1) and `Context where$` (puts
+`"where: "` in front of the message of an error).
+
+## regex
+
+<!-- docs-test: output -->
+```basic
+'$IMPORT:'regex'
+PRINT Regex_Test("^\d{3}-\d{4}$", "555-1234")
+m$ = Regex_Find$("(\w+)@(\w+)\.com", "mail bob@example.com")
+PRINT m$; Regex_Pos; Regex_Group$(1); " "; Regex_Group$(2)
+PRINT Regex_Replace$("(\d+)", "a1b22", "<$1>")
+PRINT Regex_Replace$("\d", "a1b22", "#", -1)
+DIM parts AS List
+Regex_Split "\s*,\s*", "a , b,c", parts
+PRINT parts.Join$("|")
+Regex_FindAll "\d+", "1 22 333", parts
+PRINT parts.Count; parts.Get$(-1)
 ```
 
 <!-- expected output -->
 ```text
 -1
- 6
-bob@example.com
-bob
- 3
+bob@example.com 6 bob example
 a<1>b<22>
-a
-b
-c
+a#b22
+a|b|c
+ 3 333
 ```
 
-Rust `regex` syntax (no backreferences or look-around; `(?i)` for case
-folding). Positions are 1-based byte positions.
+Rust `regex` syntax: `\d \w \s`, classes, `(groups)`, `(?<name>...)`,
+`(?i)` for case-insensitive matching; no backreferences or look-around.
+Positions are 1-based bytes, like `INSTR`.
 
-## ext.hash
+- `Regex_Test&(pattern$, text$)`: -1 when the text has a match.
+- `Regex_Find$(pattern$, text$[, start])`: the first match at or after byte
+  `start` ("" when none); then `Regex_Pos&` is its position (0 = no match)
+  and `Regex_Group$(n)` its groups (0 = the whole match).
+- `Regex_Replace$(pattern$, text$, replacement$[, firstOnly])`: every match
+  (only the first with -1); `$1`, `${name}` and `$$` in the replacement.
+- `Regex_Split pattern$, text$, parts` and `Regex_FindAll pattern$, text$,
+  found` fill a `List`.
+
+A bad pattern gives 0 or "" and `LastError$` says why.
+
+## hash
 
 <!-- docs-test: output -->
 ```basic
-'$IMPORT:'ext.hash'
-PRINT Hash_SHA256$("abc")
-PRINT Hash_MD5$("abc")
-PRINT Hash_SHA1$("abc")
-PRINT Hash_CRC32$("123456789")
-b$ = Base64_Encode$("bytes")
-PRINT b$
-PRINT Base64_Decode$(b$)
-PRINT Hex_Encode$("AZ")
-PRINT Hex_Decode$("41 42")
+'$IMPORT:'hash'
+PRINT Hash_Sha256$("abc")
+PRINT Hash_Md5$("abc")
+PRINT Hash_Sha1$("abc")
+PRINT LEFT$(Hash_Sha512$("abc"), 16)
+PRINT LCASE$(HEX$(Hash_Crc32~&("123456789")))
+b$ = Base64_Encode$("bytes?>")
+PRINT b$; " "; Base64_Encode$("bytes?>", -1); " "; Base64_Decode$(b$)
+PRINT Hex_Encode$("AZ"); " "; Hex_Decode$("41 42")
 ```
 
 <!-- expected output -->
@@ -180,123 +471,155 @@ PRINT Hex_Decode$("41 42")
 ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad
 900150983cd24fb0d6963f7d28e17f72
 a9993e364706816aba3e25717850c26c9cd0d89d
+ddaf35a193617aba
 cbf43926
-Ynl0ZXM=
-bytes
-415a
-AB
+Ynl0ZXM/Pg== Ynl0ZXM_Pg bytes?>
+415a AB
 ```
 
-Digests are lower-case hex. `Hash_CRC32Value~&` returns the number.
+Digests are lower-case hex of the bytes of a string. `Hash_Crc32~&` returns
+the CRC32 as a number (as used by zip and PNG). `Base64_Encode$(s$, -1)` uses
+the URL-safe alphabet without padding; `Base64_Decode$` reads either kind
+and ignores line breaks (invalid text gives "" and `LastError$`).
+`Hex_Decode$` ignores spaces.
 
-## ext.zip
-
-```basic
-'$IMPORT:'ext.zip'
-h& = Zip_Create&("out.zip")
-r& = Zip_AddData&(h&, "hello.txt", "hello")
-r& = Zip_AddFile&(h&, "docs/readme.md", "README.md")
-r& = Zip_Close&(h&)
-n& = Zip_List&("out.zip")
-FOR i& = 0 TO n& - 1: PRINT Zip_EntryName$(i&), Zip_EntrySize&&(i&): NEXT
-PRINT Zip_ReadEntry$("out.zip", "hello.txt")
-r& = Zip_Extract&("out.zip", "outdir")     ' refuses ../ names
-```
-
-## ext.http
-
-```basic
-'$IMPORT:'ext.http'
-st& = Http_Get&("https://example.com/", 5000)          ' status code, -1 = failed
-IF st& < 0 THEN PRINT Ext_LastError$ ELSE PRINT st&, LEN(Http_Body$)
-PRINT Http_Header$("content-type")
-st& = Http_Post&(url$, "application/json", body$, 5000)
-st& = Http_Request&("PUT", url$, "X-Token: abc" + CHR$(13) + CHR$(10), body$, 5000)
-```
-
-HTTPS uses rustls with the Mozilla root certificates; redirects are
-followed. Bodies are binary-safe strings.
-
-## ext.utf8
-
-```basic
-'$IMPORT:'ext.utf8'
-s$ = "สวัสดี"
-PRINT LEN(s$), Utf8_Len&(s$)                ' bytes, characters
-PRINT Utf8_Mid$(s$, 2, 3), Utf8_Left$(s$, 2), Utf8_Right$(s$, 1)
-PRINT Utf8_Upper$("straße"), Utf8_Normalize$(t$, "NFC")
-PRINT Utf8_CodePoint&(s$, 1), Utf8_Chr$(3647), Utf8_IsValid&(s$)
-u$ = Cp437_ToUtf8$(old$): back$ = Utf8_ToCp437$(u$)
-```
-
-Invalid bytes count as one character each and are kept.
-`Cp437_ToUtf8Graphics$` maps control codes 1-31 to their CP437 symbols.
-
-## ext.collections
+## zip
 
 <!-- docs-test: output -->
 ```basic
-'$IMPORT:'ext.collections'
-l& = XList_New&
-XList_Add l&, "pear": XList_AddNum l&, 2.5: XList_Insert l&, 0, "fig"
-PRINT XList_Count&(l&)
-PRINT XList_Get$(l&, 0)
-PRINT XList_GetNum#(l&, 2)
-XList_Sort l&, 0, -1                         ' ascending, ignore case
-PRINT XList_Join$(l&, ",")
-d& = XDict_New&
-XDict_Set d&, "name", "Ann": XDict_SetNum d&, "age", 42
-PRINT XDict_Get$(d&, "name")
-PRINT XDict_GetNum#(d&, "age")
-PRINT XDict_Has&(d&, "x")
-FOR i& = 0 TO XDict_Count&(d&) - 1: PRINT XDict_Key$(d&, i&): NEXT
-XColl_Free l&: XColl_Free d&
+'$IMPORT:'zip'
+z& = Zip_Create&("out.zip")
+Zip_Write z&, "hello.txt", "hello"
+Zip_AddFolder z&, "docs/"
+Zip_Write z&, "docs/note.txt", "a note"
+Zip_Close z&
+DIM names AS List
+Zip_List "out.zip", names
+PRINT names.Join$(", ")
+PRINT Zip_Read$("out.zip", "docs/note.txt")
+Zip_Extract "out.zip", "outdir"
+PRINT _FILEEXISTS("outdir/docs/note.txt")
+x$ = Zip_Read$("out.zip", "missing.txt")
+PRINT LastError$
 ```
 
 <!-- expected output -->
 ```text
- 3
-fig
- 2.5
-2.5,fig,pear
-Ann
- 42
- 0
-name
-age
+hello.txt, docs/, docs/note.txt
+a note
+-1
+missing.txt: specified file not found in archive
 ```
 
-Lists are 0-based; dictionaries keep insertion order. `XList_Type&` /
-`XDict_Type&` tell string from number.
+Member names use `/` between folders. `Zip_Create&` returns a handle (0 on
+error); `Zip_Write` adds a member from a string, `Zip_AddFile z&, member$,
+file$` from a file and `Zip_AddFolder` an empty folder; `Zip_Close` writes
+the archive. `Zip_List` fills a `List` with the member names, `Zip_Read$`
+returns one member and `Zip_Extract` writes every member under a folder (it
+refuses names such as `../x`). Errors leave `LastError$` set.
 
-## ext.datetime
+## http
 
 ```basic
-'$IMPORT:'ext.datetime'
-t# = DT_Now#                                  ' Unix milliseconds (UTC)
-PRINT DT_ISO$(t#), DT_ISOLocal$(t#)
-PRINT DT_Format$(t#, "%A %d %B %Y %H:%M:%S")
-t2# = DT_Parse#("2024-03-05T07:08:09Z", "")   ' ISO 8601, or give a pattern
-PRINT DT_Year&(t2#), DT_Weekday&(t2#), DT_IsoWeek&(t2#)
-PRINT DT_DiffDays#(DT_AddDays#(t2#, 10), t2#)
+'$IMPORT:'http'
+page$ = Http_Get$("https://example.com/", 5000)           ' 5 s timeout
+IF Http_Status <> 200 THEN PRINT "failed:"; Http_Status; LastError$ ELSE PRINT LEN(page$); "bytes"
+PRINT Http_Header$("content-type")
+reply$ = Http_Post$("https://example.com/api", "{}")      ' sent as application/json
+reply$ = Http_Request$("PUT", "https://example.com/api", "data", "Authorization: Bearer x")
 ```
 
-`DT_Make#(y, mo, d, h, mi, s, ms)` builds a UTC time, `DT_MakeLocal#` a
-local one. `DT_IsValid&` checks for the "invalid" value parsing returns.
+A call returns the body of the answer (binary-safe). `Http_Status&` is the
+status (200, 404, ...) or -1 when no answer came back (bad URL, refused,
+DNS, TLS, timeout: see `LastError$`). `Http_Header$(name$)` returns one
+header of the last answer (any letter case) and `Http_Headers$` all of them.
+`Http_Post$(url$, body$[, contentType$[, timeoutMs]])` and
+`Http_Request$(method$, url$[, body$[, headers$[, timeoutMs]]])` (headers:
+`"Name: value"` lines) complete the set. A timeout of 0 means 30 seconds for
+the whole request. HTTPS uses rustls with the Mozilla root certificates;
+redirects are followed.
 
-## BASIC-only modules
+## utf8
 
-<!-- docs-test: run -->
+<!-- docs-test: output -->
 ```basic
-'$IMPORT:'qbnex'
-DIM names AS QBNex_List
-List_Init names
-List_Add names, "basic"
-PRINT List_Join$(names, ", ")
-List_Free names
-
-PRINT Path_Join$("dir", "file.txt"), Path_Extension$("a/b.bas")
-PRINT Env_Platform$, Args_Count&
+'$IMPORT:'utf8'
+s$ = "สวัสดี"
+PRINT LEN(s$); Utf8_Len(s$)                     ' bytes, characters
+w$ = "naïve café"
+PRINT Utf8_Mid$(w$, 3, 3); " "; Utf8_Left$(w$, 5); " "; Utf8_Right$(w$, 4)
+PRINT Utf8_Upper$("straße"); " "; Utf8_Lower$("ÀB")
+PRINT Utf8_Asc(s$); Utf8_Chr$(3647); Utf8_IsValid(s$); Utf8_IsValid(CHR$(255))
+PRINT Utf8_Normalize$("e" + Utf8_Chr$(769)) = Utf8_Chr$(233)
+PRINT Utf8_FromCp437$(CHR$(201) + CHR$(205) + CHR$(187)); " "; Utf8_ToCp437$("é") = CHR$(130)
 ```
 
-These BASIC modules (`qbnex`, `sys.*`, `json`, `url`, `collections.*`, `io.*`, ...) work in native programs and in the web build.
+<!-- expected output -->
+```text
+ 18  6
+ïve naïve café
+STRASSE àb
+ 3626 ฿-1  0
+-1
+╔═╗ -1
+```
+
+BASIC strings are bytes; these functions treat them as UTF-8 text, by
+character. Bytes that are not valid UTF-8 count as one character each and
+are kept. `Utf8_Mid$(s$, start[, count])` works like `MID$`;
+`Utf8_Upper$` / `Utf8_Lower$` use the full Unicode case mapping;
+`Utf8_Normalize$(s$[, form$])` gives `"NFC"` (default), `"NFD"`, `"NFKC"` or
+`"NFKD"`; `Utf8_Asc&(s$[, index])` and `Utf8_Chr$` work like `ASC` and
+`CHR$` with code points. `Utf8_FromCp437$` turns DOS text into UTF-8
+(`Utf8_FromCp437$(s$, -1)` also maps bytes 1-31 and 127 to the PC symbols)
+and `Utf8_ToCp437$` turns it back (`?` where CP437 has no glyph).
+
+## datetime
+
+<!-- docs-test: output -->
+```basic
+'$IMPORT:'datetime'
+t# = Date_Parse#("2024-03-05T07:08:09Z")
+PRINT Date_Iso$(t#)
+PRINT Date_Format$(t#, "%A %d %B %Y, %H:%M")
+PRINT Date_Year(t#); Date_Month(t#); Date_Day(t#); Date_Weekday(t#); Date_IsoWeek(t#)
+PRINT Date_Iso$(Date_AddDays#(t#, 10))
+PRINT Date_DiffDays#(Date_Make#(2024, 12, 25), Date_Make#(2024, 3, 5))
+PRINT Date_Format$(Date_Parse#("05/03/2024", "%d/%m/%Y"), "%F")
+bad# = Date_Parse#("not a date")
+PRINT Date_IsValid(bad#); Date_IsValid(Date_Now#)
+```
+
+<!-- expected output -->
+```text
+2024-03-05T07:08:09.000Z
+Tuesday 05 March 2024, 07:08
+ 2024  3  5  2  10
+2024-03-15T07:08:09.000Z
+ 295
+2024-03-05
+ 0 -1
+```
+
+A point in time is a DOUBLE: milliseconds since 1970-01-01 00:00:00 UTC, like
+JavaScript's `Date.now()`. Every function works in UTC; pass -1 as the last
+argument (`isLocal`) for the computer's time zone, as in
+`Date_Iso$(t#, -1)` (`"2024-03-05T14:08:09.000+07:00"` in UTC+7).
+
+- `Date_Now#`, `Date_Make#(y, month, day[, h, mi, s, ms[, isLocal]])`,
+  `Date_Parse#(text$[, pattern$[, isLocal]])` (ISO 8601 / RFC 3339 when the
+  pattern is "").
+- `Date_Iso$`, `Date_Format$(t#[, pattern$[, isLocal]])` (default
+  `"%Y-%m-%d %H:%M:%S"`).
+- Parts: `Date_Year&`, `Date_Month&` (1-12), `Date_Day&`, `Date_Hour&`,
+  `Date_Minute&`, `Date_Second&`, `Date_Millisecond&`, `Date_Weekday&`
+  (0 = Sunday), `Date_YearDay&`, `Date_IsoWeek&`.
+- `Date_AddDays#(t#, days)`, `Date_DiffDays#(a#, b#)`, `Date_Offset&(t#)`
+  (seconds the local zone is ahead of UTC).
+- Invalid input gives NaN (`Date_IsValid&(t#)` = 0) and sets `LastError$`.
+
+Format codes: `%Y` year, `%m` month 01-12, `%d` day, `%H` hour 00-23, `%I`
+01-12, `%M` minute, `%S` second, `%3f` milliseconds, `%p` AM/PM, `%A`/`%a`
+weekday name, `%B`/`%b` month name, `%j` day of the year, `%V` ISO week, `%z`
+`+0700`, `%:z` `+07:00`, `%s` Unix seconds, `%F` = `%Y-%m-%d`, `%T` =
+`%H:%M:%S`, `%%` a percent sign.

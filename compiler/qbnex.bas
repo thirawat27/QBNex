@@ -482,6 +482,7 @@ FUNCTION getpid& ()
     DIM SHARED classSyntaxGeneratedName AS STRING
     DIM SHARED classSyntaxOwnFieldLines AS STRING
     DIM SHARED classSyntaxRegistryCount AS LONG
+    DIM SHARED classSyntaxTypedVars AS LONG 'a variable of a TYPE was seen: x.Method(...) may need rewriting
     DIM SHARED classSyntaxRegistryName(1 TO 256) AS STRING
     DIM SHARED classSyntaxRegistryBase(1 TO 256) AS STRING
     DIM SHARED classSyntaxRegistryOwnFields(1 TO 256) AS STRING
@@ -951,7 +952,7 @@ DIM SHARED incRangeFrom AS LONG, incRangeTo AS LONG, incRangeSkip AS LONG, incRa
             HashAdd "MOD", f, 0
 
             f = HASHFLAG_RESERVED + HASHFLAG_CUSTOMSYNTAX
-            HashAdd "LIST", f, 0
+            'LIST is not reserved (KEY LIST is matched as text): TYPE List of the standard library
             HashAdd "BASE", f, 0
             HashAdd "_EXPLICIT", f, 0
             HashAdd "AS", f, 0

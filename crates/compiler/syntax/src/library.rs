@@ -1,5 +1,5 @@
-//! Public procedures of the standard library modules (`ext.http`,
-//! `io.path`, ...), generated from `compiler/stdlib` by
+//! Public procedures of the standard library modules (`http`,
+//! `path`, `collections`, ...), generated from `compiler/stdlib` by
 //! `tools/gen-library.ps1`. They are ordinary identifiers to the lexer; the
 //! table only feeds hover and completion.
 
@@ -10,12 +10,12 @@ use crate::library_data::LIBRARY;
 
 #[derive(Clone, Debug)]
 pub struct LibraryProc {
-    /// As declared, suffix included (`Http_Get&`).
+    /// As declared, suffix included (`Http_Get$`).
     pub name: &'static str,
-    /// Module to `$IMPORT` (`ext.http`).
+    /// Module to `$IMPORT` (`http`).
     pub module: &'static str,
     pub is_function: bool,
-    /// Declaration line (`FUNCTION Http_Get& (url AS STRING, ...)`).
+    /// Declaration line (`FUNCTION Http_Get$ (url AS STRING, ...)`).
     pub syntax: &'static str,
     /// Comment above the declaration, if any.
     pub doc: &'static str,
@@ -47,11 +47,19 @@ mod tests {
     use super::*;
 
     #[test]
-    fn finds_ext_and_io() {
+    fn finds_public_procedures() {
         let h = lookup("http_get").unwrap();
-        assert_eq!((h.name, h.module, h.is_function), ("Http_Get&", "ext.http", true));
-        assert!(lookup("Path_Join$").is_some());
-        assert!(lookup("XColl_Free").is_some_and(|p| !p.is_function));
+        assert_eq!((h.name, h.module, h.is_function), ("Http_Get$", "http", true));
+        assert!(lookup("Path_Join$").is_some_and(|p| p.module == "path"));
+        assert!(lookup("List_Add").is_some_and(|p| p.module == "collections" && !p.is_function));
         assert!(lookup("qb_ext_http").is_none());
+    }
+
+    #[test]
+    fn skips_internal_helpers() {
+        for name in ["Coll_NewHandle", "Ext_Text$", "Core_SetError", "JsonAllocValue%", "UrlSchemeEnd&", "Path_Join2$", "Date_Part&"] {
+            assert!(lookup(name).is_none(), "{name}");
+        }
+        assert!(lookup("Date_Parse#").is_some());
     }
 }

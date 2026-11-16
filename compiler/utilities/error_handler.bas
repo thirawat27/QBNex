@@ -203,7 +203,7 @@ FUNCTION GetBlockingIssueCount& ()
 END FUNCTION
 
 FUNCTION RepeatSpaces$ (count AS INTEGER)
-    RepeatSpaces$ = Text_Repeat$(" ", count)
+    RepeatSpaces$ = Str_Repeat$(" ", count)
 END FUNCTION
 
 FUNCTION ExtractDiagnosticToken$ (message AS STRING)

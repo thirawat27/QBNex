@@ -1,5 +1,6 @@
 //! `qb_ext_*` exported functions used by the BASIC wrappers
-//! (`compiler/stdlib/ext/*.bas`).
+//! (`compiler/stdlib/{regex,hash,zip,http,utf8,datetime}.bas`, which share the
+//! result and error plumbing of `compiler/stdlib/ext.bas`).
 //!
 //! Conventions:
 //! - Byte strings come in as (pointer, length); BASIC passes `_OFFSET(s$)`
@@ -13,7 +14,7 @@
 //! - Text arguments that must be UTF-8 (URLs, header lines, file paths,
 //!   zip member names) are decoded lossily.
 
-use crate::{codec, coll, datetime, hash, http, re, utf8, ziparc};
+use crate::{codec, datetime, hash, http, re, utf8, ziparc};
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -23,7 +24,6 @@ struct State {
     result: Vec<u8>,
     error: Vec<u8>,
     parts: Vec<Vec<u8>>,
-    sizes: Vec<i64>,
     http_headers: Vec<u8>,
     zips: HashMap<i32, ziparc::Builder>,
     next_zip: i32,
@@ -265,19 +265,9 @@ pub unsafe extern "C" fn qb_ext_codec(op: i32, d: *const u8, dl: i64) -> i64 {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_ext_zip_list(path: *const u8, pl: i64) -> i32 {
     match ziparc::list(&PathBuf::from(unsafe { text(path, pl) })) {
-        Ok(entries) => {
-            let sizes = entries.iter().map(|e| e.size as i64).collect();
-            with(|s| s.sizes = sizes);
-            ok_parts(entries.into_iter().map(|e| e.name.into_bytes()).collect())
-        }
+        Ok(entries) => ok_parts(entries.into_iter().map(|e| e.name.into_bytes()).collect()),
         Err(e) => fail(e) as i32,
     }
-}
-
-/// Uncompressed size of member `i` of the last listed archive (-1 if none).
-#[unsafe(no_mangle)]
-pub extern "C" fn qb_ext_zip_entry_size(i: i32) -> i64 {
-    with(|s| usize::try_from(i).ok().and_then(|i| s.sizes.get(i).copied()).unwrap_or(-1))
 }
 
 /// Reads one member; returns its length (-1 on error).
@@ -499,302 +489,6 @@ pub unsafe extern "C" fn qb_ext_cp437(op: i32, p: *const u8, l: i64) -> i64 {
     }
 }
 
-// ------------------------------------------------------------- lists, dictionaries
-
-thread_local! {
-    static COLL: RefCell<coll::Store> = RefCell::new(coll::Store::default());
-}
-
-fn coll_with<R>(f: impl FnOnce(&mut coll::Store) -> R) -> R {
-    COLL.with(|c| f(&mut c.borrow_mut()))
-}
-
-const BAD_HANDLE: &str = "not a list/dictionary handle";
-
-/// New empty list; returns its handle.
-#[unsafe(no_mangle)]
-pub extern "C" fn qb_ext_list_new() -> i32 {
-    coll_with(coll::Store::list_new)
-}
-
-/// New empty dictionary; returns its handle.
-#[unsafe(no_mangle)]
-pub extern "C" fn qb_ext_dict_new() -> i32 {
-    coll_with(coll::Store::dict_new)
-}
-
-/// Frees a list or dictionary: 0, or -1 for an unknown handle.
-#[unsafe(no_mangle)]
-pub extern "C" fn qb_ext_coll_free(h: i32) -> i32 {
-    if coll_with(|c| c.free(h)) { 0 } else { fail(BAD_HANDLE) as i32 }
-}
-
-fn list_op<R>(h: i32, bad: R, f: impl FnOnce(&mut Vec<coll::Value>) -> R) -> R {
-    match coll_with(|c| c.list(h).map(f)) {
-        Some(r) => {
-            with(|s| s.error.clear());
-            r
-        }
-        None => {
-            fail(BAD_HANDLE);
-            bad
-        }
-    }
-}
-
-fn dict_op<R>(h: i32, bad: R, f: impl FnOnce(&mut indexmap::IndexMap<Vec<u8>, coll::Value>) -> R) -> R {
-    match coll_with(|c| c.dict(h).map(f)) {
-        Some(r) => {
-            with(|s| s.error.clear());
-            r
-        }
-        None => {
-            fail(BAD_HANDLE);
-            bad
-        }
-    }
-}
-
-/// Number of items (-1 for a bad handle).
-#[unsafe(no_mangle)]
-pub extern "C" fn qb_ext_list_count(h: i32) -> i64 {
-    list_op(h, -1, |l| l.len() as i64)
-}
-
-/// Appends a string; returns the new count.
-///
-/// # Safety
-/// Pointer/length pair valid.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn qb_ext_list_add_str(h: i32, p: *const u8, l: i64) -> i64 {
-    let v = unsafe { bytes(p, l) }.to_vec();
-    list_op(h, -1, |list| {
-        list.push(coll::Value::Str(v));
-        list.len() as i64
-    })
-}
-
-/// Appends a number; returns the new count.
-#[unsafe(no_mangle)]
-pub extern "C" fn qb_ext_list_add_num(h: i32, n: f64) -> i64 {
-    list_op(h, -1, |list| {
-        list.push(coll::Value::Num(n));
-        list.len() as i64
-    })
-}
-
-fn list_put(h: i32, i: i64, v: coll::Value, insert: bool) -> i32 {
-    let r = list_op(h, Err(BAD_HANDLE), |list| {
-        if insert {
-            match usize::try_from(i).ok().filter(|&i| i <= list.len()) {
-                Some(i) => {
-                    list.insert(i, v);
-                    Ok(())
-                }
-                None => Err("index out of range"),
-            }
-        } else {
-            match coll::index(list.len(), i) {
-                Some(i) => {
-                    list[i] = v;
-                    Ok(())
-                }
-                None => Err("index out of range"),
-            }
-        }
-    });
-    match r {
-        Ok(()) => 0,
-        Err(e) => fail(e) as i32,
-    }
-}
-
-/// Replaces (`insert` = 0) or inserts before (`insert` <> 0) item `i` with a
-/// string. 0 or -1.
-///
-/// # Safety
-/// Pointer/length pair valid.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn qb_ext_list_put_str(h: i32, i: i64, p: *const u8, l: i64, insert: i32) -> i32 {
-    list_put(h, i, coll::Value::Str(unsafe { bytes(p, l) }.to_vec()), insert != 0)
-}
-
-/// As [`qb_ext_list_put_str`] with a number.
-#[unsafe(no_mangle)]
-pub extern "C" fn qb_ext_list_put_num(h: i32, i: i64, n: f64, insert: i32) -> i32 {
-    list_put(h, i, coll::Value::Num(n), insert != 0)
-}
-
-/// Type of item `i`: 0 none, 1 string, 2 number.
-#[unsafe(no_mangle)]
-pub extern "C" fn qb_ext_list_type(h: i32, i: i64) -> i32 {
-    list_op(h, 0, |l| coll::index(l.len(), i).map_or(0, |i| l[i].kind()))
-}
-
-/// Item `i` as a string (numbers as text); returns its length, -1 if none.
-#[unsafe(no_mangle)]
-pub extern "C" fn qb_ext_list_get_str(h: i32, i: i64) -> i64 {
-    match list_op(h, None, |l| coll::index(l.len(), i).map(|i| l[i].as_bytes())) {
-        Some(v) => ok_result(v),
-        None => -1,
-    }
-}
-
-/// Item `i` as a number (strings read like VAL); 0 if none.
-#[unsafe(no_mangle)]
-pub extern "C" fn qb_ext_list_get_num(h: i32, i: i64) -> f64 {
-    list_op(h, 0.0, |l| coll::index(l.len(), i).map_or(0.0, |i| l[i].as_num()))
-}
-
-/// Removes item `i`: 0, or -1.
-#[unsafe(no_mangle)]
-pub extern "C" fn qb_ext_list_remove(h: i32, i: i64) -> i32 {
-    match list_op(h, None, |l| coll::index(l.len(), i).map(|i| l.remove(i))) {
-        Some(_) => 0,
-        None => fail("index out of range") as i32,
-    }
-}
-
-/// Removes every item (lists and dictionaries): 0, or -1.
-#[unsafe(no_mangle)]
-pub extern "C" fn qb_ext_coll_clear(h: i32) -> i32 {
-    let done = coll_with(|c| {
-        if let Some(l) = c.list(h) {
-            l.clear();
-            true
-        } else if let Some(d) = c.dict(h) {
-            d.clear();
-            true
-        } else {
-            false
-        }
-    });
-    if done { 0 } else { fail(BAD_HANDLE) as i32 }
-}
-
-/// First index of a string item equal to the bytes (-1 if none).
-///
-/// # Safety
-/// Pointer/length pair valid.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn qb_ext_list_find_str(h: i32, p: *const u8, l: i64) -> i64 {
-    let needle = unsafe { bytes(p, l) };
-    list_op(h, -1, |list| list.iter().position(|v| matches!(v, coll::Value::Str(s) if s.as_slice() == needle)).map_or(-1, |i| i as i64))
-}
-
-/// First index of a number item equal to `n` (-1 if none).
-#[unsafe(no_mangle)]
-pub extern "C" fn qb_ext_list_find_num(h: i32, n: f64) -> i64 {
-    list_op(h, -1, |list| list.iter().position(|v| matches!(v, coll::Value::Num(x) if *x == n)).map_or(-1, |i| i as i64))
-}
-
-/// Joins the items as text with a separator; returns the length.
-///
-/// # Safety
-/// Pointer/length pair valid.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn qb_ext_list_join(h: i32, p: *const u8, l: i64) -> i64 {
-    let sep = unsafe { bytes(p, l) }.to_vec();
-    match list_op(h, None, |list| Some(list.iter().map(coll::Value::as_bytes).collect::<Vec<_>>().join(sep.as_slice()))) {
-        Some(v) => ok_result(v),
-        None => -1,
-    }
-}
-
-/// Sorts: numbers first (by value), then strings (by bytes, or ignoring
-/// ASCII case with `ignore_case`). 0 or -1.
-#[unsafe(no_mangle)]
-pub extern "C" fn qb_ext_list_sort(h: i32, descending: i32, ignore_case: i32) -> i32 {
-    list_op(h, -1, |l| {
-        coll::sort(l, descending != 0, ignore_case != 0);
-        0
-    })
-}
-
-/// Number of keys (-1 for a bad handle).
-#[unsafe(no_mangle)]
-pub extern "C" fn qb_ext_dict_count(h: i32) -> i64 {
-    dict_op(h, -1, |d| d.len() as i64)
-}
-
-/// Sets a key to a string. 0 or -1.
-///
-/// # Safety
-/// Pointer/length pairs valid.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn qb_ext_dict_set_str(h: i32, k: *const u8, kl: i64, p: *const u8, l: i64) -> i32 {
-    let (k, v) = (unsafe { bytes(k, kl) }.to_vec(), unsafe { bytes(p, l) }.to_vec());
-    dict_op(h, -1, |d| {
-        d.insert(k, coll::Value::Str(v));
-        0
-    })
-}
-
-/// Sets a key to a number. 0 or -1.
-///
-/// # Safety
-/// Pointer/length pair valid.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn qb_ext_dict_set_num(h: i32, k: *const u8, kl: i64, n: f64) -> i32 {
-    let k = unsafe { bytes(k, kl) }.to_vec();
-    dict_op(h, -1, |d| {
-        d.insert(k, coll::Value::Num(n));
-        0
-    })
-}
-
-/// Type of a key's value: 0 missing, 1 string, 2 number.
-///
-/// # Safety
-/// Pointer/length pair valid.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn qb_ext_dict_type(h: i32, k: *const u8, kl: i64) -> i32 {
-    let k = unsafe { bytes(k, kl) };
-    dict_op(h, 0, |d| d.get(k).map_or(0, coll::Value::kind))
-}
-
-/// A key's value as a string; returns its length, -1 if missing.
-///
-/// # Safety
-/// Pointer/length pair valid.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn qb_ext_dict_get_str(h: i32, k: *const u8, kl: i64) -> i64 {
-    let k = unsafe { bytes(k, kl) };
-    match dict_op(h, None, |d| d.get(k).map(coll::Value::as_bytes)) {
-        Some(v) => ok_result(v),
-        None => -1,
-    }
-}
-
-/// A key's value as a number; 0 if missing.
-///
-/// # Safety
-/// Pointer/length pair valid.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn qb_ext_dict_get_num(h: i32, k: *const u8, kl: i64) -> f64 {
-    let k = unsafe { bytes(k, kl) };
-    dict_op(h, 0.0, |d| d.get(k).map_or(0.0, coll::Value::as_num))
-}
-
-/// Removes a key: 1 removed, 0 missing, -1 bad handle.
-///
-/// # Safety
-/// Pointer/length pair valid.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn qb_ext_dict_remove(h: i32, k: *const u8, kl: i64) -> i32 {
-    let k = unsafe { bytes(k, kl) };
-    dict_op(h, -1, |d| i32::from(d.shift_remove(k).is_some()))
-}
-
-/// Key number `i` (0-based, insertion order); returns its length, -1 if none.
-#[unsafe(no_mangle)]
-pub extern "C" fn qb_ext_dict_key(h: i32, i: i64) -> i64 {
-    match dict_op(h, None, |d| usize::try_from(i).ok().and_then(|i| d.get_index(i)).map(|(k, _)| k.clone())) {
-        Some(k) => ok_result(k),
-        None => -1,
-    }
-}
-
 // ------------------------------------------------------------- date and time
 
 /// Current time, milliseconds since 1970-01-01 UTC.
@@ -970,7 +664,6 @@ mod tests {
             assert_eq!(qb_ext_zip_close(h), -1);
             assert_eq!(qb_ext_zip_list(zp.as_ptr(), zp.len() as i64), 2);
             assert_eq!(part(0), b"a.txt");
-            assert_eq!(qb_ext_zip_entry_size(0), 3);
             assert_eq!(qb_ext_zip_read(zp.as_ptr(), zp.len() as i64, b"a.txt".as_ptr(), 5), 3);
             assert_eq!(result(), b"AAA");
         }

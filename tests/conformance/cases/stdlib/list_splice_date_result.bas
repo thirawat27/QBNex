@@ -1,23 +1,28 @@
 $CONSOLE:ONLY
 '$IMPORT:'qbnex'
-' List_Set / List_RemoveAt splice in place (a 2000-item queue drains at once),
-' Date_FromUnixMs keeps milliseconds below 1000, Result_AddContext compares
-' whole entries.
-DIM q AS QBNex_Queue: Queue_Init q
-FOR i& = 1 TO 2000: Queue_Enqueue q, "item" + STR$(i&): NEXT
-FOR i& = 1 TO 2000: s$ = Queue_Dequeue$(q): NEXT
-PRINT s$; Queue_Count&(q)
-DIM l AS QBNex_List: List_Init l
-List_Add l, "a": List_Add l, "bb": List_Add l, "ccc"
-List_Set l, 1, "XYZW": List_RemoveAt l, 0
-PRINT List_Get$(l, 0); "|"; List_Get$(l, 1); "|"; l.Count
-List_Set l, 1, "": List_RemoveAt l, 1
-PRINT List_Get$(l, 0); l.Count
-DIM d AS QBNex_Date
-Date_FromUnixMs d, 999.6#
-PRINT Date_ToISOString$(d)
-DIM r AS QBNex_Result
-Result_FailWithContext r, 2, "boom", "saving report", "x"
-Result_AddContext r, "port"
-PRINT "["; Result_Context$(r); "]"
+' List Set / RemoveAt / Pop$ splice in place (a 2000-item queue drains at once),
+' Date_Iso$ keeps milliseconds below 1000, Result Context adds where an error
+' happened in front of its message.
+DIM q AS List
+FOR i& = 1 TO 2000: q.Add "item" + STR$(i&): NEXT
+FOR i& = 1 TO 2000: s$ = q.Pop$(0): NEXT
+PRINT s$; q.Count
+DIM l AS List
+l.Add "a": l.Add "bb": l.Add "ccc"
+l.Set 1, "XYZW": l.RemoveAt 0
+PRINT l.Get$(0); "|"; l.Get$(1); "|"; l.Count
+l.Set 1, "": l.RemoveAt 1
+PRINT l.Get$(0); l.Count
+l.Remove "XYZW": l.Remove "nope"
+PRINT l.Count
+PRINT Date_Iso$(999.6#); " "; Date_Iso$(-0.4#)
+DIM r AS Result
+r.Fail "boom", 2
+r.Context "saving report"
+r.Context "port"
+PRINT "["; r.Message; "]"; r.Code; r.Failed
+r.Ok
+PRINT "["; r.Message; "]"; r.Code; r.Failed; "["; r.Value; "]"
+r.Context "ignored on success"
+PRINT "["; r.Message; "]"
 SYSTEM

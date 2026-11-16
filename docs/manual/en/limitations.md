@@ -100,8 +100,8 @@ or linked into the program, so:
   cache, macOS libraries kept only in the dyld cache); a missing library
   shows up as error 453 at the first call.
 - **Where functions are found.** A declared function is looked up, in
-  this order, in the runner (the `ext.*` functions of the standard
-  library), in the library named in its `DECLARE LIBRARY` block, in the
+  this order, in the runner (the native functions of the standard
+  library modules), in the library named in its `DECLARE LIBRARY` block, in the
   program itself, and in the system libraries:
   - Windows: ucrtbase, msvcrt, kernel32, user32, gdi32, advapi32,
     shell32, ole32, oleaut32, comdlg32, winmm, ws2_32 and ntdll;

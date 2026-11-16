@@ -3,8 +3,10 @@
 //! Features: diagnostics (syntax errors, block mismatches, missing include
 //! files), document symbols (SUB/FUNCTION/TYPE with fields/CONST/labels/
 //! referenced line numbers), go-to-definition and references across a file
-//! and its `$INCLUDE`s, hover for built-in keywords and user symbols,
-//! completion, and whole-document formatting through `qb-fmt`.
+//! and its `$INCLUDE`s, hover for built-in keywords, user symbols and library
+//! procedures, completion (members after `x.`: a variable of TYPE `List`
+//! offers `Add`, which method syntax turns into `List_Add`), and
+//! whole-document formatting through `qb-fmt`.
 
 pub mod analysis;
 mod uri;
@@ -22,7 +24,7 @@ use lsp_types as lt;
 use qb_syntax::keywords::{self, KeywordKind};
 use qb_syntax::{LineIndex, Parse, Severity, TokenKind};
 
-use crate::analysis::{Analysis, Symbol, SymbolKind, analyze, base_name, word_at};
+use crate::analysis::{Analysis, Symbol, SymbolKind, analyze, base_name, dotted_before, dotted_span, word_at};
 pub use crate::uri::{path_to_uri, uri_key, uri_to_path};
 
 type BoxError = Box<dyn Error + Send + Sync>;
@@ -61,6 +63,14 @@ impl Doc {
     fn location(&self, r: &Range<usize>) -> Option<lt::Location> {
         Some(lt::Location { uri: self.uri.parse().ok()?, range: self.range(r) })
     }
+}
+
+/// The procedure a method call `x.Name` reaches.
+enum Method {
+    /// A SUB or FUNCTION in the file set.
+    User(Rc<Doc>, Symbol),
+    /// A standard library procedure.
+    Library(&'static qb_syntax::library::LibraryProc),
 }
 
 /// Modification time and length of a file on disk.
@@ -161,7 +171,7 @@ pub fn capabilities() -> lt::ServerCapabilities {
         definition_provider: Some(lt::OneOf::Left(true)),
         references_provider: Some(lt::OneOf::Left(true)),
         hover_provider: Some(lt::HoverProviderCapability::Simple(true)),
-        completion_provider: Some(lt::CompletionOptions::default()),
+        completion_provider: Some(lt::CompletionOptions { trigger_characters: Some(vec![".".into()]), ..Default::default() }),
         document_formatting_provider: Some(lt::OneOf::Left(true)),
         ..Default::default()
     }
@@ -239,7 +249,9 @@ impl Server {
                 }
                 "textDocument/completion" => {
                     let p: lt::CompletionParams = params(req.params)?;
-                    serde_json::to_value(self.completion(p.text_document_position.text_document.uri.as_str()))
+                    let tp = p.text_document_position;
+                    let dot_typed = p.context.and_then(|c| c.trigger_character).is_some_and(|c| c == ".");
+                    serde_json::to_value(self.completion(tp.text_document.uri.as_str(), tp.position, dot_typed))
                 }
                 "textDocument/formatting" => {
                     let p: lt::DocumentFormattingParams = params(req.params)?;
@@ -405,14 +417,21 @@ impl Server {
             .collect()
     }
 
-    fn definitions_of(&self, files: &[Rc<Doc>], name: &str, member: bool, line_number: bool) -> Vec<(Rc<Doc>, Symbol)> {
+    /// Definitions of `name` seen at `at` (the file and offset of the use).
+    /// A parameter or local is seen only inside its procedure, where it hides
+    /// main-module names.
+    fn definitions_of(&self, files: &[Rc<Doc>], name: &str, member: bool, line_number: bool, at: (&Doc, usize)) -> Vec<(Rc<Doc>, Symbol)> {
         let mut exact = Vec::new();
         let mut loose = Vec::new();
         let up = name.to_ascii_uppercase();
         let base = base_name(name);
         for d in files {
+            let here = same_doc(d, at.0);
             let mut consider = |s: &Symbol| {
                 if line_number != (s.kind == SymbolKind::LineNumber) {
+                    return;
+                }
+                if s.scope.is_some() && !(here && s.visible_at(at.1)) {
                     return;
                 }
                 // After a dot only TYPE fields match; elsewhere fields never do.
@@ -432,7 +451,87 @@ impl Server {
                 }
             }
         }
-        if exact.is_empty() { loose } else { exact }
+        let found = if exact.is_empty() { loose } else { exact };
+        if found.iter().any(|(_, s)| s.scope.is_some()) {
+            found.into_iter().filter(|(_, s)| s.scope.is_some()).collect()
+        } else {
+            found
+        }
+    }
+
+    /// Declared TYPE of a variable seen at `at` (the file and offset of the
+    /// use): a parameter or local of the procedure there first, else the
+    /// first main-module declaration with a type.
+    fn var_type(files: &[Rc<Doc>], name: &str, at: (&Doc, usize)) -> Option<String> {
+        let base = base_name(name);
+        let typed = |s: &&Symbol| s.kind == SymbolKind::Variable && s.type_name.is_some() && base_name(&s.name) == base;
+        let (doc, off) = at;
+        doc.analysis
+            .symbols
+            .iter()
+            .filter(typed)
+            .find(|s| s.scope.is_some() && s.visible_at(off))
+            .or_else(|| files.iter().flat_map(|d| d.analysis.symbols.iter()).filter(typed).find(|s| s.scope.is_none()))
+            .and_then(|s| s.type_name.clone())
+    }
+
+    /// Fields of a TYPE defined in the file set; `None` when it is not defined
+    /// there (a standard library TYPE such as `List`).
+    fn type_fields(files: &[Rc<Doc>], ty: &str) -> Option<Vec<Symbol>> {
+        files
+            .iter()
+            .flat_map(|d| d.analysis.symbols.iter())
+            .find(|s| s.kind == SymbolKind::Type && s.name.eq_ignore_ascii_case(ty))
+            .map(|s| s.children.clone())
+    }
+
+    /// TYPE of a dotted receiver: `p` or `p.items` (through TYPE fields).
+    fn receiver_type(files: &[Rc<Doc>], chain: &[&str], at: (&Doc, usize)) -> Option<String> {
+        let (first, rest) = chain.split_first()?;
+        let mut ty = Self::var_type(files, first, at)?;
+        for seg in rest {
+            let base = base_name(seg);
+            ty = Self::type_fields(files, &ty)?.into_iter().find(|f| base_name(&f.name) == base)?.type_name?;
+        }
+        Some(ty)
+    }
+
+    /// What `x.Name` calls under method syntax: the procedure `T_Name` for the
+    /// declared TYPE `T` of `x`, when `T` has no field `Name` (the compiler's
+    /// rule). `chain` is the dotted name ending with the method.
+    fn method_of(&self, files: &[Rc<Doc>], chain: &[&str], at: (&Doc, usize)) -> Option<Method> {
+        let (method, recv) = chain.split_last()?;
+        if recv.is_empty() || method.is_empty() {
+            return None;
+        }
+        let ty = Self::receiver_type(files, recv, at)?;
+        let base = base_name(method);
+        if Self::type_fields(files, &ty).is_some_and(|f| f.iter().any(|f| base_name(&f.name) == base)) {
+            return None;
+        }
+        let full = format!("{ty}_{method}");
+        let user = self
+            .definitions_of(files, &full, false, false, at)
+            .into_iter()
+            .find(|(_, s)| matches!(s.kind, SymbolKind::Sub | SymbolKind::Function));
+        match user {
+            Some((d, s)) => Some(Method::User(d, s)),
+            None => qb_syntax::library::lookup(&full).map(Method::Library),
+        }
+    }
+
+    /// The dotted name under the cursor, up to the segment the cursor is on,
+    /// and its source text (`boxes(i).Add`).
+    fn chain_at(doc: &Doc, pos: lt::Position) -> (Vec<&str>, &str) {
+        let off = doc.offset(pos);
+        let text = &doc.parse.text;
+        match word_at(&doc.parse, off) {
+            Some((TokenKind::Ident, _, range, true)) => match dotted_span(text, range.end) {
+                Some((start, parts)) => (parts, &text[start..range.end]),
+                None => (Vec::new(), ""),
+            },
+            _ => (Vec::new(), ""),
+        }
     }
 
     /// What the cursor is on: (name, is member after a dot, is line-number reference/definition, token kind).
@@ -452,7 +551,14 @@ impl Server {
         let Some(doc) = self.load(uri) else { return vec![] };
         let Some((name, member, is_line, _)) = Self::target(&doc, pos) else { return vec![] };
         let files = self.file_set(uri);
-        self.definitions_of(&files, &name, member, is_line)
+        let at = (doc.as_ref(), doc.offset(pos));
+        if member && let Some(m) = self.method_of(&files, &Self::chain_at(&doc, pos).0, at) {
+            return match m {
+                Method::User(d, s) => d.location(&s.name_range).into_iter().collect(),
+                Method::Library(_) => vec![],
+            };
+        }
+        self.definitions_of(&files, &name, member, is_line, at)
             .iter()
             .filter_map(|(d, s)| d.location(&s.name_range))
             .collect()
@@ -497,8 +603,25 @@ impl Server {
         let doc = self.load(uri)?;
         let (name, member, is_line, kind) = Self::target(&doc, pos)?;
         let files = self.file_set(uri);
-        let defs = self.definitions_of(&files, &name, member, is_line);
-        let value = if let Some((d, s)) = defs.first() {
+        let at = (doc.as_ref(), doc.offset(pos));
+        let (chain, call) = Self::chain_at(&doc, pos);
+        let method = if member { self.method_of(&files, &chain, at) } else { None };
+        let defs = if method.is_some() { vec![] } else { self.definitions_of(&files, &name, member, is_line, at) };
+        let value = if let Some(m) = method {
+            match m {
+                Method::User(d, s) => {
+                    let file = d.path.as_deref().and_then(|p| p.file_name()).map(|f| f.to_string_lossy().into_owned()).unwrap_or_default();
+                    format!("```qbasic\n{}\n```\n`{call}` calls {} `{}` in {}", s.detail, kind_name(s.kind), s.name, file)
+                }
+                Method::Library(p) => {
+                    let mut v = format!("```qbasic\n{}\n```\n`{call}` calls `{}` from **{}** (`$IMPORT:'{}'`)", p.syntax, p.name, p.module, p.module);
+                    if !p.doc.is_empty() {
+                        v.push_str(&format!("\n\n{}", p.doc));
+                    }
+                    v
+                }
+            }
+        } else if let Some((d, s)) = defs.first() {
             let file = d.path.as_deref().and_then(|p| p.file_name()).map(|f| f.to_string_lossy().into_owned()).unwrap_or_default();
             format!("```qbasic\n{}\n```\n{} `{}` in {}", s.detail, kind_name(s.kind), s.name, file)
         } else if kind == TokenKind::Keyword {
@@ -523,12 +646,78 @@ impl Server {
         })
     }
 
-    pub fn completion(&self, uri: &str) -> lt::CompletionResponse {
+    /// Members after `x.` when the TYPE of `x` is known: its fields and the
+    /// `T_Name` procedures that method syntax reaches. Elsewhere every symbol,
+    /// keyword and library procedure; nothing when a typed `.` has no known
+    /// receiver (a dotted variable name or a number).
+    pub fn completion(&self, uri: &str, pos: lt::Position, dot_typed: bool) -> lt::CompletionResponse {
+        let doc = self.load(uri);
+        let at = doc.as_deref().map(|d| (d, d.offset(pos)));
+        if let Some(at) = at {
+            let chain = dotted_before(&at.0.parse.text, at.1);
+            let ty = match chain.split_last() {
+                Some((_, recv)) if !recv.is_empty() => Self::receiver_type(&self.file_set(uri), recv, at),
+                _ => None,
+            };
+            if let Some(ty) = ty {
+                return lt::CompletionResponse::Array(Self::members(&self.file_set(uri), &ty));
+            }
+        }
+        if dot_typed { lt::CompletionResponse::Array(vec![]) } else { self.all_completions(uri, at) }
+    }
+
+    fn members(files: &[Rc<Doc>], ty: &str) -> Vec<lt::CompletionItem> {
+        let mut items = Vec::new();
+        let mut seen = HashSet::new();
+        for f in Self::type_fields(files, ty).unwrap_or_default() {
+            seen.insert(base_name(&f.name));
+            items.push(lt::CompletionItem {
+                label: f.name.clone(),
+                kind: Some(lt::CompletionItemKind::FIELD),
+                detail: Some(f.detail.clone()),
+                ..Default::default()
+            });
+        }
+        let prefix = format!("{}_", ty.to_ascii_uppercase());
+        // Numeric suffixes are optional on a call; `$` stays, as the library docs write it.
+        let method_label = |name: &str| name[prefix.len()..].trim_end_matches(['%', '&', '!', '#', '~', '`']).to_string();
+        let is_method = |name: &str| name.len() > prefix.len() && name.to_ascii_uppercase().starts_with(&prefix);
+        for d in files {
+            for s in d.analysis.symbols.iter().filter(|s| matches!(s.kind, SymbolKind::Sub | SymbolKind::Function)) {
+                if is_method(&s.name) && seen.insert(base_name(&method_label(&s.name))) {
+                    items.push(lt::CompletionItem {
+                        label: method_label(&s.name),
+                        kind: Some(lt::CompletionItemKind::METHOD),
+                        detail: Some(s.detail.clone()),
+                        ..Default::default()
+                    });
+                }
+            }
+        }
+        let mut libs: Vec<_> = qb_syntax::library::all().filter(|p| is_method(p.name)).collect();
+        libs.sort_by(|a, b| a.name.cmp(b.name));
+        for p in libs {
+            if seen.insert(base_name(&method_label(p.name))) {
+                items.push(lt::CompletionItem {
+                    label: method_label(p.name),
+                    kind: Some(lt::CompletionItemKind::METHOD),
+                    detail: Some(format!("{} — {}", p.module, p.syntax)),
+                    documentation: (!p.doc.is_empty()).then(|| lt::Documentation::String(p.doc.to_string())),
+                    ..Default::default()
+                });
+            }
+        }
+        items
+    }
+
+    /// Every name seen at `at`: parameters and locals only inside their procedure.
+    fn all_completions(&self, uri: &str, at: Option<(&Doc, usize)>) -> lt::CompletionResponse {
         let mut items = Vec::new();
         let mut seen = HashSet::new();
         for d in self.file_set(uri) {
+            let here = at.filter(|(ad, _)| same_doc(&d, ad)).map(|(_, off)| off);
             for s in &d.analysis.symbols {
-                if s.kind == SymbolKind::LineNumber {
+                if s.kind == SymbolKind::LineNumber || (s.scope.is_some() && !here.is_some_and(|off| s.visible_at(off))) {
                     continue;
                 }
                 if seen.insert(s.name.to_ascii_uppercase()) {
@@ -599,6 +788,11 @@ fn segments(name: &str, start: usize) -> Vec<(&str, Range<usize>)> {
         pos += seg.len() + 1;
     }
     v
+}
+
+/// Whether two loaded documents are the same file.
+fn same_doc(a: &Doc, b: &Doc) -> bool {
+    std::ptr::eq(a, b) || uri_key(&a.uri) == uri_key(&b.uri)
 }
 
 fn kind_name(k: SymbolKind) -> &'static str {

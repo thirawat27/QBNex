@@ -1,0 +1,1 @@
+New native modules (zip, http); no legacy equivalent. Golden from the current build, checked by hand: the zip members read back and extracted, and the requests seen by the in-process test server.

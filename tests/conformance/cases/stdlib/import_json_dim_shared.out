@@ -1,1 +1,1 @@
-json3 true "hi"
+json{"n":3,"b":true,"s":"hi"} true 3 

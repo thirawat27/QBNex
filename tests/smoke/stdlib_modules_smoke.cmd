@@ -1,7 +1,7 @@
 @echo off
 rem Compiles and runs one program per stdlib module, each importing only that
-rem module ('$IMPORT:'<key>'), so a module that does not stand on its own (for
-rem example a broken metacommand in it) fails here.
+rem module ('$IMPORT:'<key>', 'oop.class' for oop\class.bas), so a module that
+rem does not stand on its own (for example a broken metacommand in it) fails here.
 setlocal EnableExtensions EnableDelayedExpansion
 set "QBNEX_NO_ERROR_DIALOG=1"
 
@@ -25,24 +25,21 @@ for /r "%STDLIB%" %%f in (*.bas) do (
     set "rel=!rel:%STDLIB%\=!"
     set "key=!rel:~0,-4!"
     set "key=!key:\=.!"
-    rem qbnex_stdlib.bas is the body of '$IMPORT:'qbnex' (stdlib.bas)
-    if /i not "!key!"=="qbnex_stdlib" (
-        set /a COUNT+=1
-        set "SRC=%TMPDIR%\m!COUNT!.bas"
-        > "!SRC!" echo $CONSOLE:ONLY
-        >> "!SRC!" echo '$IMPORT:'!key!'
-        >> "!SRC!" echo PRINT "ok"
-        >> "!SRC!" echo SYSTEM
-        "%QB%" "!SRC!" -o "%TMPDIR%\m!COUNT!.exe" > "%TMPDIR%\m!COUNT!.log" 2>&1
-        if not exist "%TMPDIR%\m!COUNT!.exe" (
-            echo [FAIL] import of !key! does not compile ^(log: %TMPDIR%\m!COUNT!.log^)
+    set /a COUNT+=1
+    set "SRC=%TMPDIR%\m!COUNT!.bas"
+    > "!SRC!" echo $CONSOLE:ONLY
+    >> "!SRC!" echo '$IMPORT:'!key!'
+    >> "!SRC!" echo PRINT "ok"
+    >> "!SRC!" echo SYSTEM
+    "%QB%" "!SRC!" -o "%TMPDIR%\m!COUNT!.exe" > "%TMPDIR%\m!COUNT!.log" 2>&1
+    if not exist "%TMPDIR%\m!COUNT!.exe" (
+        echo [FAIL] import of !key! does not compile ^(log: %TMPDIR%\m!COUNT!.log^)
+        set "FAIL=1"
+    ) else (
+        "%TMPDIR%\m!COUNT!.exe" < NUL > "%TMPDIR%\m!COUNT!.out" 2>&1
+        findstr /x /c:"ok" "%TMPDIR%\m!COUNT!.out" >nul || (
+            echo [FAIL] program importing !key! did not print ok
             set "FAIL=1"
-        ) else (
-            "%TMPDIR%\m!COUNT!.exe" < NUL > "%TMPDIR%\m!COUNT!.out" 2>&1
-            findstr /x /c:"ok" "%TMPDIR%\m!COUNT!.out" >nul || (
-                echo [FAIL] program importing !key! did not print ok
-                set "FAIL=1"
-            )
         )
     )
 )

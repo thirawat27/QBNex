@@ -16,12 +16,13 @@ The examples on this page are compiled and run by `tests/docs/check_docs.ps1`
 
 ### `_IIF`: inline IF
 
+<!-- docs-test: output -->
 ```basic
 x = 7
 PRINT _IIF(x > 5, "big", "small"); _IIF(x < 5, 1, 2)
 ```
 
-<!-- docs-test: output -->
+<!-- expected output -->
 ```text
 big 2
 ```
@@ -31,6 +32,7 @@ numbers.
 
 ### `_ANDALSO`, `_ORELSE`: short-circuit logic
 
+<!-- docs-test: output -->
 ```basic
 DIM a(1 TO 3) AS INTEGER
 i = 4
@@ -38,7 +40,7 @@ IF i <= 3 _ANDALSO a(i) = 0 THEN PRINT "in range" ELSE PRINT "index"; i; "skippe
 IF i > 3 _ORELSE a(i) = 0 THEN PRINT "no subscript error"
 ```
 
-<!-- docs-test: output -->
+<!-- expected output -->
 ```text
 index 4 skipped
 no subscript error
@@ -48,13 +50,14 @@ The right side runs only when needed. The result is -1 or 0.
 
 ### String interpolation
 
+<!-- docs-test: output -->
 ```basic
 name$ = "Ada"
 n% = 3
 PRINT $"Hello {name$}, {n%} new messages, {{braces}}"
 ```
 
-<!-- docs-test: output -->
+<!-- expected output -->
 ```text
 Hello Ada, 3 new messages, {braces}
 ```
@@ -65,6 +68,7 @@ string literals: `$"Hi {name$ + "!"}"`.
 
 ### `FOR EACH`
 
+<!-- docs-test: output -->
 ```basic
 DIM scores(1 TO 4) AS INTEGER
 FOR i = 1 TO 4: scores(i) = i * 10: NEXT
@@ -74,7 +78,7 @@ NEXT s
 PRINT total
 ```
 
-<!-- docs-test: output -->
+<!-- expected output -->
 ```text
  100
 ```
@@ -84,6 +88,7 @@ with the first index outermost. The loop variable is a copy of the element.
 
 ### `ENUM`
 
+<!-- docs-test: output -->
 ```basic
 ENUM Fruit
     Apple
@@ -93,7 +98,7 @@ END ENUM
 PRINT Apple; Banana; Cherry; Grape
 ```
 
-<!-- docs-test: output -->
+<!-- expected output -->
 ```text
  0  5  6  7
 ```
@@ -103,6 +108,7 @@ Members become integer `CONST`s, counting up from 0 or from the last
 
 ### `TRY` / `CATCH` / `FINALLY`
 
+<!-- docs-test: output -->
 ```basic
 TRY
     ERROR 53
@@ -114,7 +120,7 @@ FINALLY
 END TRY
 ```
 
-<!-- docs-test: output -->
+<!-- expected output -->
 ```text
 caught error 53
 cleanup
@@ -132,6 +138,7 @@ outside it.
 
 ### `OPTIONAL` parameters
 
+<!-- docs-test: output -->
 ```basic
 DECLARE SUB Greet (who$, OPTIONAL greeting$ = "Hello", OPTIONAL times% = 1)
 Greet "Ada"
@@ -150,7 +157,7 @@ FUNCTION Scale& (v AS LONG, OPTIONAL factor AS LONG = 2)
 END FUNCTION
 ```
 
-<!-- docs-test: output -->
+<!-- expected output -->
 ```text
 Hello, Ada
 Hi, Bob
@@ -163,6 +170,7 @@ where the procedure is called.
 
 ### `_CONTINUE`
 
+<!-- docs-test: output -->
 ```basic
 FOR i = 1 TO 5
     IF i MOD 2 = 0 THEN _CONTINUE
@@ -170,7 +178,7 @@ FOR i = 1 TO 5
 NEXT
 ```
 
-<!-- docs-test: output -->
+<!-- expected output -->
 ```text
  1  3  5
 ```
@@ -179,13 +187,14 @@ Skips to the next iteration of the innermost `FOR`, `DO` or `WHILE` loop.
 
 ### `$ASSERTS` and `_ASSERT`
 
+<!-- docs-test: output -->
 ```basic
 $ASSERTS
 _ASSERT 1 + 1 = 2, "math works"
 PRINT "asserts passed"
 ```
 
-<!-- docs-test: output -->
+<!-- expected output -->
 ```text
 asserts passed
 ```
@@ -197,12 +206,13 @@ are; the bytes are kept. UTF-8 files (with or without BOM) work too.
 
 ### Standard library modules: `'$IMPORT:'name'`
 
+<!-- docs-test: output -->
 ```basic
 '$IMPORT:'url'
-PRINT UrlEncodeComponent$("a b&c")
+PRINT Url_Encode$("a b&c")
 ```
 
-<!-- docs-test: output -->
+<!-- expected output -->
 ```text
 a%20b%26c
 ```
@@ -212,10 +222,52 @@ are placed before the program and its procedures after it, so a module's
 `DIM SHARED`, TYPEs and SUBs work wherever the import line is. See
 [Standard library](stdlib.md).
 
-### CLASS (text lowering, with `'$IMPORT:'qbnex'`)
+### Method calls on TYPE values
+
+<!-- docs-test: output -->
+```basic
+TYPE Point
+    x AS SINGLE
+    y AS SINGLE
+END TYPE
+
+DIM p AS Point
+p.Move 3, 4                    ' Point_Move p, 3, 4
+PRINT p.x; p.y; p.Length       ' Point_Length(p)
+PRINT p.Label$("p")            ' Point_Label$(p, "p")
+SYSTEM
+
+SUB Point_Move (pt AS Point, dx AS SINGLE, dy AS SINGLE)
+    pt.x = pt.x + dx: pt.y = pt.y + dy
+END SUB
+
+FUNCTION Point_Length! (pt AS Point)
+    Point_Length! = SQR(pt.x * pt.x + pt.y * pt.y)
+END FUNCTION
+
+FUNCTION Point_Label$ (pt AS Point, label AS STRING)
+    Point_Label$ = label + "(" + LTRIM$(STR$(pt.x)) + ", " + LTRIM$(STR$(pt.y)) + ")"
+END FUNCTION
+```
+
+```text
+ 3  4  5
+p(3, 4)
+```
+
+For a variable, parameter, array element or field whose type is a TYPE `T`
+without a field of that name, `x.Name(args)` calls `T_Name(x, args)`. Without
+brackets, a statement `x.Add "a"` calls `T_Add x, "a"` and `x.Clear` calls
+`T_Clear x`; inside an expression `x.Count` calls `T_Count(x)`. A real field
+always wins, so existing programs are unchanged, and a CLASS method wins over
+a procedure of the same name. This is how the library types `List`, `Dict`,
+`Set`, `Url` and `Result` are used (`names.Add "Ann"`,
+`PRINT names.Join$(", ")`); see [Standard library](stdlib.md).
+
+### CLASS (text lowering, with `'$IMPORT:'oop.class'`)
 
 ```basic
-'$IMPORT:'qbnex'
+'$IMPORT:'oop.class'
 CLASS Dog
     Name AS STRING * 32
     CONSTRUCTOR (petName AS STRING)
@@ -227,7 +279,8 @@ END CLASS
 `CLASS ... END CLASS` with fields, `CONSTRUCTOR`, `METHOD`/`SUB`/`FUNCTION`
 members, `EXTENDS` and `IMPLEMENTS` is rewritten into TYPEs and procedures
 before compiling. A base class must be declared before a class that
-`EXTENDS` it.
+`EXTENDS` it. `oop.class` (and `oop.interface`) hold the runtime the
+lowered code uses; `'$IMPORT:'qbnex'` imports them too.
 
 ### `DECLARE LIBRARY`, `_FLOAT`, `_MEM`
 
@@ -268,9 +321,9 @@ x += 2
   work already: `nm AS STRING`).
 - String helpers `_SPLIT`, `_JOIN$`, `_REPLACE$`, `_STARTSWITH`,
   `_ENDSWITH`, `_FORMAT$` and UTF-8 helpers `_ULEN`, `_UMID$`, `_UCHR$`,
-  `_UASC` (today: the [`ext.utf8`](stdlib.md#extutf8) and
-  [`ext.regex`](stdlib.md#extregex) modules).
-- Built-in `_LIST` / `_DICT` (today: [`ext.collections`](stdlib.md#extcollections)).
+  `_UASC` (today: the [`strings`](stdlib.md#strings),
+  [`utf8`](stdlib.md#utf8) and [`regex`](stdlib.md#regex) modules).
+- Built-in `_LIST` / `_DICT` (today: the [`collections`](stdlib.md#collections) module).
 - `_REGEX`, `_RANDOMSEED` and UUIDs as built-ins.
 - CLASS in QIR: virtual dispatch, `NEW`/`DELETE`, properties; function
   pointers (`@SubName`); overloading by type.

@@ -14,9 +14,9 @@ FUNCTION GetFilePath$ (f$)
     IF cacheUsed2 <> 0 AND f$ = cacheIn2 THEN GetFilePath$ = cacheOut2: EXIT FUNCTION
 
     normalizedPath = Path_Normalize$(f$)
-    directoryPath = Path_DirName$(normalizedPath)
+    directoryPath = Path_Dir$(normalizedPath)
     IF directoryPath <> "" THEN
-        separator = Path_Separator$
+        separator = Path_Sep$
         resultPath = directoryPath
         IF RIGHT$(resultPath, 1) <> separator THEN resultPath = resultPath + separator
     END IF
@@ -29,7 +29,7 @@ END FUNCTION
 ''' Checks if a filename has an extension on the end.
 ''' Returns: True if provided filename has an extension.
 FUNCTION FileHasExtension (f$)
-    IF Path_Extension$(f$) <> "" THEN FileHasExtension = -1
+    IF Path_Ext$(f$) <> "" THEN FileHasExtension = -1
 END FUNCTION
 
 ''' Removes the extension off of a filename.

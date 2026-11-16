@@ -3,8 +3,9 @@ $CONSOLE:ONLY
 '$IMPORT:'json'
 DIM SHARED tag$
 tag$ = "json"
-v% = JsonCreateNumber%(3)
-b% = JsonCreateBoolean%(-1)
-s% = JsonCreateString%("hi")
-PRINT tag$; JSON_Stringify$(v%); " "; JSON_Stringify$(b%); " "; JSON_Stringify$(s%)
+o% = Json_Object
+Json_SetNum o%, "n", 3
+Json_SetBool o%, "b", -1
+Json_SetStr o%, "s", "hi"
+PRINT tag$; Json_Stringify$(o%); " "; Json_Str$(o%, "b"); Json_Num#(o%, "n")
 SYSTEM

@@ -8,6 +8,7 @@ ROOT="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 REPO_ROOT="$(CDPATH= cd -- "$ROOT/../.." && pwd)"
 QB="$REPO_ROOT/qb"
 SRC_QBNEX_REL="tests/fixtures/stdlib_import_success.bas"
+SRC_QBNEX_INCLUDE_REL="tests/fixtures/qbnex_include_success.bas"
 SRC_URL_REL="tests/fixtures/url_import_success.bas"
 
 if [ ! -x "$QB" ]; then
@@ -18,6 +19,11 @@ fi
 
 if [ ! -f "$REPO_ROOT/$SRC_QBNEX_REL" ]; then
   echo "[FAIL] qbnex stdlib fixture not found at \"$REPO_ROOT/$SRC_QBNEX_REL\""
+  exit 2
+fi
+
+if [ ! -f "$REPO_ROOT/$SRC_QBNEX_INCLUDE_REL" ]; then
+  echo "[FAIL] qbnex include fixture not found at \"$REPO_ROOT/$SRC_QBNEX_INCLUDE_REL\""
   exit 2
 fi
 
@@ -32,27 +38,40 @@ cd "$REPO_ROOT"
 SMOKE_TMP="$(mktemp -d "./temp/qbnex_stdlib_smoke_XXXXXX")"
 
 BIN_QBNEX="$SMOKE_TMP/stdlib_qbnex"
+BIN_QBNEX_INCLUDE="$SMOKE_TMP/stdlib_qbnex_include"
 BIN_URL="$SMOKE_TMP/stdlib_url"
 OUT_QBNEX="$SMOKE_TMP/stdlib_qbnex.txt"
+OUT_QBNEX_INCLUDE="$SMOKE_TMP/stdlib_qbnex_include.txt"
 OUT_URL="$SMOKE_TMP/stdlib_url.txt"
 RUN_QBNEX="$SMOKE_TMP/stdlib_qbnex_run.txt"
+RUN_QBNEX_INCLUDE="$SMOKE_TMP/stdlib_qbnex_include_run.txt"
 RUN_URL="$SMOKE_TMP/stdlib_url_run.txt"
 
 "$QB" "$SRC_QBNEX_REL" -o "$BIN_QBNEX" > "$OUT_QBNEX" 2>&1
 EC_QBNEX=$?
 
+"$QB" "$SRC_QBNEX_INCLUDE_REL" -o "$BIN_QBNEX_INCLUDE" > "$OUT_QBNEX_INCLUDE" 2>&1
+EC_QBNEX_INCLUDE=$?
+
 "$QB" "$SRC_URL_REL" -o "$BIN_URL" > "$OUT_URL" 2>&1
 EC_URL=$?
 
 if [ -x "$BIN_QBNEX" ]; then
-  "$BIN_QBNEX" > "$RUN_QBNEX" 2>&1
+  "$BIN_QBNEX" < /dev/null > "$RUN_QBNEX" 2>&1
   EC_RUN_QBNEX=$?
 else
   EC_RUN_QBNEX=999
 fi
 
+if [ -x "$BIN_QBNEX_INCLUDE" ]; then
+  "$BIN_QBNEX_INCLUDE" < /dev/null > "$RUN_QBNEX_INCLUDE" 2>&1
+  EC_RUN_QBNEX_INCLUDE=$?
+else
+  EC_RUN_QBNEX_INCLUDE=999
+fi
+
 if [ -x "$BIN_URL" ]; then
-  "$BIN_URL" > "$RUN_URL" 2>&1
+  "$BIN_URL" < /dev/null > "$RUN_URL" 2>&1
   EC_RUN_URL=$?
 else
   EC_RUN_URL=999
@@ -76,12 +95,33 @@ if [ "$EC_RUN_QBNEX" -ne 0 ]; then
   echo "[FAIL] qbnex stdlib executable should run successfully."
   FAIL=1
 fi
-grep -E "^[0-9]+\.[0-9]+\.[0-9]+" "$RUN_QBNEX" >/dev/null || {
-  echo "[FAIL] qbnex stdlib runtime output is missing version text."
+grep -F "QBNex" "$RUN_QBNEX" >/dev/null 2>&1 || {
+  echo "[FAIL] qbnex stdlib runtime output is missing JSON text."
   FAIL=1
 }
-grep -F "QBNex" "$RUN_QBNEX" >/dev/null || {
-  echo "[FAIL] qbnex stdlib runtime output is missing JSON text."
+grep -F "a+b+c" "$RUN_QBNEX" >/dev/null 2>&1 || {
+  echo "[FAIL] qbnex stdlib runtime output is missing list text."
+  FAIL=1
+}
+
+if [ "$EC_QBNEX_INCLUDE" -ne 0 ]; then
+  echo "[FAIL] direct qbnex.bas include should compile successfully."
+  FAIL=1
+fi
+grep -F "Build complete:" "$OUT_QBNEX_INCLUDE" >/dev/null || {
+  echo "[FAIL] direct qbnex.bas include compile output is missing success text."
+  FAIL=1
+}
+if [ ! -x "$BIN_QBNEX_INCLUDE" ]; then
+  echo "[FAIL] direct qbnex.bas include should emit an executable."
+  FAIL=1
+fi
+if [ "$EC_RUN_QBNEX_INCLUDE" -ne 0 ]; then
+  echo "[FAIL] direct qbnex.bas include executable should run successfully."
+  FAIL=1
+fi
+grep -F "QBNex include" "$RUN_QBNEX_INCLUDE" >/dev/null 2>&1 || {
+  echo "[FAIL] direct qbnex.bas include runtime output is missing list text."
   FAIL=1
 }
 
@@ -101,12 +141,12 @@ if [ "$EC_RUN_URL" -ne 0 ]; then
   echo "[FAIL] url stdlib executable should run successfully."
   FAIL=1
 fi
-grep -F "example.com" "$RUN_URL" >/dev/null || {
+grep -F "example.com" "$RUN_URL" >/dev/null 2>&1 || {
   echo "[FAIL] url stdlib runtime output is missing hostname."
   FAIL=1
 }
-grep -F "file" "$RUN_URL" >/dev/null || {
-  echo "[FAIL] url stdlib runtime output is missing basename."
+grep -F "/path/file.txt" "$RUN_URL" >/dev/null 2>&1 || {
+  echo "[FAIL] url stdlib runtime output is missing pathname."
   FAIL=1
 }
 
@@ -117,7 +157,7 @@ if [ "$FAIL" -eq 0 ]; then
 fi
 
 echo "STDLIB_SMOKE_FAIL"
-for f in "$OUT_QBNEX" "$RUN_QBNEX" "$OUT_URL" "$RUN_URL"; do
+for f in "$OUT_QBNEX" "$RUN_QBNEX" "$OUT_QBNEX_INCLUDE" "$RUN_QBNEX_INCLUDE" "$OUT_URL" "$RUN_URL"; do
   echo "----- $f"
   [ -f "$f" ] && tail -n 30 "$f"
 done

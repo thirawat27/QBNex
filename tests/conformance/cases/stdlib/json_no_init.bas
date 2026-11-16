@@ -1,12 +1,12 @@
 $CONSOLE:ONLY
 '$IMPORT:'json'
-' Regression: JSON used without Json_Init. The first value used to land in
+' Regression: JSON used without an init call. The first value used to land in
 ' unallocated pool arrays ("Subscript out of range" at json.bas line 169).
-v% = JSON_Parse%("[1,[2,{" + CHR$(34) + "k" + CHR$(34) + ":null}]]")
-PRINT v%; JsonArrayLength%(v%); JSON_Stringify$(v%)
-a% = JsonCreateArray%
+v% = Json_Parse%("[1,[2,{" + CHR$(34) + "k" + CHR$(34) + ":null}]]")
+PRINT v%; Json_Count%(v%); Json_Stringify$(v%)
+a% = Json_Array
 FOR i% = 1 TO 700
-    JsonArrayPush a%, JsonCreateNumber%(i%)
+    Json_PushNum a%, i%
 NEXT
-PRINT JsonArrayLength%(a%); JsonGetNumber#(JsonArrayGet%(a%, 699))
+PRINT Json_Count%(a%); Json_Num#(a%, "699")
 SYSTEM

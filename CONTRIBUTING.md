@@ -94,7 +94,7 @@ QBNex is primarily written in **QBNex BASIC** itself (self-hosting compiler). Th
 - **`crates/`**: Rust code (Cargo workspace)
   - `compiler/ir` (`qb-ir`): QIR types, parser, validator and builtin table; `compiler/syntax` (`qb-syntax`): lexer and keyword tables for the tools
   - `engine/exec` (`qb-exec`): runner for compiled QIR programs (VM); `engine/jit` (`qb-jit`): Cranelift JIT; `engine/link`, `engine/native`: native executables; `engine/ffi` (`qb-ffi`): `DECLARE LIBRARY`
-  - `runtime/core` (`qb-runtime`): window, graphics, console, files, network; `runtime/audio` (`qb-audio`); `runtime/float80` (`qb-float80`); `runtime/gpu` (`qb-gpu`); `runtime/ext` (`qb-ext`, the `ext.*` modules)
+  - `runtime/core` (`qb-runtime`): window, graphics, console, files, network; `runtime/audio` (`qb-audio`); `runtime/float80` (`qb-float80`); `runtime/gpu` (`qb-gpu`); `runtime/ext` (`qb-ext`, the Rust side of the `regex`, `hash`, `zip`, `http`, `utf8` and `datetime` modules)
   - `tools/fmt`, `tools/lsp`, `tools/dap`, `tools/setup` (`qb-fmt`, `qb-lsp`, `qb-dap`, the installer `qbnex-setup`); `web` (`qb-web`)
 - **`bootstrap/qbnex.qir`**: the compiler in QIR, used by the setup scripts
 - **`tests/`**: `smoke/` scripts, `fixtures/`, `conformance/` runner and cases, `docs/` documentation test
@@ -330,7 +330,7 @@ pwsh tests/docs/check_docs.ps1
 Set `QBNEX_NO_ERROR_DIALOG=1` when you run compiled programs from scripts, so a runtime error
 ends the program instead of waiting at a dialog. The conformance runner also sets
 `QBNEX_TEST_HOOKS=1`, which turns on the runtime's test hooks (the local HTTP server of
-`qb-ext` that `stdlib/ext_zip_http` uses); a case run by hand needs it too.
+`qb-ext` that `stdlib/zip_http` uses); a case run by hand needs it too.
 
 **Conformance cases.** A behaviour change gets a case in `tests/conformance/cases/<area>/`:
 

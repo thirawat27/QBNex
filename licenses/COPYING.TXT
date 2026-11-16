@@ -55,7 +55,7 @@ License Website: https://www.apache.org/licenses/LICENSE-2.0 (the LLVM exception
 License File: license_apache_2_0.txt
 Location in QBNex distribution: linked into the runner qb-exec, crates/engine/exec/bin/*/ (crate crates/engine/jit)
 
-Software/Library Name: webpki-roots (Mozilla's root certificates, used by the HTTPS client of ext.http)
+Software/Library Name: webpki-roots (Mozilla's root certificates, used by the HTTPS client of the http module)
 Website: https://github.com/rustls/webpki-roots
 License: CDLA-Permissive-2.0
 License Website: https://cdla.dev/permissive-2-0/

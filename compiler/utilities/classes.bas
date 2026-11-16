@@ -469,6 +469,27 @@ FUNCTION ClassSyntax_FindFieldType$ (typeName$, fieldName$)
     LOOP
 END FUNCTION
 
+FUNCTION ClassSyntax_TypeMethod$ (typeName$, methodName$)
+    'x.Method(args) on a variable of a TYPE with no Method field calls TypeName_Method(x, args),
+    'the way the standard library names its procedures (List_Add for TYPE List). A field
+    'followed by "(" is never valid code, so programs that compiled before are unchanged.
+    DIM typeIndex AS LONG
+    DIM elementIndex AS LONG
+    DIM baseName AS STRING
+
+    typeIndex = ClassSyntax_FindUDTIndex&(typeName$)
+    IF typeIndex = 0 OR LEFT$(typeName$, 1) = "_" THEN EXIT FUNCTION
+    baseName = methodName$
+    baseName = UCASE$(ClassSyntax_RemoveTypeSuffix$(baseName))
+    IF LEN(baseName) = 0 THEN EXIT FUNCTION
+    elementIndex = udtxnext(typeIndex)
+    DO WHILE elementIndex
+        IF UCASE$(RTRIM$(udtename(elementIndex))) = baseName THEN EXIT FUNCTION
+        elementIndex = udtenext(elementIndex)
+    LOOP
+    ClassSyntax_TypeMethod$ = RTRIM$(udtxname(typeIndex)) + "_" + methodName$
+END FUNCTION
+
 FUNCTION ClassSyntax_ResolveDispatchType$ (exprText$, selfType$)
     DIM trimmedExpr AS STRING
     DIM dotPos AS LONG
@@ -491,7 +512,7 @@ FUNCTION ClassSyntax_ResolveDispatchType$ (exprText$, selfType$)
         memberExpr = LTRIM$(RTRIM$(MID$(trimmedExpr, dotPos + 1)))
         memberName = ClassSyntax_FirstIdentifier$(memberExpr)
         baseType = ClassSyntax_ResolveDispatchType$(leftExpr, selfType$)
-        IF LEN(baseType) AND LEN(memberName) THEN
+        IF LEN(baseType) > 0 AND LEN(memberName) > 0 THEN
             ClassSyntax_ResolveDispatchType$ = ClassSyntax_FindFieldType$(baseType, memberName)
         END IF
         EXIT FUNCTION
@@ -762,13 +783,18 @@ FUNCTION ClassSyntax_ProcessLine$ (rawLine$)
 
     'Statement extensions (ENUM, FOR EACH, TRY) lower to plain lines first (syntax_ext.bas)
     IF classSyntaxActive = 0 THEN
+        'x.Method(...) first, so that the call it becomes gets its OPTIONAL defaults; a DIM
+        'of the line is known first ("DIM l AS List: PRINT l.Pop$")
+        ClassSyntax_RegisterDeclarationLine rawLine$
+        rawLine$ = ClassSyntax_RewriteDispatch$(rawLine$, "")
         syntaxExtLine$ = SyntaxExt_ProcessLine$(rawLine$)
         IF syntaxExtLine$ <> rawLine$ THEN
             'a rewritten SUB/FUNCTION header (OPTIONAL parameters) still goes through the class scope tracking
             IF LEFT$(UCASE$(LTRIM$(syntaxExtLine$)), 4) = "SUB " OR LEFT$(UCASE$(LTRIM$(syntaxExtLine$)), 9) = "FUNCTION " THEN
                 rawLine$ = syntaxExtLine$
             ELSE
-                ClassSyntax_ProcessLine$ = syntaxExtLine$
+                'method calls inside a lowered line ($"...{x.Count()}...")
+                ClassSyntax_ProcessLine$ = ClassSyntax_RewriteDispatch$(syntaxExtLine$, "")
                 EXIT FUNCTION
             END IF
         END IF
@@ -1088,7 +1114,7 @@ SUB ClassSyntax_RegisterCurrentClass
         END IF
         flattenedFields$ = classSyntaxRegistryFlatFields(baseIndex)
     END IF
-    IF LEN(flattenedFields$) AND LEN(classSyntaxOwnFieldLines$) THEN flattenedFields$ = flattenedFields$ + CHR$(10)
+    IF LEN(flattenedFields$) > 0 AND LEN(classSyntaxOwnFieldLines$) > 0 THEN flattenedFields$ = flattenedFields$ + CHR$(10)
     flattenedFields$ = flattenedFields$ + classSyntaxOwnFieldLines$
     classSyntaxRegistryFlatFields(classIndex) = flattenedFields$
     IF LEN(classSyntaxBaseName$) > 0 AND classSyntaxInheritDone = 0 THEN ClassSyntax_RegisterInherited classIndex, baseIndex
@@ -1439,7 +1465,13 @@ SUB ClassSyntax_RegisterScopeVar (varName$, typeName$)
     varName$ = LTRIM$(RTRIM$(varName$))
     typeName$ = LTRIM$(RTRIM$(typeName$))
     IF LEN(varName$) = 0 OR LEN(typeName$) = 0 THEN EXIT SUB
-    IF ClassSyntax_FindRegistryClass&(typeName$) = 0 THEN EXIT SUB
+    'a name starts with a letter (not "1" of "a(1 TO 9, 1 TO 9)")
+    IF UCASE$(LEFT$(varName$, 1)) < "A" OR UCASE$(LEFT$(varName$, 1)) > "Z" THEN EXIT SUB
+    IF ClassSyntax_FindRegistryClass&(typeName$) = 0 THEN
+        'a variable of a TYPE: x.Method(...) calls TypeName_Method (ClassSyntax_TypeMethod$)
+        IF LEFT$(typeName$, 1) = "_" OR ClassSyntax_FindUDTIndex&(typeName$) = 0 THEN EXIT SUB
+        classSyntaxTypedVars = -1
+    END IF
 
     lookupKey$ = UCASE$(varName$) + "="
     entryLine$ = lookupKey$ + typeName$
@@ -1528,11 +1560,19 @@ SUB ClassSyntax_RegisterTypedList (leftText$, typeText$)
 END SUB
 
 SUB ClassSyntax_RegisterDeclarationLine (rawLine$)
+    'DIM / REDIM / STATIC: "a AS T, b(9) AS U" and "AS T a, b"; the first statement of the line
     DIM trimmedLine AS STRING
     DIM upperLine AS STRING
     DIM asPos AS LONG
     DIM leftText AS STRING
     DIM typeText AS STRING
+    DIM sharedType AS STRING
+    DIM partText AS STRING
+    DIM i AS LONG
+    DIM depth AS LONG
+    DIM inString AS LONG
+    DIM c AS STRING
+    DIM partStart AS LONG
 
     trimmedLine = LTRIM$(RTRIM$(rawLine$))
     upperLine = UCASE$(trimmedLine)
@@ -1543,15 +1583,49 @@ SUB ClassSyntax_RegisterDeclarationLine (rawLine$)
         leftText = MID$(trimmedLine, 5)
     ELSEIF LEFT$(upperLine, 7) = "STATIC " THEN
         leftText = MID$(trimmedLine, 8)
+    ELSEIF LEFT$(upperLine, 16) = "REDIM _PRESERVE " THEN
+        leftText = MID$(trimmedLine, 17)
+    ELSEIF LEFT$(upperLine, 6) = "REDIM " THEN
+        leftText = MID$(trimmedLine, 7)
+        IF UCASE$(LEFT$(leftText, 7)) = "SHARED " THEN leftText = MID$(leftText, 8)
     ELSE
         EXIT SUB
     END IF
 
-    asPos = INSTR(UCASE$(leftText), " AS ")
-    IF asPos = 0 THEN EXIT SUB
-    typeText = ClassSyntax_FirstToken$(MID$(leftText, asPos + 4))
-    leftText = LEFT$(leftText, asPos - 1)
-    ClassSyntax_RegisterTypedList leftText, typeText
+    'the first statement only, without a comment
+    FOR i = 1 TO LEN(leftText)
+        c = MID$(leftText, i, 1)
+        IF c = CHR$(34) THEN inString = NOT inString
+        IF inString = 0 AND (c = ":" OR c = "'") THEN leftText = LEFT$(leftText, i - 1): EXIT FOR
+    NEXT
+    leftText = LTRIM$(RTRIM$(leftText))
+
+    IF UCASE$(LEFT$(leftText, 3)) = "AS " THEN
+        leftText = LTRIM$(MID$(leftText, 4))
+        sharedType = ClassSyntax_FirstToken$(leftText)
+        leftText = MID$(leftText, LEN(sharedType) + 1)
+    END IF
+
+    leftText = leftText + ","
+    partStart = 1
+    depth = 0
+    FOR i = 1 TO LEN(leftText)
+        c = MID$(leftText, i, 1)
+        IF c = "(" THEN depth = depth + 1
+        IF c = ")" THEN depth = depth - 1
+        IF c = "," AND depth = 0 THEN
+            partText = LTRIM$(RTRIM$(MID$(leftText, partStart, i - partStart)))
+            partStart = i + 1
+            asPos = INSTR(UCASE$(partText), " AS ")
+            IF asPos THEN
+                typeText = ClassSyntax_FirstToken$(MID$(partText, asPos + 4))
+                partText = LEFT$(partText, asPos - 1)
+            ELSE
+                typeText = sharedType
+            END IF
+            IF LEN(typeText) THEN ClassSyntax_RegisterScopeVar ClassSyntax_FirstIdentifier$(partText), typeText
+        END IF
+    NEXT
 END SUB
 
 SUB ClassSyntax_RegisterProcedureHeader (rawLine$)
@@ -1632,10 +1706,11 @@ FUNCTION ClassSyntax_RewriteDispatch$ (sourceLine$, selfType$)
     DIM objectExpr AS STRING
     DIM emittedObjectExpr AS STRING
     DIM argsText AS STRING
+    DIM hasParen AS LONG
 
     'a dispatch needs "object.method(" with a registered class: skip the character scan
     'of every source line when there is no class or no "."
-    IF classSyntaxRegistryCount = 0 OR INSTR(sourceLine$, ".") = 0 THEN
+    IF (classSyntaxRegistryCount = 0 AND classSyntaxTypedVars = 0) OR INSTR(sourceLine$, ".") = 0 THEN
         ClassSyntax_RewriteDispatch$ = sourceLine$
         EXIT FUNCTION
     END IF
@@ -1680,7 +1755,43 @@ FUNCTION ClassSyntax_RewriteDispatch$ (sourceLine$, selfType$)
                     j = j + 1
                 LOOP
 
-                IF LEN(methodName) AND j <= LEN(sourceLine$) AND MID$(sourceLine$, j, 1) = "(" THEN
+                hasParen = 0
+                IF j <= LEN(sourceLine$) THEN hasParen = (MID$(sourceLine$, j, 1) = "(")
+                IF LEN(methodName) AND hasParen = 0 AND MID$(sourceLine$, j, 1) <> "." THEN
+                    'TypeName_Method without brackets: "x.Clear", "x.Add item$" as a statement,
+                    '"x.Count" in an expression; only where x has no field of that name
+                    objectEnd = ClassSyntax_SkipLeftSpaces&(sourceLine$, i - 1)
+                    objectStart = ClassSyntax_FindDispatchObjectStart&(sourceLine$, objectEnd)
+                    IF objectStart > 0 AND objectStart >= flushPos THEN
+                        objectExpr = MID$(sourceLine$, objectStart, objectEnd - objectStart + 1)
+                        className = ClassSyntax_ResolveDispatchType$(objectExpr, selfType$)
+                        generatedName = ""
+                        IF LEN(className) THEN
+                            IF LEN(ClassSyntax_FindGeneratedMethod$(className, methodName)) = 0 THEN generatedName = ClassSyntax_TypeMethod$(className, methodName)
+                        END IF
+                        IF LEN(generatedName) THEN
+                            emittedObjectExpr = LTRIM$(RTRIM$(objectExpr))
+                            IF objectStart > flushPos THEN outputText = outputText + MID$(sourceLine$, flushPos, objectStart - flushPos)
+                            IF ClassSyntax_AtStatementStart%(outputText) THEN
+                                outputText = outputText + generatedName + " " + emittedObjectExpr
+                                currentChar = MID$(sourceLine$, j, 1)
+                                IF j <= LEN(sourceLine$) AND currentChar <> ":" AND currentChar <> "'" AND UCASE$(MID$(sourceLine$, j, 5)) <> "ELSE " AND UCASE$(MID$(sourceLine$, j)) <> "ELSE" THEN
+                                    outputText = outputText + ", "
+                                ELSE
+                                    outputText = outputText + " "
+                                END IF
+                            ELSE
+                                outputText = outputText + generatedName + "(" + emittedObjectExpr + ")"
+                                IF j > methodStart + LEN(methodName) THEN outputText = outputText + " "
+                            END IF
+                            i = j
+                            flushPos = i
+                            GOTO ClassSyntax_RewriteDispatch_Next
+                        END IF
+                    END IF
+                END IF
+
+                IF LEN(methodName) AND hasParen THEN
                     objectEnd = ClassSyntax_SkipLeftSpaces&(sourceLine$, i - 1)
                     objectStart = ClassSyntax_FindDispatchObjectStart&(sourceLine$, objectEnd)
                     IF objectStart > 0 AND objectStart >= flushPos THEN
@@ -1692,6 +1803,7 @@ FUNCTION ClassSyntax_RewriteDispatch$ (sourceLine$, selfType$)
                         className = ClassSyntax_ResolveDispatchType$(objectExpr, selfType$)
                         IF LEN(className) THEN
                             generatedName = ClassSyntax_FindGeneratedMethod$(className, methodName)
+                            IF LEN(generatedName) = 0 THEN generatedName = ClassSyntax_TypeMethod$(className, methodName)
                             IF LEN(generatedName) THEN
                                 openPos = j
                                 closePos = ClassSyntax_FindMatchingCloseParen&(sourceLine$, openPos)

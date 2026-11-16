@@ -170,7 +170,7 @@ fn full_session() {
     // Completion: user symbols from the include and built-ins.
     let comp = c.request("textDocument/completion", json!({"textDocument": {"uri": uri}, "position": pos(9, 0)}));
     let labels: Vec<&str> = comp.as_array().unwrap().iter().map(|i| i["label"].as_str().unwrap()).collect();
-    for want in ["helper", "pt", "MAXN", "LEFT$", "_RGB32", "PRINT", "_IIF", "EACH", "_MESHCUBE", "_DRAW3D", "Http_Get&", "DT_Now#"] {
+    for want in ["helper", "pt", "MAXN", "LEFT$", "_RGB32", "PRINT", "_IIF", "EACH", "_MESHCUBE", "_DRAW3D", "Http_Get$", "Date_Now#", "List_Add"] {
         assert!(labels.contains(&want), "missing {want}");
     }
 
@@ -234,7 +234,7 @@ fn hover_for_iif_draw3d_and_library_functions() {
     c.request("initialize", json!({"processId": null, "rootUri": null, "capabilities": {}}));
     c.notify("initialized", json!({}));
     let uri = "untitled:lib";
-    let text = "x = _IIF(a > 1, 2, 3)\nr& = Http_Get&(\"http://x\", 500)\n_DRAW3D m&, 0, 0, 0\n";
+    let text = "x = _IIF(a > 1, 2, 3)\nr$ = Http_Get$(\"http://x\", 500)\n_DRAW3D m&, 0, 0, 0\n";
     c.notify("textDocument/didOpen", json!({"textDocument": {"uri": uri, "languageId": "qbasic", "version": 1, "text": text}}));
     c.wait_notification("textDocument/publishDiagnostics");
     let hover = |c: &mut Client, line: u32, ch: u32| -> String {
@@ -244,9 +244,120 @@ fn hover_for_iif_draw3d_and_library_functions() {
     let v = hover(&mut c, 0, 6);
     assert!(v.contains("**_IIF**"), "{v}");
     let v = hover(&mut c, 1, 7);
-    assert!(v.contains("ext.http") && v.contains("FUNCTION Http_Get&"), "{v}");
+    assert!(v.contains("**http**") && v.contains("FUNCTION Http_Get$"), "{v}");
     let v = hover(&mut c, 2, 2);
     assert!(v.contains("_DRAW3D model&"), "{v}");
+    c.request("shutdown", Value::Null);
+    c.notify("exit", Value::Null);
+    assert!(wait(&mut c.child));
+}
+
+#[test]
+fn method_syntax_on_type_values() {
+    let mut c = Client::start();
+    c.request("initialize", json!({"processId": null, "rootUri": null, "capabilities": {}}));
+    c.notify("initialized", json!({}));
+    let uri = "untitled:methods";
+    let text = "DIM names AS List\n\
+names.Add \"x\"\n\
+PRINT names.Count\n\
+TYPE Box\n\
+    items AS List\n\
+END TYPE\n\
+DIM b AS Box\n\
+b.items.Add \"y\"\n\
+SUB Box_Show (bx AS Box)\n\
+END SUB\n\
+b.Show\n\
+PRINT names.\n\
+PRINT b.\n\
+PRINT q.\n";
+    c.notify("textDocument/didOpen", json!({"textDocument": {"uri": uri, "languageId": "qbasic", "version": 1, "text": text}}));
+    c.wait_notification("textDocument/publishDiagnostics");
+    let hover = |c: &mut Client, line: u32, ch: u32| -> String {
+        let h = c.request("textDocument/hover", json!({"textDocument": {"uri": uri}, "position": pos(line, ch)}));
+        h["contents"]["value"].as_str().unwrap_or("").to_string()
+    };
+    // `names.Add` is List_Add from the collections module.
+    let v = hover(&mut c, 1, 7);
+    assert!(v.contains("SUB List_Add") && v.contains("`names.Add` calls") && v.contains("**collections**"), "{v}");
+    let v = hover(&mut c, 2, 13);
+    assert!(v.contains("FUNCTION List_Count&"), "{v}");
+    // Through a TYPE field.
+    let v = hover(&mut c, 7, 9);
+    assert!(v.contains("SUB List_Add"), "{v}");
+    // A field is still a field.
+    let v = hover(&mut c, 7, 3);
+    assert!(v.contains("items AS List"), "{v}");
+    // A user procedure named after the TYPE.
+    let v = hover(&mut c, 10, 3);
+    assert!(v.contains("SUB Box_Show"), "{v}");
+    let def = c.request("textDocument/definition", json!({"textDocument": {"uri": uri}, "position": pos(10, 3)}));
+    assert_eq!(def[0]["range"]["start"], pos(8, 4), "{def}");
+
+    let complete = |c: &mut Client, line: u32, ch: u32| -> Vec<String> {
+        let ctx = json!({"triggerKind": 2, "triggerCharacter": "."});
+        let r = c.request("textDocument/completion", json!({"textDocument": {"uri": uri}, "position": pos(line, ch), "context": ctx}));
+        r.as_array().unwrap().iter().map(|i| i["label"].as_str().unwrap().to_string()).collect()
+    };
+    let labels = complete(&mut c, 11, 12);
+    for want in ["Add", "Count", "Get$", "Join$", "Free"] {
+        assert!(labels.iter().any(|l| l == want), "missing {want}: {labels:?}");
+    }
+    assert!(!labels.iter().any(|l| l == "PRINT" || l == "Handle"), "{labels:?}");
+    let labels = complete(&mut c, 12, 8);
+    assert_eq!(labels, vec!["items", "Show"]);
+    assert!(complete(&mut c, 13, 8).is_empty());
+    c.request("shutdown", Value::Null);
+    c.notify("exit", Value::Null);
+    assert!(wait(&mut c.child));
+}
+
+#[test]
+fn method_syntax_on_parameters_and_array_elements() {
+    let mut c = Client::start();
+    c.request("initialize", json!({"processId": null, "rootUri": null, "capabilities": {}}));
+    c.notify("initialized", json!({}));
+    let uri = "untitled:params";
+    let text = "DIM boxes(3) AS List\n\
+boxes(1).Add \"a\"\n\
+PRINT boxes(i + 1).Count\n\
+DIM l AS Dict\n\
+SUB Fill (BYVAL n AS LONG, l AS List, OPTIONAL sep AS STRING = \",\")\n\
+l.Add \"x\"\n\
+PRINT l.\n\
+END SUB\n\
+l.Set \"k\", \"v\"\n\
+PRINT boxes(2).\n";
+    c.notify("textDocument/didOpen", json!({"textDocument": {"uri": uri, "languageId": "qbasic", "version": 1, "text": text}}));
+    c.wait_notification("textDocument/publishDiagnostics");
+    let hover = |c: &mut Client, line: u32, ch: u32| -> String {
+        let h = c.request("textDocument/hover", json!({"textDocument": {"uri": uri}, "position": pos(line, ch)}));
+        h["contents"]["value"].as_str().unwrap_or("").to_string()
+    };
+    // An array element, with the index as written.
+    let v = hover(&mut c, 1, 10);
+    assert!(v.contains("SUB List_Add") && v.contains("`boxes(1).Add` calls"), "{v}");
+    let v = hover(&mut c, 2, 20);
+    assert!(v.contains("FUNCTION List_Count&"), "{v}");
+    // The parameter `l AS List` hides the main-module `l AS Dict` inside Fill only.
+    let v = hover(&mut c, 5, 3);
+    assert!(v.contains("SUB List_Add"), "{v}");
+    let v = hover(&mut c, 8, 3);
+    assert!(v.contains("SUB Dict_Set"), "{v}");
+    let def = c.request("textDocument/definition", json!({"textDocument": {"uri": uri}, "position": pos(5, 0)}));
+    assert_eq!(def.as_array().map(Vec::len), Some(1), "{def}");
+    assert_eq!(def[0]["range"]["start"], pos(4, 27), "{def}");
+
+    let complete = |c: &mut Client, line: u32, ch: u32| -> Vec<String> {
+        let ctx = json!({"triggerKind": 2, "triggerCharacter": "."});
+        let r = c.request("textDocument/completion", json!({"textDocument": {"uri": uri}, "position": pos(line, ch), "context": ctx}));
+        r.as_array().unwrap().iter().map(|i| i["label"].as_str().unwrap().to_string()).collect()
+    };
+    for (line, ch) in [(6, 8), (9, 15)] {
+        let labels = complete(&mut c, line, ch);
+        assert!(labels.iter().any(|l| l == "Add") && !labels.iter().any(|l| l == "Key$"), "{labels:?}");
+    }
     c.request("shutdown", Value::Null);
     c.notify("exit", Value::Null);
     assert!(wait(&mut c.child));

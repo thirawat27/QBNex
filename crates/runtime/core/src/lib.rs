@@ -50,7 +50,7 @@ pub mod win32;
 
 // Audio runtime: kept in its own crate (own object file); linked into the runner.
 extern crate qb_audio;
-// Extension library: the Rust side of the stdlib's ext.* modules.
+// Extension library: the Rust side of the stdlib modules regex, hash, zip, http, utf8 and datetime.
 #[cfg(feature = "ext")]
 extern crate qb_ext;
 #[cfg(not(target_arch = "wasm32"))]

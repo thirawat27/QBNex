@@ -3,15 +3,16 @@ hostname [example.com] port 8080  host [example.com:8080]
 pathname [/a/b/file.txt] search [?q=1&x=%41%zz&s=a+b] hash [#frag]
 origin [https://example.com:8080] queryCount 3 
 format [https://user:pw@example.com:8080/a/b/file.txt?q=1&x=%41%zz&s=a+b#frag]
-basename [file] ext [.txt] dir [/a/b]
+base [file.txt] stem [file] ext [.txt]
 q [1] x [A%zz] s [a b] none []
 after set q [two words&more] new [v] count 4 
 search [?q=two%20words%26more&x=%41%zz&s=a+b&new=v]
 href [https://user:pw@example.com:8080/a/b/file.txt?q=two%20words%26more&x=%41%zz&s=a+b&new=v#frag]
 port 65535  path [/]
-mailto [mailto:] [someone@example.com] host []
+mailto [mailto:] [someone@example.com] host [] origin []
+new url [?a%20b=c%26d] 1  [c&d]
 encode [a%20b%2Fc%3Fd%3De%26f~_.-] decode [a b/c%zz%4]
-normalize [/a/g] [mid/6] [/]
+normalize [http://h/a/g] [http://h/mid/6] [http://h/]
  [g:h] -> g:h
  [g] -> http://a/b/c/g
  [./g] -> http://a/b/c/g
@@ -48,5 +49,5 @@ normalize [/a/g] [mid/6] [/]
  [g/../h] -> http://a/b/c/h
  [g;x=1/./y] -> http://a/b/c/g;x=1/y
  [g;x=1/../y] -> http://a/b/c/y
-file:///C:/dir%20name/f%231.txt C:/dir name/f.txt /usr/lib
+file:///C:/dir%20name/f%231.txt C:/dir name/f.txt /usr/lib relative/x file:///usr/a%20b
 done

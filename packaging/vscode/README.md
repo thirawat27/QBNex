@@ -11,12 +11,16 @@ Language support for QBasic, QB64 and QBNex source files (`.bas`, `.bi`, `.bm`).
   literals, type suffixes, and SUB/FUNCTION/TYPE names.
 - **Snippets**: `if`, `ifelse`, `for`, `do`, `dowhile`, `while`, `select`,
   `sub`, `function`, `type`, `dimshared`, `openin`, `openout`, `onerror`,
-  `declib`, `gameloop`, `include`.
+  `declib`, `gameloop`, `include`, and for the standard library `import`,
+  `list`, `dict`, `json` (in the method style: `DIM names AS List`,
+  `names.Add "x"`).
 - **Language server** (`qb-lsp`): diagnostics as you type (syntax errors,
   unmatched blocks, include files that are missing), outline (SUB, FUNCTION,
   TYPE and its fields, CONST, labels, line numbers that are jump targets),
   go to definition and find references across the file and its `$INCLUDE`s,
-  hover help for built-in keywords, completion, and formatting.
+  hover help for built-in keywords and standard library procedures,
+  completion (after `names.` on a `DIM names AS List` it offers `Add`,
+  `Count`, ... and hover on `names.Add` shows `List_Add`), and formatting.
 - **Format on save** through `qb-lsp` (it uses `qb-fmt`): keyword case,
   block indentation, spacing. Turned on by default for QBasic files; switch it
   off with `"[qbasic]": { "editor.formatOnSave": false }`.

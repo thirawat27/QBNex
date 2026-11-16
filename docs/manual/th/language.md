@@ -16,12 +16,13 @@ QBNex รับโปรแกรม QBasic / QuickBASIC 4.5 และภาษ�
 
 ### `_IIF`: IF แบบบรรทัดเดียวในนิพจน์
 
+<!-- docs-test: output -->
 ```basic
 x = 7
 PRINT _IIF(x > 5, "big", "small"); _IIF(x < 5, 1, 2)
 ```
 
-<!-- docs-test: output -->
+<!-- expected output -->
 ```text
 big 2
 ```
@@ -30,6 +31,7 @@ big 2
 
 ### `_ANDALSO`, `_ORELSE`: ตรรกะแบบ short-circuit
 
+<!-- docs-test: output -->
 ```basic
 DIM a(1 TO 3) AS INTEGER
 i = 4
@@ -37,7 +39,7 @@ IF i <= 3 _ANDALSO a(i) = 0 THEN PRINT "in range" ELSE PRINT "index"; i; "skippe
 IF i > 3 _ORELSE a(i) = 0 THEN PRINT "no subscript error"
 ```
 
-<!-- docs-test: output -->
+<!-- expected output -->
 ```text
 index 4 skipped
 no subscript error
@@ -47,13 +49,14 @@ no subscript error
 
 ### String interpolation
 
+<!-- docs-test: output -->
 ```basic
 name$ = "Ada"
 n% = 3
 PRINT $"Hello {name$}, {n%} new messages, {{braces}}"
 ```
 
-<!-- docs-test: output -->
+<!-- expected output -->
 ```text
 Hello Ada, 3 new messages, {braces}
 ```
@@ -64,6 +67,7 @@ Hello Ada, 3 new messages, {braces}
 
 ### `FOR EACH`
 
+<!-- docs-test: output -->
 ```basic
 DIM scores(1 TO 4) AS INTEGER
 FOR i = 1 TO 4: scores(i) = i * 10: NEXT
@@ -73,7 +77,7 @@ NEXT s
 PRINT total
 ```
 
-<!-- docs-test: output -->
+<!-- expected output -->
 ```text
  100
 ```
@@ -83,6 +87,7 @@ PRINT total
 
 ### `ENUM`
 
+<!-- docs-test: output -->
 ```basic
 ENUM Fruit
     Apple
@@ -92,7 +97,7 @@ END ENUM
 PRINT Apple; Banana; Cherry; Grape
 ```
 
-<!-- docs-test: output -->
+<!-- expected output -->
 ```text
  0  5  6  7
 ```
@@ -102,6 +107,7 @@ PRINT Apple; Banana; Cherry; Grape
 
 ### `TRY` / `CATCH` / `FINALLY`
 
+<!-- docs-test: output -->
 ```basic
 TRY
     ERROR 53
@@ -113,7 +119,7 @@ FINALLY
 END TRY
 ```
 
-<!-- docs-test: output -->
+<!-- expected output -->
 ```text
 caught error 53
 cleanup
@@ -130,6 +136,7 @@ handler ที่ตั้งไว้ก่อน `TRY` กลับมาม�
 
 ### พารามิเตอร์ `OPTIONAL`
 
+<!-- docs-test: output -->
 ```basic
 DECLARE SUB Greet (who$, OPTIONAL greeting$ = "Hello", OPTIONAL times% = 1)
 Greet "Ada"
@@ -148,7 +155,7 @@ FUNCTION Scale& (v AS LONG, OPTIONAL factor AS LONG = 2)
 END FUNCTION
 ```
 
-<!-- docs-test: output -->
+<!-- expected output -->
 ```text
 Hello, Ada
 Hi, Bob
@@ -161,6 +168,7 @@ procedure
 
 ### `_CONTINUE`
 
+<!-- docs-test: output -->
 ```basic
 FOR i = 1 TO 5
     IF i MOD 2 = 0 THEN _CONTINUE
@@ -168,7 +176,7 @@ FOR i = 1 TO 5
 NEXT
 ```
 
-<!-- docs-test: output -->
+<!-- expected output -->
 ```text
  1  3  5
 ```
@@ -177,13 +185,14 @@ NEXT
 
 ### `$ASSERTS` และ `_ASSERT`
 
+<!-- docs-test: output -->
 ```basic
 $ASSERTS
 _ASSERT 1 + 1 = 2, "math works"
 PRINT "asserts passed"
 ```
 
-<!-- docs-test: output -->
+<!-- expected output -->
 ```text
 asserts passed
 ```
@@ -196,12 +205,13 @@ asserts passed
 
 ### โมดูลไลบรารีมาตรฐาน: `'$IMPORT:'name'`
 
+<!-- docs-test: output -->
 ```basic
 '$IMPORT:'url'
-PRINT UrlEncodeComponent$("a b&c")
+PRINT Url_Encode$("a b&c")
 ```
 
-<!-- docs-test: output -->
+<!-- expected output -->
 ```text
 a%20b%26c
 ```
@@ -211,10 +221,51 @@ a%20b%26c
 `DIM SHARED`, TYPE และ SUB ของโมดูลใช้ได้ไม่ว่าบรรทัด import จะอยู่ตรงไหน
 ดู[ไลบรารีมาตรฐาน](stdlib.md)
 
-### CLASS (แปลงเป็นโค้ดธรรมดาก่อนคอมไพล์ ใช้คู่กับ `'$IMPORT:'qbnex'`)
+### การเรียก method บนค่าของ TYPE
+
+<!-- docs-test: output -->
+```basic
+TYPE Point
+    x AS SINGLE
+    y AS SINGLE
+END TYPE
+
+DIM p AS Point
+p.Move 3, 4                    ' Point_Move p, 3, 4
+PRINT p.x; p.y; p.Length       ' Point_Length(p)
+PRINT p.Label$("p")            ' Point_Label$(p, "p")
+SYSTEM
+
+SUB Point_Move (pt AS Point, dx AS SINGLE, dy AS SINGLE)
+    pt.x = pt.x + dx: pt.y = pt.y + dy
+END SUB
+
+FUNCTION Point_Length! (pt AS Point)
+    Point_Length! = SQR(pt.x * pt.x + pt.y * pt.y)
+END FUNCTION
+
+FUNCTION Point_Label$ (pt AS Point, label AS STRING)
+    Point_Label$ = label + "(" + LTRIM$(STR$(pt.x)) + ", " + LTRIM$(STR$(pt.y)) + ")"
+END FUNCTION
+```
+
+```text
+ 3  4  5
+p(3, 4)
+```
+
+เมื่อตัวแปร พารามิเตอร์ สมาชิกของ array หรือ field มีชนิดเป็น TYPE `T` ที่ไม่มี
+field ชื่อนั้น `x.Name(args)` จะเรียก `T_Name(x, args)` ถ้าไม่มีวงเล็บ คำสั่ง
+`x.Add "a"` จะเรียก `T_Add x, "a"` และ `x.Clear` เรียก `T_Clear x` ส่วนในนิพจน์
+`x.Count` เรียก `T_Count(x)` field จริงมาก่อนเสมอ โปรแกรมเดิมจึงไม่เปลี่ยน และ
+method ของ CLASS มาก่อน procedure ชื่อเดียวกัน TYPE ของไลบรารี `List`, `Dict`,
+`Set`, `Url` และ `Result` ใช้งานแบบนี้ (`names.Add "Ann"`,
+`PRINT names.Join$(", ")`) ดู[ไลบรารีมาตรฐาน](stdlib.md)
+
+### CLASS (แปลงเป็นโค้ดธรรมดาก่อนคอมไพล์ ใช้คู่กับ `'$IMPORT:'oop.class'`)
 
 ```basic
-'$IMPORT:'qbnex'
+'$IMPORT:'oop.class'
 CLASS Dog
     Name AS STRING * 32
     CONSTRUCTOR (petName AS STRING)
@@ -226,6 +277,8 @@ END CLASS
 `CLASS ... END CLASS` ที่มี field, `CONSTRUCTOR`, สมาชิกแบบ
 `METHOD`/`SUB`/`FUNCTION`, `EXTENDS` และ `IMPLEMENTS` จะถูกเขียนใหม่เป็น TYPE
 กับ procedure ก่อนคอมไพล์ class แม่ต้องประกาศก่อน class ที่ `EXTENDS` มัน
+`oop.class` (และ `oop.interface`) เก็บ runtime ที่โค้ดที่แปลงแล้วใช้ ส่วน
+`'$IMPORT:'qbnex'` ก็ import ให้ด้วย
 
 ### `DECLARE LIBRARY`, `_FLOAT`, `_MEM`
 
@@ -265,9 +318,9 @@ x += 2
   `nm AS STRING`)
 - ตัวช่วย string `_SPLIT`, `_JOIN$`, `_REPLACE$`, `_STARTSWITH`,
   `_ENDSWITH`, `_FORMAT$` และตัวช่วย UTF-8 `_ULEN`, `_UMID$`, `_UCHR$`,
-  `_UASC` (ตอนนี้ใช้โมดูล [`ext.utf8`](stdlib.md#extutf8) และ
-  [`ext.regex`](stdlib.md#extregex) แทน)
-- `_LIST` / `_DICT` ในตัวภาษา (ตอนนี้ใช้ [`ext.collections`](stdlib.md#extcollections))
+  `_UASC` (ตอนนี้ใช้โมดูล [`strings`](stdlib.md#strings),
+  [`utf8`](stdlib.md#utf8) และ [`regex`](stdlib.md#regex) แทน)
+- `_LIST` / `_DICT` ในตัวภาษา (ตอนนี้ใช้โมดูล [`collections`](stdlib.md#collections))
 - `_REGEX`, `_RANDOMSEED` และ UUID แบบ built-in
 - CLASS ใน QIR: virtual dispatch, `NEW`/`DELETE`, property, function
   pointer (`@SubName`), overload ตามชนิด

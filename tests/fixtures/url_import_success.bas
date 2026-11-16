@@ -1,19 +1,17 @@
 '$IMPORT:'url'
 
-DIM parts AS UrlParts
-DIM basename$
+DIM parts AS Url
 
-UrlParse "https://user:pass@example.com:8080/path/file.txt?q=1#frag", parts
-IF RTRIM$(parts.hostname) <> "example.com" THEN
+parts.Parse "https://user:pass@example.com:8080/path/file.txt?q=1#frag"
+IF parts.hostname <> "example.com" OR parts.port <> 8080 THEN
     PRINT "hostname failed"
     SYSTEM 1
 END IF
 
-basename$ = UrlBasename$(RTRIM$(parts.pathname), ".txt")
-IF basename$ <> "file" THEN
-    PRINT "basename failed"
+IF parts.Query$("q") <> "1" OR parts.pathname <> "/path/file.txt" THEN
+    PRINT "query failed"
     SYSTEM 1
 END IF
 
-PRINT RTRIM$(parts.hostname)
-PRINT basename$
+PRINT parts.hostname
+PRINT parts.pathname

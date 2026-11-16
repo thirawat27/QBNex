@@ -1,23 +1,25 @@
 '===============================================================================
-' QBNex Standard Library - URL ('$IMPORT:'url')
+' QBNex Standard Library - url ('$IMPORT:'url')
 '===============================================================================
-' Parses, formats and resolves URLs (RFC 3986 reference resolution and dot
-' segment removal; field names follow the WHATWG URL object).
+' URLs, like JavaScript's URL object and Python's urllib.parse (RFC 3986).
 '
-'   DIM u AS UrlParts
-'   UrlParse "https://user:pw@example.com:8080/a/b.txt?q=1#top", u
-'   u.protocol = "https:"   u.hostname = "example.com"   u.port = 8080
-'   u.pathname = "/a/b.txt" u.search = "?q=1"            u.hash = "#top"
+'   DIM u AS Url
+'   u.Parse "https://user@Example.com:8080/a/b.txt?q=1&s=a+b#top"
+'   PRINT u.hostname, u.port, u.pathname    example.com  8080  /a/b.txt
+'   PRINT u.Query$("s")                     a b
+'   u.SetQuery "q", "two words": PRINT u.Format$
+'   PRINT Url_Encode$("a b/c"), Url_Decode$("a%20b")
+'   PRINT Url_Resolve$("http://a/b/c/d;p?q", "../g")   http://a/b/g
 '
-' UrlParts fields are variable-length strings, so a component of any length
-' is kept whole. A port that is not a number from 0 to 65535 is an error:
-' UrlParse then leaves port 0 and UrlLastError$ says why ("" after a URL
-' that parsed). Query parameters are kept encoded, one
-' "key=value" per line in queryData; UrlGetQueryParam$ decodes them ("+" is a
-' space), UrlSetQueryParam replaces an existing key or appends a new one.
+' The fields are variable-length strings (port is a LONG). A port that is
+' not a number from 0 to 65535 is an error: port stays 0 and LastError$
+' says why. Query parameters are kept encoded, one "key=value" per line in
+' queryData; Url_Query$ decodes them ("+" is a space).
 '===============================================================================
 
-TYPE UrlParts
+'$IMPORT:'core'
+
+TYPE Url
     href AS STRING
     protocol AS STRING
     username AS STRING
@@ -32,17 +34,6 @@ TYPE UrlParts
     queryCount AS INTEGER
     queryData AS STRING
 END TYPE
-
-' Why the last UrlParse failed ("" when it did not); see UrlLastError$.
-DIM SHARED UrlErrorText AS STRING
-
-SUB Url_Init
-END SUB
-
-FUNCTION UrlLastError$
-    UrlLastError$ = UrlErrorText
-END FUNCTION
-
 ' The port of a URL: digits only, 0 to 65535 (an empty port means none, as in
 ' "http://h:/"). Returns -1 when portText is not a valid port.
 FUNCTION UrlPortValue& (portText AS STRING)
@@ -57,11 +48,12 @@ FUNCTION UrlPortValue& (portText AS STRING)
     UrlPortValue& = v&
 END FUNCTION
 
-SUB UrlParse (urlParseText AS STRING, urlParseParts AS UrlParts)
+' Fills u from the text of a URL.
+SUB Url_Parse (urlParseParts AS Url, urlParseText AS STRING)
     DIM rest AS STRING, auth AS STRING, hostPort AS STRING
     DIM p&, c&, portValue&
 
-    UrlErrorText = ""
+    Core_SetError ""
     urlParseParts.href = urlParseText
     urlParseParts.protocol = ""
     urlParseParts.username = ""
@@ -122,7 +114,7 @@ SUB UrlParse (urlParseText AS STRING, urlParseParts AS UrlParts)
             urlParseParts.hostname = LCASE$(LEFT$(hostPort, c& - 1))
             portValue& = UrlPortValue&(MID$(hostPort, c& + 1))
             IF portValue& < 0 THEN
-                UrlErrorText = "invalid port: " + MID$(hostPort, c& + 1)
+                Core_SetError "invalid port: " + MID$(hostPort, c& + 1)
             ELSE
                 urlParseParts.port = portValue&
             END IF
@@ -161,7 +153,7 @@ FUNCTION UrlSchemeEnd& (t AS STRING)
     NEXT
 END FUNCTION
 
-SUB UrlParseQueryString (urlQueryText AS STRING, urlQueryParts AS UrlParts)
+SUB UrlParseQueryString (urlQueryText AS STRING, urlQueryParts AS Url)
     DIM item AS STRING, rest AS STRING, qd AS STRING
     DIM p&, n%
     rest = urlQueryText
@@ -184,12 +176,9 @@ SUB UrlParseQueryString (urlQueryText AS STRING, urlQueryParts AS UrlParts)
     urlQueryParts.queryCount = n%
 END SUB
 
-FUNCTION UrlEncode$ (urlEncodeText AS STRING)
-    UrlEncode$ = UrlEncodeComponent$(urlEncodeText)
-END FUNCTION
-
-' Percent-encodes everything except the RFC 3986 unreserved characters.
-FUNCTION UrlEncodeComponent$ (urlEncodeComponentText AS STRING)
+' Percent-encodes everything except the RFC 3986 unreserved characters
+' (JS encodeURIComponent, Python quote with safe="").
+FUNCTION Url_Encode$ (urlEncodeComponentText AS STRING)
     DIM i&, c%, r$
     FOR i& = 1 TO LEN(urlEncodeComponentText)
         c% = ASC(urlEncodeComponentText, i&)
@@ -200,11 +189,11 @@ FUNCTION UrlEncodeComponent$ (urlEncodeComponentText AS STRING)
                 r$ = r$ + "%" + RIGHT$("0" + HEX$(c%), 2)
         END SELECT
     NEXT
-    UrlEncodeComponent$ = r$
+    Url_Encode$ = r$
 END FUNCTION
 
 ' Decodes %XX escapes; a "%" not followed by two hex digits is kept as is.
-FUNCTION UrlDecode$ (urlDecodeText AS STRING)
+FUNCTION Url_Decode$ (urlDecodeText AS STRING)
     DIM i&, r$, h$
     i& = 1
     DO WHILE i& <= LEN(urlDecodeText)
@@ -217,7 +206,7 @@ FUNCTION UrlDecode$ (urlDecodeText AS STRING)
             i& = i& + 1
         END IF
     LOOP
-    UrlDecode$ = r$
+    Url_Decode$ = r$
 END FUNCTION
 
 FUNCTION UrlIsHex2% (h AS STRING)
@@ -237,17 +226,14 @@ FUNCTION UrlDecodeQuery$ (t AS STRING)
     FOR i& = 1 TO LEN(r$)
         IF ASC(r$, i&) = 43 THEN MID$(r$, i&, 1) = " "
     NEXT
-    UrlDecodeQuery$ = UrlDecode$(r$)
+    UrlDecodeQuery$ = Url_Decode$(r$)
 END FUNCTION
 
-FUNCTION UrlBuildQueryString$ (urlBuildParts AS UrlParts)
-    UrlBuildQueryString$ = REPLACE_LINEBREAKS$(urlBuildParts.queryData, "&")
-END FUNCTION
-
-SUB UrlSetQueryParam (urlSetParts AS UrlParts, urlSetKey AS STRING, urlSetValue AS STRING)
+' Sets query parameter urlSetKey (replaces it, or adds it at the end).
+SUB Url_SetQuery (urlSetParts AS Url, urlSetKey AS STRING, urlSetValue AS STRING)
     DIM lines$, item$, qd$, encoded$
     DIM p&, eq&, found%, n%
-    encoded$ = UrlEncodeComponent$(urlSetKey) + "=" + UrlEncodeComponent$(urlSetValue)
+    encoded$ = Url_Encode$(urlSetKey) + "=" + Url_Encode$(urlSetValue)
     lines$ = urlSetParts.queryData
     DO WHILE LEN(lines$) > 0
         p& = INSTR(lines$, CHR$(10))
@@ -277,11 +263,12 @@ SUB UrlSetQueryParam (urlSetParts AS UrlParts, urlSetKey AS STRING, urlSetValue 
     END IF
     urlSetParts.queryData = qd$
     urlSetParts.queryCount = n%
-    urlSetParts.search = "?" + REPLACE_LINEBREAKS$(qd$, "&")
-    urlSetParts.href = UrlFormat$(urlSetParts)
+    urlSetParts.search = "?" + UrlLines$(qd$, "&")
+    urlSetParts.href = Url_Format$(urlSetParts)
 END SUB
 
-FUNCTION UrlGetQueryParam$ (urlGetParts AS UrlParts, urlGetKey AS STRING)
+' The decoded value of query parameter urlGetKey ("" when it is not there).
+FUNCTION Url_Query$ (urlGetParts AS Url, urlGetKey AS STRING)
     DIM lines$, item$
     DIM p&, eq&
     lines$ = urlGetParts.queryData
@@ -297,13 +284,14 @@ FUNCTION UrlGetQueryParam$ (urlGetParts AS UrlParts, urlGetKey AS STRING)
         eq& = INSTR(item$, "=")
         IF eq& = 0 THEN eq& = LEN(item$) + 1
         IF UrlDecodeQuery$(LEFT$(item$, eq& - 1)) = urlGetKey THEN
-            UrlGetQueryParam$ = UrlDecodeQuery$(MID$(item$, eq& + 1))
+            Url_Query$ = UrlDecodeQuery$(MID$(item$, eq& + 1))
             EXIT FUNCTION
         END IF
     LOOP
 END FUNCTION
 
-FUNCTION UrlFormat$ (urlFormatParts AS UrlParts)
+' The URL text of u's fields.
+FUNCTION Url_Format$ (urlFormatParts AS Url)
     DIM r$
     IF LEN(urlFormatParts.protocol) > 0 THEN r$ = urlFormatParts.protocol
     IF LEN(urlFormatParts.hostname) > 0 THEN
@@ -316,21 +304,21 @@ FUNCTION UrlFormat$ (urlFormatParts AS UrlParts)
         r$ = r$ + urlFormatParts.hostname
         IF urlFormatParts.port > 0 THEN r$ = r$ + ":" + LTRIM$(STR$(urlFormatParts.port))
     END IF
-    UrlFormat$ = r$ + urlFormatParts.pathname + urlFormatParts.search + urlFormatParts.hash
+    Url_Format$ = r$ + urlFormatParts.pathname + urlFormatParts.search + urlFormatParts.hash
 END FUNCTION
 
-' RFC 3986 section 5.2: resolves a reference against a base URL.
-SUB UrlResolve (urlResolveBase AS STRING, urlResolveRelative AS STRING, urlResolveResult AS UrlParts)
-    DIM b AS UrlParts
+' A reference resolved against a base URL (RFC 3986 section 5.2; Python urljoin).
+FUNCTION Url_Resolve$ (urlResolveBase AS STRING, urlResolveRelative AS STRING)
+    DIM b AS Url, res AS Url
     DIM r$, path$, query$, frag$, p&, basePath$, authority$
     r$ = urlResolveRelative
     IF UrlSchemeEnd&(r$) > 0 THEN
-        UrlParse r$, urlResolveResult
-        urlResolveResult.pathname = UrlNormalizePath$(urlResolveResult.pathname)
-        urlResolveResult.href = UrlFormat$(urlResolveResult)
-        EXIT SUB
+        Url_Parse res, r$
+        res.pathname = UrlNormalizePath$(res.pathname)
+        Url_Resolve$ = Url_Format$(res)
+        EXIT FUNCTION
     END IF
-    UrlParse urlResolveBase, b
+    Url_Parse b, urlResolveBase
     p& = INSTR(r$, "#")
     IF p& > 0 THEN
         frag$ = MID$(r$, p&)
@@ -341,7 +329,6 @@ SUB UrlResolve (urlResolveBase AS STRING, urlResolveRelative AS STRING, urlResol
         query$ = MID$(r$, p&)
         r$ = LEFT$(r$, p& - 1)
     END IF
-    authority$ = ""
     IF LEN(b.hostname) > 0 THEN
         authority$ = "//"
         IF LEN(b.username) > 0 THEN
@@ -352,10 +339,10 @@ SUB UrlResolve (urlResolveBase AS STRING, urlResolveRelative AS STRING, urlResol
         authority$ = authority$ + b.host
     END IF
     IF LEFT$(r$, 2) = "//" THEN
-        UrlParse b.protocol + urlResolveRelative, urlResolveResult
-        urlResolveResult.pathname = UrlNormalizePath$(urlResolveResult.pathname)
-        urlResolveResult.href = UrlFormat$(urlResolveResult)
-        EXIT SUB
+        Url_Parse res, b.protocol + urlResolveRelative
+        res.pathname = UrlNormalizePath$(res.pathname)
+        Url_Resolve$ = Url_Format$(res)
+        EXIT FUNCTION
     END IF
     basePath$ = b.pathname
     IF r$ = "" THEN
@@ -363,71 +350,31 @@ SUB UrlResolve (urlResolveBase AS STRING, urlResolveRelative AS STRING, urlResol
         IF query$ = "" THEN query$ = b.search
     ELSEIF LEFT$(r$, 1) = "/" THEN
         path$ = UrlNormalizePath$(r$)
+    ELSEIF LEN(authority$) > 0 AND basePath$ = "" THEN
+        path$ = UrlNormalizePath$("/" + r$)
     ELSE
-        IF LEN(authority$) > 0 AND basePath$ = "" THEN
-            path$ = "/" + r$
-        ELSE
-            p& = UrlInstrRev%(basePath$, "/")
-            path$ = LEFT$(basePath$, p&) + r$
-        END IF
-        path$ = UrlNormalizePath$(path$)
+        p& = UrlInstrRev%(basePath$, "/")
+        path$ = UrlNormalizePath$(LEFT$(basePath$, p&) + r$)
     END IF
-    UrlParse b.protocol + authority$ + path$ + query$ + frag$, urlResolveResult
-END SUB
-
-FUNCTION UrlJoin$ (urlJoinBase AS STRING, urlJoinPath AS STRING)
-    IF LEN(urlJoinBase) = 0 THEN
-        UrlJoin$ = urlJoinPath
-    ELSEIF RIGHT$(urlJoinBase, 1) = "/" THEN
-        UrlJoin$ = urlJoinBase + urlJoinPath
-    ELSE
-        UrlJoin$ = urlJoinBase + "/" + urlJoinPath
-    END IF
+    Url_Resolve$ = b.protocol + authority$ + path$ + query$ + frag$
 END FUNCTION
 
-FUNCTION UrlDirname$ (urlDirPath AS STRING)
-    DIM t$, p&
-    t$ = RTRIM$(urlDirPath)
-    p& = UrlInstrRev%(t$, "/")
-    IF p& = 1 THEN
-        UrlDirname$ = "/"
-    ELSEIF p& > 0 THEN
-        UrlDirname$ = LEFT$(t$, p& - 1)
-    END IF
-END FUNCTION
-
-FUNCTION UrlBasename$ (urlBasePath AS STRING, urlBaseExt AS STRING)
-    DIM leaf$, p&
-    leaf$ = RTRIM$(urlBasePath)
-    p& = UrlInstrRev%(leaf$, "/")
-    IF p& > 0 THEN leaf$ = MID$(leaf$, p& + 1)
-    IF LEN(urlBaseExt) > 0 AND LEN(leaf$) > LEN(urlBaseExt) THEN
-        IF RIGHT$(leaf$, LEN(urlBaseExt)) = urlBaseExt THEN leaf$ = LEFT$(leaf$, LEN(leaf$) - LEN(urlBaseExt))
-    END IF
-    UrlBasename$ = leaf$
-END FUNCTION
-
-FUNCTION UrlExtname$ (urlExtPath AS STRING)
-    DIM leaf$, p&
-    leaf$ = UrlBasename$(urlExtPath, "")
-    p& = UrlInstrRev%(leaf$, ".")
-    IF p& > 1 THEN UrlExtname$ = MID$(leaf$, p&)
-END FUNCTION
-
-FUNCTION UrlFileToPath$ (urlFileUrl AS STRING)
+' The file path of a file:/// URL (other text is returned as it is).
+FUNCTION Url_ToPath$ (urlFileUrl AS STRING)
     DIM t$
     t$ = urlFileUrl
     IF LEFT$(LCASE$(t$), 8) = "file:///" THEN
         t$ = MID$(t$, 9)
         ' file:///C:/x -> C:/x, file:///usr/x -> /usr/x
         IF NOT (LEN(t$) >= 2 AND MID$(t$, 2, 1) = ":") THEN t$ = "/" + t$
-        UrlFileToPath$ = UrlDecode$(t$)
+        Url_ToPath$ = Url_Decode$(t$)
     ELSE
-        UrlFileToPath$ = urlFileUrl
+        Url_ToPath$ = urlFileUrl
     END IF
 END FUNCTION
 
-FUNCTION UrlPathToFile$ (urlFilePath AS STRING)
+' The file:/// URL of a file path.
+FUNCTION Url_FromPath$ (urlFilePath AS STRING)
     DIM t$, i&, c%, r$
     t$ = urlFilePath
     FOR i& = 1 TO LEN(t$)
@@ -441,7 +388,7 @@ FUNCTION UrlPathToFile$ (urlFilePath AS STRING)
             CASE ELSE: r$ = r$ + CHR$(c%)
         END SELECT
     NEXT
-    UrlPathToFile$ = "file:///" + r$
+    Url_FromPath$ = "file:///" + r$
 END FUNCTION
 
 FUNCTION UrlInstrRev% (urlInstrText AS STRING, urlInstrNeedle AS STRING)
@@ -455,9 +402,6 @@ FUNCTION UrlInstrRev% (urlInstrText AS STRING, urlInstrNeedle AS STRING)
     NEXT
 END FUNCTION
 
-FUNCTION UrlIsAbsolute% (urlAbsoluteText AS STRING)
-    IF UrlSchemeEnd&(urlAbsoluteText) > 0 OR LEFT$(urlAbsoluteText, 1) = "/" THEN UrlIsAbsolute% = -1
-END FUNCTION
 
 ' RFC 3986 section 5.2.4 (remove_dot_segments).
 FUNCTION UrlNormalizePath$ (urlNormalizeValue AS STRING)
@@ -488,7 +432,8 @@ FUNCTION UrlNormalizePath$ (urlNormalizeValue AS STRING)
     UrlNormalizePath$ = out$
 END FUNCTION
 
-FUNCTION REPLACE_LINEBREAKS$ (replaceLineText AS STRING, replaceLineReplacement AS STRING)
+' Lines of text joined with replaceLineReplacement.
+FUNCTION UrlLines$ (replaceLineText AS STRING, replaceLineReplacement AS STRING)
     DIM r$, i&, c$
     FOR i& = 1 TO LEN(replaceLineText)
         c$ = MID$(replaceLineText, i&, 1)
@@ -498,5 +443,5 @@ FUNCTION REPLACE_LINEBREAKS$ (replaceLineText AS STRING, replaceLineReplacement 
             r$ = r$ + c$
         END IF
     NEXT
-    REPLACE_LINEBREAKS$ = r$
+    UrlLines$ = r$
 END FUNCTION

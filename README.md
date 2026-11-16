@@ -79,7 +79,7 @@ The user manual is in [`docs/manual`](docs/manual/README.md), in English and Tha
 | [Installation](docs/manual/en/installation.md) | [การติดตั้ง](docs/manual/th/installation.md) |
 | [Commands: compile, fmt, lsp, dap](docs/manual/en/commands.md) | [คำสั่ง: คอมไพล์, fmt, lsp, dap](docs/manual/th/commands.md) |
 | [Language extensions (available and planned)](docs/manual/en/language.md) | [ส่วนขยายของภาษา (ใช้ได้แล้วและวางแผนไว้)](docs/manual/th/language.md) |
-| [Standard library: json, url, ext.*](docs/manual/en/stdlib.md) | [ไลบรารีมาตรฐาน: json, url, ext.*](docs/manual/th/stdlib.md) |
+| [Standard library: collections, json, url, regex, http, ...](docs/manual/en/stdlib.md) | [ไลบรารีมาตรฐาน: collections, json, url, regex, http, ...](docs/manual/th/stdlib.md) |
 | [Graphics and 3D](docs/manual/en/graphics-3d.md) | [กราฟิกและ 3 มิติ](docs/manual/th/graphics-3d.md) |
 | [Web (WebAssembly) build](docs/manual/en/web.md) | [รันบนเว็บ (WebAssembly)](docs/manual/th/web.md) |
 | [VS Code, formatter, language server, debugger](docs/manual/en/vscode.md) | [VS Code, formatter, language server, debugger](docs/manual/th/vscode.md) |
@@ -167,7 +167,7 @@ Repository: https://github.com/thirawat27/QBNex
 - **Language**
   - QBasic / QuickBASIC 4.5 programs and the QB64 dialect (`_` keywords, `$` metacommands, `_UNSIGNED`, `_INTEGER64`, `_FLOAT`, `_MEM`, `DECLARE LIBRARY`)
   - `DEF FN` (single-line and multi-line), `CHAIN` with `COMMON`, event traps (`ON TIMER`, `ON KEY`, `ON STRIG`, `ON PLAY`, `ON ERROR`), `LPRINT`
-  - QBNex extensions: `_IIF`, `_ANDALSO`/`_ORELSE`, `$"...{expr}..."` interpolation, `FOR EACH`, `ENUM`, `TRY`/`CATCH`/`FINALLY`, `OPTIONAL` parameters, `_CONTINUE`, `$ASSERTS`/`_ASSERT`, CLASS (with `'$IMPORT:'qbnex'`)
+  - QBNex extensions: `_IIF`, `_ANDALSO`/`_ORELSE`, `$"...{expr}..."` interpolation, `FOR EACH`, `ENUM`, `TRY`/`CATCH`/`FINALLY`, `OPTIONAL` parameters, `_CONTINUE`, `$ASSERTS`/`_ASSERT`, CLASS (with `'$IMPORT:'qbnex'`), method syntax on TYPE values (`x.Add "a"` calls `T_Add x, "a"`)
   - Planned: `x += 1`, array literals, `_THROW`, string helpers such as `_SPLIT`; see [docs/manual/en/language.md](docs/manual/en/language.md#planned)
   - Source files in CP437 (as QBasic saved them) or UTF-8
   - Extended data types: `_BIT`, `_BYTE`, `_INTEGER64`, `_FLOAT` (exact software 80-bit), `_OFFSET`, and the `_UNSIGNED` forms
@@ -194,7 +194,7 @@ Repository: https://github.com/thirawat27/QBNex
   - `PEEK`/`POKE`/`DEF SEG` over an emulated 1 MB memory, `CALL ABSOLUTE` and `CALL INTERRUPT` (16-bit x86 emulator, INT 33h mouse)
   - `SHELL`, `CHAIN`, `RUN`, `COMMAND$`, `ENVIRON$`
 
-- **Standard library** (`'$IMPORT:'module'`): `json`, `url`, collections, strings, I/O, system, math, result, OOP, and the Rust-backed `ext.*` modules (regex, hash, zip, http, utf8, collections, datetime, and `ext.core` with `Ext_LastError$`)
+- **Standard library** (`'$IMPORT:'module'`, or `'$IMPORT:'qbnex'` for all): `collections` (`List`, `Dict`, `Set`), `strings`, `json`, `url`, `path`, `csv`, `math`, `sys`, `result`, OOP, and the Rust-backed `regex`, `hash`, `zip`, `http`, `utf8` and `datetime`; one `LastError$` for every module
 
 - **Tools**
   - Formatter (`qbnex fmt`), language server (`qbnex lsp`), debugger (`qbnex dap`), VS Code extension (`packaging/vscode`)
@@ -447,6 +447,7 @@ QBNex adds these to QBasic. Existing programs are unaffected: the new words star
 | `_CONTINUE` | `IF i MOD 2 = 0 THEN _CONTINUE` | Next iteration of the innermost `FOR`, `DO` or `WHILE`. |
 | `$ASSERTS` + `_ASSERT` | `_ASSERT total >= 0, "negative total"` | Checked only when `$ASSERTS` is present. |
 | CLASS | `CLASS Dog` ... `END CLASS` | With `'$IMPORT:'qbnex'`; rewritten into TYPEs and procedures (see [OOP Support](#oop-support)). |
+| Method syntax | `names.Add "Ann"`, `PRINT names.Count` | On a variable, parameter, array element or field of a TYPE `T` that has no field of that name, `x.Name(args)` calls `T_Name(x, args)` and the statement `x.Name args` calls `T_Name x, args`. Works for your own TYPEs; CLASS methods come first. |
 
 ```basic
 TRY
@@ -470,13 +471,17 @@ string helpers, built-in `_LIST`/`_DICT`, CLASS virtual dispatch.
 
 ## Standard Library
 
-The modules are BASIC files in `compiler/stdlib/`; the `ext.*` modules call Rust code linked into
-every runner (`crates/runtime/ext`). Reference for `json`, `url` and `ext.*`:
-[docs/manual/en/stdlib.md](docs/manual/en/stdlib.md).
+The modules are BASIC files in `compiler/stdlib/` with short names in the style of Python and
+JavaScript (`List`, `Dict`, `Json_Parse`, `Str_Trim$`). `regex`, `hash`, `zip`, `http`, `utf8` and
+`datetime` call Rust code linked into every runner (`crates/runtime/ext`); they are not in the web
+build. Every module reports a failed call through one `LastError$` (`""` after a call that worked).
+Reference: [docs/manual/en/stdlib.md](docs/manual/en/stdlib.md).
 
 ### Importing Modules
 
-The only import form the compiler accepts is the `'$IMPORT:'module'` metacommand:
+The only import form the compiler accepts is the `'$IMPORT:'module'` metacommand. Module names are
+flat (`'$IMPORT:'collections'`) and `'$IMPORT:'qbnex'` imports every module. A module may also be
+imported on its own, before or after `qbnex`; it is loaded once.
 
 <!-- docs-test: define qbnex -->
 ```basic
@@ -488,11 +493,11 @@ The only import form the compiler accepts is the `'$IMPORT:'module'` metacommand
 
 ```basic
 ' Import individual modules
-'$IMPORT:'sys.env'
-'$IMPORT:'io.path'
-'$IMPORT:'strings.text'
-'$IMPORT:'collections.list'
-'$IMPORT:'math.numeric'
+'$IMPORT:'sys'
+'$IMPORT:'path'
+'$IMPORT:'strings'
+'$IMPORT:'collections'
+'$IMPORT:'math'
 ```
 
 The `IMPORT module` form below is **planned** and does not compile yet:
@@ -509,23 +514,22 @@ An import line may appear anywhere in the main file: each module's declarations 
 before the program and its procedures after it.
 
 ```basic
-' Import the full qbnex stdlib core
+' Import the whole standard library
 '$IMPORT:'qbnex'
 
-' Now you can use QBNex_ObjectHeader, QBNex_List, etc.
-DIM myList AS QBNex_List
-List_Init myList
-List_Add myList, "Hello"
+' Now you can use List, Dict, Set, Url, Result, Json_*, Str_*, etc.
+DIM myList AS List
+myList.Add "Hello"
 ```
 
 ```basic
 SUB Main ()
-    PRINT Env_Platform$
+    PRINT Sys_Platform$
     PRINT Path_Join$("root", "demo.txt")
 END SUB
 
-'$IMPORT:'sys.env'
-'$IMPORT:'io.path'
+'$IMPORT:'sys'
+'$IMPORT:'path'
 ```
 
 ```basic
@@ -542,17 +546,21 @@ END CLASS
 
 | Module | Import | Contents |
 |--------|--------|----------|
-| Core | `'$IMPORT:'qbnex'` | Every module below except `json`, `url` and `ext.*` in one import; those combine with it, plus CLASS support. `qbnex` (aliases `stdlib`, `all`, `qbnex_stdlib`) loads `compiler/stdlib/stdlib.bas`, which includes `qbnex_stdlib.bas` |
-| JSON | `'$IMPORT:'json'` | RFC 8259 JSON: `JSON_Parse%`, `JsonObjectGet%`, `JsonCreateObject%`, `JSON_Stringify$`, ... |
-| URL | `'$IMPORT:'url'` | `UrlParse`, `UrlFormat$`, `UrlEncodeComponent$`, `UrlDecode$`, `UrlResolve`, ... |
-| Collections | `collections.list`, `.stack`, `.queue`, `.set`, `.dictionary` | `QBNex_List` and friends; each module can be imported alone (it imports `collections.list` itself) or through `qbnex` |
-| Strings | `strings.strbuilder`, `strings.text` | String builder, padding and tests |
-| I/O | `io.path`, `io.csv`, `io.json` | Paths, CSV rows, JSON builders |
-| System | `sys.env`, `sys.args`, `sys.datetime` | Platform, arguments, dates |
-| Math, errors | `math.numeric`, `error.result` | `Math_Clamp#`, `QBNex_Result` |
+| All | `'$IMPORT:'qbnex'` | Every module below in one import, plus CLASS support (`compiler/stdlib/qbnex.bas`) |
+| Core | `'$IMPORT:'core'` | `LastError$`; every other module imports it |
+| Collections | `'$IMPORT:'collections'` | `List`, `Dict` and `Set` of strings: `l.Add`, `l.Get$(i)`, `l.Join$`, `d.Set`, `d.Get$(key$)`, `s.Has`, ... |
+| Strings | `'$IMPORT:'strings'` | `Str_Has&`, `Str_Replace$`, `Str_Trim$`, `Str_PadLeft$`, `Str_Repeat$`, ... |
+| JSON | `'$IMPORT:'json'` | RFC 8259 JSON: `Json_Parse`, `Json_Str$(root, "users[0].name")`, `Json_Object`, `Json_SetStr`, `Json_Stringify$`, ... |
+| URL | `'$IMPORT:'url'` | `Url` TYPE (`u.Parse`, `u.Query$`, `u.SetQuery`, `u.Format$`), `Url_Encode$`, `Url_Decode$`, `Url_Resolve$`, ... |
+| Paths, CSV | `path`, `csv` | `Path_Join$`, `Path_Base$`, `Path_Dir$`, `Path_Ext$`, ...; `Csv_Row$`, `Csv_Parse` (a row is a `List`) |
+| System | `sys` | `Sys_Platform$`, `Sys_Env$`, `Sys_Home$`, `Sys_ArgCount&`, `Sys_Arg$` |
+| Math, results | `math`, `result` | `Math_Clamp#`, `Math_Radians#`, ...; the `Result` TYPE |
+| Rust-backed | `regex`, `hash`, `zip`, `http`, `utf8`, `datetime` | `Regex_Find$`, `Hash_Sha256$`, `Base64_Encode$`, `Zip_Read$`, `Http_Get$`, `Utf8_Len&`, `Date_Now#`, ... (not in the web build) |
+| Native plumbing | `ext` | Shared code of the Rust-backed modules |
 | OOP | `oop.class`, `oop.interface` | Class registry used by CLASS |
-| Rust-backed | `ext.regex`, `ext.hash`, `ext.zip`, `ext.http`, `ext.utf8`, `ext.collections`, `ext.datetime` | See [stdlib manual](docs/manual/en/stdlib.md) |
-| Ext core | `ext.core` | Shared plumbing of the `ext.*` modules: `Ext_LastError$` (message of the last failed call) |
+
+The library TYPEs take [method syntax](#language-extensions): `l.Add "a"` is the call
+`List_Add l, "a"` and `l.Count` is `List_Count(l)`. Both forms work.
 
 ### Working with Modules
 
@@ -561,91 +569,75 @@ END CLASS
 '$IMPORT:'qbnex'
 
 SUB Demo_Collections ()
-    DIM modules AS QBNex_List
-    DIM loadOrder AS QBNex_Queue
-    DIM features AS QBNex_HashSet
-    DIM history AS QBNex_Stack
-    DIM report AS QBNex_StringBuilder
-
-    List_Init modules
-    Queue_Init loadOrder
-    HashSet_Init features
-    Stack_Init history
-    SB_Init report
+    DIM modules AS List
+    DIM features AS Set
+    DIM history AS List
+    DIM report AS List
 
     ' Add items
-    List_Add modules, "collections.list"
-    List_Add modules, "strings.strbuilder"
-    List_Add modules, "sys.env"
+    modules.Add "collections"
+    modules.Add "strings"
+    modules.Add "sys"
 
-    Queue_Enqueue loadOrder, "core"
-    Queue_Enqueue loadOrder, "collections"
+    features.Add "OOP"
+    features.Add "Collections"
+    features.Add "OOP"
 
-    HashSet_Add features, "OOP"
-    HashSet_Add features, "Collections"
-
-    Stack_Push history, "init"
-    Stack_Push history, "ready"
+    history.Add "init"
+    history.Add "ready"
 
     ' Build report
-    SB_AppendLine report, "Loaded modules:"
-    SB_AppendLine report, "  " + List_Join$(modules, ", ")
-    SB_AppendLine report, "Queue head: " + Queue_Peek$(loadOrder)
-    SB_AppendLine report, "Set members: " + HashSet_ToString$(features, " | ")
-    SB_AppendLine report, "Latest stack item: " + Stack_Peek$(history)
+    report.Add "Loaded modules:"
+    report.Add "  " + modules.Join$(", ")
+    report.Add "First module: " + modules.Get$(0)
+    report.Add "Set members: " + features.Join$(" | ")
+    report.Add "Latest step: " + history.Pop$
 
-    PRINT SB_ToString$(report)
-
-    ' Clean up
-    SB_Free report
-    Stack_Free history
-    HashSet_Free features
-    Queue_Free loadOrder
-    List_Free modules
+    PRINT report.Join$(CHR$(10))
 END SUB
 ```
 
 **Example: Using System Modules**
 ```basic
 SUB Demo_System ()
-    DIM nowValue AS QBNex_Date
-
-    Date_SetNow nowValue
-    PRINT "Platform: "; Env_Platform$
-    PRINT "64-bit: "; Env_Is64Bit&
-    PRINT "Home: "; Env_GetHome$
-    PRINT "Joined path: "; Path_Join$(Env_GetHome$, "qbnex/demo/output.txt")
-    PRINT "File name: "; Path_FileName$("src/stdlib/demo.bas")
-    PRINT "Arg count: "; Args_Count&
-    PRINT "Date ISO: "; Date_ToISOString$(nowValue)
+    PRINT "Platform: "; Sys_Platform$
+    PRINT "64-bit: "; Sys_Is64Bit&
+    PRINT "Home: "; Sys_Home$
+    PRINT "Joined path: "; Path_Join$(Sys_Home$, "qbnex", "demo", "output.txt")
+    PRINT "File name: "; Path_Base$("src/stdlib/demo.bas")
+    PRINT "Arg count: "; Sys_ArgCount&
+    PRINT "Date ISO: "; Date_Iso$(Date_Now#)
 END SUB
 
-'$IMPORT:'strings.text'
-'$IMPORT:'sys.env'
-'$IMPORT:'sys.args'
-'$IMPORT:'sys.datetime'
-'$IMPORT:'io.path'
+'$IMPORT:'sys'
+'$IMPORT:'path'
+'$IMPORT:'datetime'
 ```
 
 **Example: Using I/O Modules**
 ```basic
 SUB Demo_Data ()
-    DIM metadata AS QBNex_Dictionary
-    DIM outcome AS QBNex_Result
+    DIM metadata AS Dict
+    DIM outcome AS Result
+    DIM o AS INTEGER
 
-    Dict_Init metadata
-    Dict_Set metadata, "name", "QBNex"
-    Dict_Set metadata, "layer", "stdlib"
+    metadata.Set "name", "QBNex"
+    metadata.Set "layer", "stdlib"
 
-    PRINT "Dict count: "; Dict_Count&(metadata)
-    PRINT "Dict name: "; Dict_Get$(metadata, "name", "")
-    PRINT "JSON sample: "; Json_Object3$("name", Json_String$(Dict_Get$(metadata, "name", "")), "layer", Json_String$(Dict_Get$(metadata, "layer", "")), "status", Json_String$("ok"))
+    PRINT "Dict count: "; metadata.Count
+    PRINT "Dict name: "; metadata.Get$("name")
 
-    Result_Ok outcome, "stable"
-    PRINT "Result ok: "; Result_IsOk&(outcome)
-    PRINT "Result value: "; Result_Value$(outcome, "")
+    o = Json_Object
+    FOR i = 0 TO metadata.Count - 1
+        Json_SetStr o, metadata.Key$(i), metadata.Value$(i)
+    NEXT i
+    Json_SetStr o, "status", "ok"
+    PRINT "JSON sample: "; Json_Stringify$(o)
+    Json_Free o
 
-    Dict_Free metadata
+    outcome.Ok "stable"
+    PRINT "Result failed: "; outcome.Failed
+    PRINT "Result value: "; outcome.Value
 END SUB
 
 '$IMPORT:'qbnex'
@@ -654,294 +646,354 @@ END SUB
 
 ### Collection Libraries
 
-The examples below start with `'$IMPORT:'qbnex'`. All collections hold strings.
+The examples below start with `'$IMPORT:'qbnex'` (or `'$IMPORT:'collections'`). All collections hold
+strings; store a number as `STR$(n)` and read it back with `VAL`. A new variable is ready to use (no
+Init call). A copy (`b = a`) is the same collection, as in Python. `Free` gives the memory back
+early; otherwise it lasts until the program ends.
 
-#### List (`collections.list`)
-Dynamic array with automatic resizing.
+#### List (`collections`)
+Dynamic array, like a Python list. Indexes start at 0; a negative index counts from the end
+(`-1` is the last item). With `Pop$` it is also a stack, and with `Pop$(0)` a queue.
 
-- `List_Init list` · `List_Free list` · `List_Clear list`
-- `List_Add list, item$` · `List_Set list, index&, item$` · `List_RemoveAt list, index&`
-- `List_Get$(list, index&)` (0-based) · `List_Count&(list)`
-- `List_IndexOf&(list, item$)` · `List_Contains&(list, item$)`
-- `List_Join$(list, separator$)`
+- `l.Add item$` · `l.Insert index&, item$` · `l.Set index&, item$` · `l.RemoveAt index&` · `l.Remove item$`
+- `l.Get$(index&)` (`""` outside the list) · `l.Pop$` / `l.Pop$(index&)` · `l.Count`
+- `l.IndexOf(item$)` (`-1` when missing) · `l.Has(item$)`
+- `l.Join$(sep$)` (default `", "`) · `l.Split text$, sep$` (default `","`)
+- `l.Sort` (`l.Sort -1` descending) · `l.Reverse` · `l.Clear` · `l.Free`
 
 **Example:**
 <!-- docs-test: prepend qbnex -->
 ```basic
-DIM myList AS QBNex_List
-List_Init myList
-List_Add myList, "Apple"
-List_Add myList, "Banana"
-List_Add myList, "Cherry"
+DIM fruits AS List
+fruits.Add "Cherry"
+fruits.Add "Apple"
+fruits.Add "Banana"
+fruits.Sort
 
-PRINT "Items: "; List_Count&(myList)
-PRINT "All: "; List_Join$(myList, ", ")
+PRINT "Items:"; fruits.Count
+PRINT "All: "; fruits.Join$(", ")
+PRINT "Last: "; fruits.Get$(-1)
 ' Output: Items: 3
 ' Output: All: Apple, Banana, Cherry
+' Output: Last: Cherry
 
-List_Free myList
-```
-
-#### Stack (`collections.stack`)
-LIFO (last in, first out).
-
-- `Stack_Init stack` · `Stack_Free stack` · `Stack_Clear stack`
-- `Stack_Push stack, item$` · `Stack_Pop$(stack)` · `Stack_Peek$(stack)` · `Stack_Count&(stack)`
-
-**Example:**
-<!-- docs-test: prepend qbnex -->
-```basic
-DIM history AS QBNex_Stack
-Stack_Init history
-
-Stack_Push history, "init"
-Stack_Push history, "registry"
-Stack_Push history, "ready"
-
-PRINT "Latest: "; Stack_Peek$(history)
-PRINT "Count: "; Stack_Count&(history)
+DIM history AS List                 ' a stack
+history.Add "init": history.Add "registry": history.Add "ready"
+PRINT "Latest: "; history.Pop$
 ' Output: Latest: ready
-' Output: Count: 3
 
-Stack_Free history
-```
-
-#### Queue (`collections.queue`)
-FIFO (first in, first out).
-
-- `Queue_Init queue` · `Queue_Free queue` · `Queue_Clear queue`
-- `Queue_Enqueue queue, item$` · `Queue_Dequeue$(queue)` · `Queue_Peek$(queue)` · `Queue_Count&(queue)`
-
-**Example:**
-<!-- docs-test: prepend qbnex -->
-```basic
-DIM loadOrder AS QBNex_Queue
-Queue_Init loadOrder
-
-Queue_Enqueue loadOrder, "core"
-Queue_Enqueue loadOrder, "collections"
-Queue_Enqueue loadOrder, "text"
-
-PRINT "Next: "; Queue_Peek$(loadOrder)
+DIM loadOrder AS List               ' a queue
+loadOrder.Add "core": loadOrder.Add "collections"
+PRINT "Next: "; loadOrder.Pop$(0)
 ' Output: Next: core
-
-Queue_Free loadOrder
 ```
 
-#### Set (`collections.set`)
-Set of unique strings, backed by a `QBNex_List`: lookups are a linear search and the insertion order is kept.
+#### Set (`collections`)
+Set of unique strings, backed by a `List`: lookups are a linear search and the insertion order is kept.
 
-- `HashSet_Init set` · `HashSet_Free set` · `HashSet_Clear set`
-- `HashSet_Add set, item$` (a duplicate is ignored) · `HashSet_Remove set, item$`
-- `HashSet_Contains&(set, item$)` · `HashSet_Count&(set)` · `HashSet_ToString$(set, separator$)`
+- `s.Add item$` (a duplicate is ignored) · `s.Remove item$` · `s.Clear` · `s.Free`
+- `s.Has(item$)` · `s.Count` · `s.Join$(sep$)`
 
 **Example:**
 <!-- docs-test: prepend qbnex -->
 ```basic
-DIM features AS QBNex_HashSet
-HashSet_Init features
+DIM features AS Set
+features.Add "OOP"
+features.Add "Collections"
+features.Add "OOP"  ' Duplicate, ignored
 
-HashSet_Add features, "OOP"
-HashSet_Add features, "Collections"
-HashSet_Add features, "OOP"  ' Duplicate, ignored
-
-PRINT "Members: "; HashSet_ToString$(features, " | ")
-PRINT "Count: "; HashSet_Count&(features)
+PRINT "Members: "; features.Join$(" | ")
+PRINT "Count:"; features.Count
 ' Output: Members: OOP | Collections
 ' Output: Count: 2
-
-HashSet_Free features
 ```
 
-#### Dictionary (`collections.dictionary`)
-Key-value store with string keys.
+#### Dictionary (`collections`)
+`Dict`: key-value store with string keys, like a Python dict; keys keep the order they were added in.
 
-- `Dict_Init dict` · `Dict_Free dict` · `Dict_Clear dict`
-- `Dict_Set dict, key$, value$` · `Dict_Remove dict, key$`
-- `Dict_Get$(dict, key$, default$)` · `Dict_Has&(dict, key$)` · `Dict_Count&(dict)`
-- `Dict_KeyAt$(dict, index&)` · `Dict_ValueAt$(dict, index&)`
+- `d.Set key$, value$` · `d.Remove key$` · `d.Clear` · `d.Free`
+- `d.Get$(key$)` (`""` when missing) or `d.Get$(key$, fallback$)` · `d.Has(key$)` · `d.Count`
+- `d.Key$(index&)` · `d.Value$(index&)` (0-based, in insertion order)
 
 **Example:**
 <!-- docs-test: prepend qbnex -->
 ```basic
-DIM metadata AS QBNex_Dictionary
-Dict_Init metadata
+DIM metadata AS Dict
+metadata.Set "name", "QBNex"
+metadata.Set "layer", "stdlib"
+metadata.Set "kind", "compiler"
 
-Dict_Set metadata, "name", "QBNex"
-Dict_Set metadata, "version", "current"
-Dict_Set metadata, "kind", "compiler"
-
-PRINT "Name: "; Dict_Get$(metadata, "name", "")
-PRINT "Count: "; Dict_Count&(metadata)
+PRINT "Name: "; metadata.Get$("name")
+PRINT "Owner: "; metadata.Get$("owner", "nobody")
+PRINT "Count:"; metadata.Count
 ' Output: Name: QBNex
+' Output: Owner: nobody
 ' Output: Count: 3
-
-Dict_Free metadata
 ```
 
 ### String Libraries
 
-#### StringBuilder (`strings.strbuilder`)
+#### Text Utilities (`strings`)
 
-- `SB_Init sb` · `SB_Free sb` · `SB_Clear sb`
-- `SB_Append sb, text$` · `SB_AppendLine sb, text$`
-- `SB_ToString$(sb)` · `SB_Length&(sb)`
+Like Python's str methods. Splitting a text into parts and joining them are `l.Split` and
+`l.Join$` of a `List`; to build a long text, add the pieces to a `List` and `Join$` them.
 
-**Example:**
-<!-- docs-test: prepend qbnex -->
-```basic
-DIM report AS QBNex_StringBuilder
-SB_Init report
-
-SB_AppendLine report, "=== Report ==="
-SB_AppendLine report, "Total items: 10"
-SB_AppendLine report, "Status: OK"
-SB_Append report, "End of report."
-
-PRINT SB_ToString$(report)
-' Output:
-' === Report ===
-' Total items: 10
-' Status: OK
-' End of report.
-
-SB_Free report
-```
-
-#### Text Utilities (`strings.text`)
-
-- `Text_PadLeft$(text$, width&, pad$)` · `Text_PadRight$(text$, width&, pad$)`
-- `Text_Repeat$(text$, count&)`
-- `Text_StartsWith&(text$, prefix$)` · `Text_EndsWith&(text$, suffix$)` · `Text_Contains&(text$, search$)`
+- `Str_Has&(text$, part$)` · `Str_StartsWith&(text$, prefix$)` · `Str_EndsWith&(text$, suffix$)`
+- `Str_Replace$(text$, find$, replacement$)` (every match) · `Str_Trim$(text$)` (spaces, tabs and line breaks)
+- `Str_PadLeft$(text$, size&, fill$)` · `Str_PadRight$(text$, size&, fill$)` · `Str_Repeat$(text$, count&)`
 
 **Example:**
 <!-- docs-test: prepend qbnex -->
 ```basic
-PRINT Text_PadRight$("QBNex", 10, ".")
+PRINT Str_PadRight$("QBNex", 10, ".")
 ' Output: QBNex.....
 
-PRINT Text_PadLeft$("123", 8, "0")
+PRINT Str_PadLeft$("123", 8, "0")
 ' Output: 00000123
+
+PRINT Str_Replace$("a-b-c", "-", "+")
+' Output: a+b+c
+```
+
+#### Regular Expressions (`regex`)
+
+Like Python's re, with Rust regex syntax (`\d \w \s`, classes, groups, `(?<name>...)`, `(?i)`; no
+backreferences or look-around). Positions are 1-based bytes like `INSTR`. A bad pattern gives `0` or
+`""` and `LastError$` says why.
+
+- `Regex_Test&(pattern$, text$)` · `Regex_Find$(pattern$, text$[, start&])`, then `Regex_Group$(n)` and `Regex_Pos&`
+- `Regex_Replace$(pattern$, text$, replacement$[, firstOnly&])` (`$1`, `${name}`)
+- `Regex_Split pattern$, text$, parts` · `Regex_FindAll pattern$, text$, found` (into a `List`)
+
+**Example:**
+<!-- docs-test: prepend qbnex -->
+```basic
+m$ = Regex_Find$("(\w+)@(\w+)", "mail ann@example now")
+PRINT m$; " user="; Regex_Group$(1); " at"; Regex_Pos&
+' Output: ann@example user=ann at 6
+
+DIM found AS List
+Regex_FindAll "\d+", "1 apple, 22 pears, 333 plums", found
+PRINT found.Join$(" ")
+' Output: 1 22 333
+```
+
+#### UTF-8 Text (`utf8`)
+
+BASIC strings are bytes; these functions treat them as UTF-8 text, character by character.
+
+- `Utf8_Len&(text$)` · `Utf8_Mid$(text$, start&[, count&])` · `Utf8_Left$` · `Utf8_Right$`
+- `Utf8_Upper$` · `Utf8_Lower$` · `Utf8_Normalize$(text$[, "NFC"|"NFD"|"NFKC"|"NFKD"])` · `Utf8_IsValid&`
+- `Utf8_Asc&(text$[, index&])` · `Utf8_Chr$(codePoint&)` · `Utf8_FromCp437$` · `Utf8_ToCp437$`
+
+**Example:**
+<!-- docs-test: prepend qbnex -->
+```basic
+s$ = "สวัสดี"
+PRINT Utf8_Len&(s$); LEN(s$)
+' Output:  6  18
+
+PRINT Utf8_Upper$("straße")
+' Output: STRASSE
 ```
 
 ### I/O Libraries
 
-#### Path Utilities (`io.path`)
+#### Path Utilities (`path`)
 
-- `Path_Join$(base$, leaf$)` · `Path_Normalize$(path$)` · `Path_Separator$`
-- `Path_FileName$(path$)` · `Path_DirName$(path$)` · `Path_Extension$(path$)`
+Like Python's os.path. `/` and `\` are both accepted; results use the separator of the computer.
+
+- `Path_Join$(a$, b$[, c$, d$])` · `Path_Normalize$(path$)` · `Path_Sep$`
+- `Path_Base$(path$)` · `Path_Dir$(path$)` · `Path_Ext$(path$)` · `Path_Stem$(path$)` · `Path_Exists&(path$)`
 
 **Example:**
 <!-- docs-test: prepend qbnex -->
 ```basic
-PRINT Path_Join$("src", "stdlib/demo.bas")
+PRINT Path_Join$("src", "stdlib", "demo.bas")
 ' Output: src/stdlib/demo.bas (on Windows: src\stdlib\demo.bas)
 
-PRINT Path_FileName$("src/stdlib/demo.bas")
+PRINT Path_Base$("src/stdlib/demo.bas")
 ' Output: demo.bas
 
-PRINT Path_Extension$("src/stdlib/demo.bas")
+PRINT Path_Ext$("src/stdlib/demo.bas")
 ' Output: .bas
 ```
 
-#### CSV Generation (`io.csv`)
+#### CSV (`csv`)
 
-- `CSV_Row2$(a$, b$)` · `CSV_Row3$(a$, b$, c$)` · `CSV_Row4$(a$, b$, c$, d$)`
-- `CSV_Escape$(value$)`: quotes a value that holds a comma, quote or line break
+One CSV row (RFC 4180) to and from a `List`, like Python's csv module.
+
+- `Csv_Row$(row[, sep$])`: the fields of a `List` as one line; a field that holds the separator, a quote or a line break is quoted
+- `Csv_Parse row, text$[, sep$]`: the fields of a line back in the `List`
 
 **Example:**
 <!-- docs-test: prepend qbnex -->
 ```basic
-PRINT CSV_Row3$("name", "score", "status")
-' Output: name,score,status
+DIM row AS List
+row.Add "Alice": row.Add "100": row.Add "a,b"
+PRINT Csv_Row$(row)
+' Output: Alice,100,"a,b"
 
-PRINT CSV_Row3$("Alice", "100", "pass")
-' Output: Alice,100,pass
+Csv_Parse row, "name,score,status"
+PRINT row.Count; row.Get$(2)
+' Output:  3 status
 ```
 
-#### JSON Builders (`io.json`)
+#### JSON (`json`)
 
-Small builders that return JSON text. For parsing, use the `json` module
-([stdlib manual](docs/manual/en/stdlib.md#json)).
+RFC 8259 JSON, like Python's json. A value is a handle (an `INTEGER`, 0 = none). Values are read
+with a path of names and 0-based indexes: `"user.tags.0"` or `"items[2].id"`. Objects keep the
+order of their members.
 
-- `Json_String$(text$)` · `Json_Escape$(text$)` · `Json_Pair$(key$, valueJson$)`
-- `Json_Object2$(...)` · `Json_Object3$(k1$, v1Json$, k2$, v2Json$, k3$, v3Json$)`
-- `Json_Array2$(a$, b$)` · `Json_Array3$(a$, b$, c$)`
+- `Json_Parse(text$)` (0 on error: `LastError$`, `Json_ErrorPos&`) · `Json_Free v` · `Json_FreeAll`
+- `Json_Str$(v, path$)` (`""` when missing) · `Json_Num#` · `Json_Bool%` · `Json_Type$` (`"object"`, `"array"`, ...) · `Json_Has%` · `Json_Count` · `Json_Key$(v, index[, path$])` · `Json_Get`
+- `Json_Object` · `Json_Array` · `Json_SetStr o, key$, text$` (also `Json_SetNum`, `Json_SetBool`, `Json_SetNull`, `Json_Set o, key$, value`) · `Json_Remove o, key$`
+- `Json_PushStr a, text$` (also `Json_PushNum`, `Json_PushBool`, `Json_Push a, value`)
+- `Json_Stringify$(v)` · `Json_Stringify$(v, indent)` (pretty-printed)
 
 **Example:**
 <!-- docs-test: prepend qbnex -->
 ```basic
-PRINT Json_Object3$("name", Json_String$("QBNex"), "version", Json_String$("current"), "status", Json_String$("ok"))
-' Output: {"name":"QBNex","version":"current","status":"ok"}
+DIM root AS INTEGER, o AS INTEGER, tags AS INTEGER
+text$ = Str_Replace$("{'name': 'QBNex', 'tags': ['basic', 'rust']}", "'", CHR$(34))
+root = Json_Parse(text$)
+PRINT Json_Str$(root, "name"); " "; Json_Str$(root, "tags[1]"); Json_Count(root, "tags")
+' Output: QBNex rust 2
+
+o = Json_Object
+Json_SetStr o, "name", "QBNex"
+Json_SetNum o, "stars", 5
+tags = Json_Array: Json_PushStr tags, "basic": Json_Set o, "tags", tags
+PRINT Json_Stringify$(o)
+' Output: {"name":"QBNex","stars":5,"tags":["basic"]}
+```
+
+#### URL (`url`)
+
+Like JavaScript's URL object and Python's urllib.parse (RFC 3986). The `Url` TYPE has the fields
+`href`, `protocol`, `username`, `password`, `hostname`, `port` (a `LONG`), `pathname`, `search`,
+`hash`, `host` and `origin`.
+
+- `u.Parse text$` · `u.Format$` · `u.Query$(key$)` (decoded) · `u.SetQuery key$, value$`
+- `Url_Encode$(text$)` · `Url_Decode$(text$)` · `Url_Resolve$(base$, relative$)`
+- `Url_ToPath$(fileUrl$)` · `Url_FromPath$(path$)`
+
+**Example:**
+<!-- docs-test: prepend qbnex -->
+```basic
+DIM u AS Url
+u.Parse "https://Example.com:8080/a/b.txt?q=1&s=a+b#top"
+PRINT u.hostname; u.port; u.pathname
+' Output: example.com 8080 /a/b.txt
+
+PRINT u.Query$("s")
+' Output: a b
+
+PRINT Url_Resolve$("http://a/b/c/d", "../g")
+' Output: http://a/b/g
+```
+
+#### Hashes, ZIP and HTTP (`hash`, `zip`, `http`)
+
+- `Hash_Sha256$(s$)` · `Hash_Sha512$` · `Hash_Sha1$` · `Hash_Md5$` (lower-case hex) · `Hash_Crc32~&(s$)`
+- `Base64_Encode$(s$[, urlSafe&])` · `Base64_Decode$(b$)` · `Hex_Encode$(s$)` · `Hex_Decode$(h$)`
+- `Zip_List archive$, names` (a `List`) · `Zip_Read$(archive$, member$)` · `Zip_Extract archive$, folder$`
+- `z& = Zip_Create&(archive$)` · `Zip_Write z&, member$, text$` · `Zip_AddFile z&, member$, file$` · `Zip_AddFolder z&, member$` · `Zip_Close z&`
+- `Http_Get$(url$[, timeoutMs&])` · `Http_Post$(url$, body$[, contentType$])` · `Http_Request$(method$, url$, body$, headers$)` return the body; `Http_Status&` (-1 when no answer came back, see `LastError$`) · `Http_Header$(name$)` · `Http_Headers$`
+
+**Example:**
+<!-- docs-test: prepend qbnex -->
+```basic
+PRINT Hash_Sha256$("abc")
+' Output: ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad
+
+PRINT Base64_Encode$("hello"); " "; Hex_Encode$("AZ")
+' Output: aGVsbG8= 415a
+
+z& = Zip_Create&("demo.zip")
+Zip_Write z&, "hello.txt", "hello"
+Zip_Close z&
+PRINT Zip_Read$("demo.zip", "hello.txt")
+' Output: hello
+```
+
+<!-- docs-test: skip needs the network -->
+```basic
+page$ = Http_Get$("https://example.com/")
+IF Http_Status& <> 200 THEN PRINT "failed:"; Http_Status&; LastError$ ELSE PRINT LEN(page$); "bytes"
+PRINT Http_Header$("content-type")
 ```
 
 ### System Libraries
 
-#### Environment (`sys.env`)
+#### Environment (`sys`)
 
-- `Env_Platform$`: `WINDOWS`, `LINUX`, `MACOS` or `UNKNOWN`
-- `Env_Is64Bit&` (-1 or 0) · `Env_GetHome$`
-- `Env_Get$(name$, default$)` · `Env_Has&(name$)`
+The computer and the command line, like Python's sys and os.environ.
+
+- `Sys_Platform$`: `"windows"`, `"linux"`, `"macos"` or `"unknown"`
+- `Sys_Is64Bit&` (-1 or 0) · `Sys_Home$`
+- `Sys_Env$(name$)` or `Sys_Env$(name$, fallback$)` · `Sys_HasEnv&(name$)`
 
 **Example:**
 <!-- docs-test: prepend qbnex -->
 ```basic
-PRINT "Platform: "; Env_Platform$
-PRINT "64-bit: "; Env_Is64Bit&
-PRINT "Home: "; Env_GetHome$
+PRINT "Platform: "; Sys_Platform$
+PRINT "64-bit: "; Sys_Is64Bit&
+PRINT "Home: "; Sys_Home$
 ' Output (Linux):
-' Platform: LINUX
+' Platform: linux
 ' 64-bit: -1
 ' Home: /home/user
 ```
 
-#### Arguments (`sys.args`)
+#### Arguments (`sys`)
 
-- `Args_Count&` · `Args_Get$(index&, default$)` · `Args_Program$` · `Args_All$`
+- `Sys_ArgCount&` · `Sys_Arg$(index&)` or `Sys_Arg$(index&, fallback$)`
 
-Arguments count from 1 (`Args_Get$` returns `default$` outside 1 to `Args_Count&`); `Args_Program$` is argument 0, the program itself.
+Arguments count from 1 (`Sys_Arg$` returns `fallback$`, default `""`, when there is no such argument); `Sys_Arg$(0)` is the program itself.
 
 **Example:**
 <!-- docs-test: prepend qbnex -->
 ```basic
-PRINT "Argument count: "; Args_Count&
-FOR i = 1 TO Args_Count&
-    PRINT "Arg "; i; ": "; Args_Get$(i, "")
+PRINT "Argument count: "; Sys_ArgCount&
+FOR i = 1 TO Sys_ArgCount&
+    PRINT "Arg "; i; ": "; Sys_Arg$(i)
 NEXT i
 ```
 
-#### DateTime (`sys.datetime`)
+#### DateTime (`datetime`)
 
-`Date_GetMonth&` and the `monthIndex&` of `Date_FromParts` count months from 0, and `Date_GetDay&` is the weekday (0 = Sunday), as in JavaScript. `Date_DaysInMonth&` takes the month as 1 to 12.
+A point in time is a `DOUBLE`: milliseconds since 1970-01-01 00:00:00 UTC, like JavaScript's
+`Date.now()`. Every function works in UTC; give `-1` as the last (`local`) argument for the
+computer's time zone. Invalid input gives NaN (`Date_IsValid&(t#) = 0`) and sets `LastError$`.
 
-- `Date_SetNow date` · `Date_FromParts date, year&, monthIndex&, day&, hour&, minute&, second&, ms&` · `Date_FromUnixMs date, ms#`
-- `Date_ToISOString$(date)` · `Date_ToJSON$(date)` · `Date_ValueOf#(date)` · `Date_NowMs#`
-- `Date_GetFullYear&`, `Date_GetMonth&`, `Date_GetDate&`, `Date_GetDay&`, `Date_GetHours&`, `Date_GetMinutes&`, `Date_GetSeconds&`, `Date_GetMilliseconds&`
-- `Date_IsLeapYear&(year&)` · `Date_DaysInMonth&(year&, month&)`
+- `Date_Now#` · `Date_Make#(year&, month&, day&[, hour&, minute&, second&, ms&, local&])` (month 1 to 12)
+- `Date_Parse#(text$[, pattern$, local&])`: ISO 8601 / RFC 3339, or the strftime `pattern$`
+- `Date_Iso$(t#[, local&])` · `Date_Format$(t#[, pattern$, local&])` (`%Y %m %d %H %M %S %A %B %z ...`)
+- `Date_Year&`, `Date_Month&`, `Date_Day&`, `Date_Hour&`, `Date_Minute&`, `Date_Second&`, `Date_Millisecond&`, `Date_Weekday&` (0 = Sunday), `Date_YearDay&`, `Date_IsoWeek&`
+- `Date_AddDays#(t#, days#)` · `Date_DiffDays#(a#, b#)` · `Date_Offset&(t#)` (seconds the local zone is ahead of UTC)
 
 **Example:**
 <!-- docs-test: prepend qbnex -->
 ```basic
-DIM now AS QBNex_Date
-Date_SetNow now
-
-PRINT "ISO: "; Date_ToISOString$(now)
-PRINT "Year: "; Date_GetFullYear&(now)
-PRINT "Timestamp: "; Date_NowMs#
+t# = Date_Make#(2024, 3, 5, 7, 8, 9)
+PRINT "ISO: "; Date_Iso$(t#)
+PRINT "In 30 days: "; Date_Format$(Date_AddDays#(t#, 30), "%d/%m/%Y")
+PRINT "Weekday:"; Date_Weekday&(t#)
+PRINT "Now: "; Date_Iso$(Date_Now#, -1)
 ' Output:
-' ISO: 2026-04-13T19:30:00.000
-' Year:  2026
-' Timestamp:  1776108600000
+' ISO: 2024-03-05T07:08:09.000Z
+' In 30 days: 04/04/2024
+' Weekday: 2
+' Now: 2026-04-13T19:30:00.000+07:00
 ```
-
-For time zones, parsing and formatting use `ext.datetime` ([stdlib manual](docs/manual/en/stdlib.md#extdatetime)).
 
 ### Math & Error Handling
 
-#### Numeric Utilities (`math.numeric`)
+#### Numeric Utilities (`math`)
 
-- `Math_Min#(a#, b#)` · `Math_Max#(a#, b#)` · `Math_Clamp#(x#, min#, max#)` · `Math_Lerp#(a#, b#, t#)`
-- `Math_Deg2Rad#(degrees#)` · `Math_Rad2Deg#(radians#)`
+- `Math_Min#(a#, b#)` · `Math_Max#(a#, b#)` · `Math_Clamp#(x#, low#, high#)` · `Math_Lerp#(a#, b#, t#)`
+- `Math_Radians#(degrees#)` · `Math_Degrees#(radians#)` · `Math_Pi#`
 
 **Example:**
 <!-- docs-test: prepend qbnex -->
@@ -953,50 +1005,35 @@ PRINT Math_Clamp#(5#, 0#, 10#)
 ' Output: 5
 ```
 
-#### Result Type (`error.result`)
-Structured error handling with typed failures, propagation context, and readable error chains.
+#### Result Type (`result`)
+A value or an error, returned from your own SUBs instead of raising `ERROR`. Read the fields
+`Failed` (-1 or 0), `Value`, `Message` and `Code` directly; the SUBs set them.
 
-**Functions:**
-- `Result_Ok(result, value$)` - Set successful result
-- `Result_Fail(result, message$)` - Set a generic error result
-- `Result_FailCode(result, code&, message$)` - Set an error with an explicit code
-- `Result_FailWithContext(result, code&, message$, context$, source$)` - Set an error with code, context, and source information
-- `Result_AddContext(result, context$)` - Prepend outer context while propagating an error
-- `Result_SetSource(result, source$)` - Record the subsystem, file, or module that emitted the error
-- `Result_SetCause(result, cause$)` - Attach the underlying cause text
-- `Result_Propagate(result, sourceResult, context$, source$)` - Copy an error forward and add outer context
-- `Result_IsOk&(result)` - Check if result is OK
-- `Result_IsError&(result)` - Check if result is an error
-- `Result_Code&(result)` - Get the error code
-- `Result_Value$(result, default$)` - Get result value
-- `Result_Message$(result)` - Get the error message
-- `Result_Context$(result)` - Get the accumulated context chain
-- `Result_Source$(result)` - Get the source/subsystem text
-- `Result_Cause$(result)` - Get the attached cause text
-- `Result_ErrorChain$(result)` - Render a readable combined error chain
-- `Result_Describe$(result)` - Describe the result in a readable single string
-- `Result_Expect$(result, expectation$)` - Abort with a panic-style message if the result is an error
+- `r.Ok [value$]` - Success with a value (clears an earlier error)
+- `r.Fail message$[, code&]` - An error with a message and a code (default 1)
+- `r.Context where$` - Puts `where: ` in front of the message of an error, to say where it happened
 
 **Example:**
 <!-- docs-test: prepend qbnex -->
 ```basic
-DIM outcome AS QBNex_Result
-DIM startup AS QBNex_Result
+DIM outcome AS Result
+DIM startup AS Result
 
-Result_Ok outcome, "stable"
-IF Result_IsOk&(outcome) THEN
-    PRINT "Success: "; Result_Value$(outcome, "")
-END IF
+outcome.Ok "stable"
+IF NOT outcome.Failed THEN PRINT "Success: "; outcome.Value
 ' Output: Success: stable
 
-Result_FailWithContext outcome, 404, "Configuration file not found", "while reading settings.json", "config.loader"
-Result_SetCause outcome, "startup profile is missing from the project root"
-Result_Propagate startup, outcome, "while starting application", "startup"
-
-IF Result_IsError&(startup) THEN
-    PRINT "Error: "; Result_ErrorChain$(startup)
+LoadSettings startup
+IF startup.Failed THEN
+    startup.Context "while starting application"
+    PRINT "Error"; startup.Code; startup.Message
 END IF
-' Output: Error: while starting application -> while reading settings.json: [E404] Configuration file not found [source=startup] | cause: startup profile is missing from the project root
+' Output: Error 53 while starting application: settings.json is missing
+
+SUB LoadSettings (r AS Result)
+    IF _FILEEXISTS("settings.json") = 0 THEN r.Fail "settings.json is missing", 53: EXIT SUB
+    r.Ok "loaded"
+END SUB
 ```
 
 ### OOP Support
@@ -1410,16 +1447,17 @@ with data appended. Exclude the QBNex folder or your output folder from scanning
 in Docker see the [Docker Guide](#docker-guide). `_GPU3D` returns 0 without a GPU runtime;
 `SUB _GL` needs an OpenGL driver (`QB_GL=off` disables it).
 
-**Import problems.** The form is `'$IMPORT:'module.name'` (apostrophe, `$IMPORT:`, the name in
-single quotes). Modules are in `compiler/stdlib/`; the collections other than
-`collections.list` need `'$IMPORT:'qbnex'`.
+**Import problems.** The form is `'$IMPORT:'module'` (apostrophe, `$IMPORT:`, the name in
+single quotes). Modules are in `compiler/stdlib/`, one file per module (`collections.bas`,
+`sys.bas`, ...); `oop.class` is `oop/class.bas`. Any module can be imported alone, or all of them
+with `'$IMPORT:'qbnex'`.
 
 <!-- docs-test: skip shows wrong syntax on purpose -->
 ```basic
 ' Correct syntax (note the quotes and colon)
 '$IMPORT:'qbnex'
-'$IMPORT:'collections.list'
-'$IMPORT:'sys.env'
+'$IMPORT:'collections'
+'$IMPORT:'sys'
 
 ' Wrong syntax (common mistakes)
 '$IMPORT: qbnex'          ' Missing quotes around module
@@ -2050,9 +2088,10 @@ QBNex/
 │   ├── qbnex.bas               # Main orchestrator entry point
 │   ├── global/                 # Version, constants, settings
 │   ├── includes/               # Shared include files
-│   ├── stdlib/                 # Standard library modules (collections, error, ext, io,
-│   │                           #   math, oop, strings, sys, json.bas, url.bas, stdlib.bas,
-│   │                           #   qbnex_stdlib.bas)
+│   ├── stdlib/                 # Standard library modules, one file each (core, collections,
+│   │                           #   strings, json, url, path, csv, math, sys, result, regex,
+│   │                           #   hash, zip, http, utf8, datetime, ext; qbnex.bas imports
+│   │                           #   them all; oop/ for CLASS)
 │   ├── subs_functions/         # Built-in statement and function table
 │   ├── support/                # $COLOR tables, SUB _GL keyword table, vwatch
 │   └── utilities/              # Compiler modules (QIR emission, CLI, imports, DEF FN, ...)
@@ -2070,7 +2109,7 @@ QBNex/
 │   ├── runtime/audio/          # qb-audio: audio engine (SOUND, PLAY, _SND*)
 │   ├── runtime/float80/        # qb-float80: software 80-bit _FLOAT
 │   ├── runtime/gpu/            # qb-gpu: optional wgpu presentation and 3D renderer
-│   ├── runtime/ext/            # qb-ext: Rust side of the ext.* standard library modules
+│   ├── runtime/ext/            # qb-ext: Rust side of the regex, hash, zip, http, utf8 and datetime modules
 │   ├── tools/fmt/              # qb-fmt: formatter (qbnex fmt)
 │   ├── tools/lsp/              # qb-lsp: language server (qbnex lsp)
 │   ├── tools/dap/              # qb-dap: debug adapter (qbnex dap)

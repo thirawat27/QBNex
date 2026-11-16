@@ -953,9 +953,11 @@ IF UCASE$(n$) = "_IIF" OR UCASE$(n$) = "_TOSTR" THEN
             IF i = n THEN e$ = getelements$(a$, firsti, i) ELSE e$ = getelements$(a$, firsti, i - 1)
             e$ = evaluate(e$, sourcetyp)
             IF Error_Happened THEN EXIT FUNCTION
-            IF (sourcetyp AND ISUDT) OR (sourcetyp AND ISARRAY) THEN Give_Error "Expected a number or a string in " + UCASE$(n$): EXIT FUNCTION
+            'a whole TYPE value or array is refused; a field of a TYPE (p.x) is read first
+            IF (sourcetyp AND ISARRAY) THEN Give_Error "Expected a number or a string in " + UCASE$(n$): EXIT FUNCTION
             IF (sourcetyp AND ISREFERENCE) THEN e$ = refer(e$, sourcetyp, 0)
             IF Error_Happened THEN EXIT FUNCTION
+            IF (sourcetyp AND ISUDT) THEN Give_Error "Expected a number or a string in " + UCASE$(n$): EXIT FUNCTION
             iifArg(iifn) = e$: iifTyp(iifn) = sourcetyp
             firsti = i + 1
         END IF

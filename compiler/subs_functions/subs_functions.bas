@@ -61,8 +61,6 @@ id.n = "TrOn": id.subfunc = 2: id.callname = "sub_tron": id.hr_syntax = "TRON": 
 clearid
 id.n = "TrOff": id.subfunc = 2: id.callname = "sub_troff": id.hr_syntax = "TROFF": regid
 clearid
-id.n = "List": id.subfunc = 2: id.callname = "sub_stub": regid
-clearid
 id.n = "Def": id.subfunc = 2: id.callname = "sub_stub": id.secondargcantbe = "SEG": regid
 clearid
 id.n = "IoCtl": id.subfunc = 2: id.callname = "sub_ioctl": id.args = 2: id.arg = MKL$(LONGTYPE - ISPOINTER) + MKL$(STRINGTYPE - ISPOINTER): id.specialformat = "[#]?,?": id.hr_syntax = "IOCTL #fileNumber%, controlString$": regid

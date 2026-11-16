@@ -1,0 +1,22 @@
+-1  0 
+ 6 bob@example.com groups bob@example.com bob example []
+ 4 a 0 [] []
+a<1>b<22>c<333> x_y   z
+example has bob, $5
+ 4 [a][b][c][d]
+ 3 1|22|333
+ 3 [||]
+ 0  error: regex parse error:
+-1  []
+cbf43926 0 
+900150983cd24fb0d6963f7d28e17f72
+a9993e364706816aba3e25717850c26c9cd0d89d
+ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad
+ddaf35a193617abacc417349ae204131
+d41d8cd98f00b204e9800998ecf8427e
+Zm9vYmFyAP8=  8 -1 
+-_8 +/8= fbff
+[] invalid encoded text
+415a00 ABC [] invalid encoded text
+hi []
+done

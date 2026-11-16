@@ -1,31 +1,26 @@
 '===============================================================================
-' QBNex Standard Library - JSON ('$IMPORT:'json')
+' QBNex Standard Library - json ('$IMPORT:'json')
 '===============================================================================
-' RFC 8259 JSON: parser, document tree and serializer.
+' RFC 8259 JSON, like Python's json. A value is a handle (an INTEGER, 0 = none).
+' Read with a path: names and 0-based indexes, "user.tags.0" or "items[2].id".
 '
-' Values live in a growable pool and are addressed by handles (1, 2, ...;
-' 0 = no value). Arrays and objects keep their children as linked lists, so
-' JsonArrayGet% and JsonObjectGet% return the stored child itself. Up to
-' JSON_POOL_MAX (32767) values exist at a time: JsonFree v% gives back a value
-' with everything in it (a document: free its root when done with it), and
-' Json_Cleanup gives back all. A parse that fails keeps nothing.
+'   root = Json_Parse(text$)                 0 on error: LastError$, Json_ErrorPos&
+'   PRINT Json_Str$(root, "name")            text of a value ("" when missing)
+'   PRINT Json_Num#(root, "tags[1]")         Json_Bool%, Json_Type$ ("object", ...)
+'   FOR i = 0 TO Json_Count(root, "tags") - 1 ...     Json_Has%, Json_Key$
+'   o = Json_Object: Json_SetStr o, "name", "Ann": Json_SetNum o, "age", 42
+'   a = Json_Array: Json_PushStr a, "x": Json_Set o, "list", a
+'   PRINT Json_Stringify$(o)                 Json_Stringify$(o, 2) indents
+'   Json_Free root                           gives a document back
 '
-'   v% = JSON_Parse%(text$)          ' 0 on error: see JSON_LastError$,
-'                                     ' JSON_ErrorPosition& (1-based byte)
-'   t% = JsonGetType%(v%)            ' JSON_TYPE_NULL ... JSON_TYPE_OBJECT
-'   x% = JsonObjectGet%(v%, "key")   ' 0 when missing
-'   e% = JsonArrayGet%(v%, 0)        ' 0-based index
-'   s$ = JSON_Stringify$(v%)         ' compact; JSON_StringifyPretty$ indents
-'
-' Strings are byte strings: \uXXXX escapes (incl. surrogate pairs) become
-' UTF-8, other bytes are kept as they are. The serializer escapes '"', '\'
-' and control characters and writes everything else unchanged, so parsing
-' and serializing round-trips. Parsed numbers keep their source text, so they
-' are written back exactly; numbers made with JsonCreateNumber% use STR$
-' digits in JSON syntax. Objects keep member order; JsonObjectSet replaces the
-' value of an existing key (parsing a duplicate key keeps the last value).
-' Adding a value that already belongs to an array/object adds a deep copy.
+' Strings are bytes: \uXXXX escapes (with surrogate pairs) become UTF-8.
+' Parsed numbers are written back exactly as they were. Objects keep member
+' order; setting a key that is there replaces its value. Adding a value that
+' already belongs to an array or object adds a copy. Up to 32767 values exist
+' at a time; Json_FreeAll gives every value back.
 '===============================================================================
+
+'$IMPORT:'core'
 
 CONST JSON_TYPE_NULL = 0
 CONST JSON_TYPE_BOOLEAN = 1
@@ -33,25 +28,9 @@ CONST JSON_TYPE_NUMBER = 2
 CONST JSON_TYPE_STRING = 3
 CONST JSON_TYPE_ARRAY = 4
 CONST JSON_TYPE_OBJECT = 5
-' The names before JSON_TYPE_*. There is no JSON_STRING: it is the same name as
-' Json_String$ of '$IMPORT:'qbnex', and the two modules could not be combined.
-CONST JSON_NULL = 0
-CONST JSON_BOOLEAN = 1
-CONST JSON_NUMBER = 2
-CONST JSON_ARRAY = 4
-CONST JSON_OBJECT = 5
 
 CONST JSON_POOL_MAX = 32767
 CONST JSON_MAX_DEPTH = 500
-
-' Kept for source compatibility with the earlier facade (JsonParseValue% etc.).
-TYPE JsonParser
-    source AS STRING * 8192
-    position AS INTEGER
-    length AS INTEGER
-    errorMessage AS STRING * 256
-    hasError AS _BYTE
-END TYPE
 
 ' Value pool: grown by JsonAllocValue% (the arrays are declared without a size,
 ' so this line does not reset them wherever the module is placed). A free
@@ -83,16 +62,8 @@ DIM SHARED JsonErrPos&
 DIM SHARED JsonDepth%
 
 
-SUB Json_Init
-    JsonValuePoolSize% = 0
-    JsonFreeValue% = 0
-    JsonPrettyPrint = 0
-    JsonIndentSize% = 2
-    JsonErrMsg$ = ""
-    JsonErrPos& = 0
-END SUB
-
-SUB Json_Cleanup
+' Gives every JSON value back (every handle is then invalid).
+SUB Json_FreeAll ()
     JsonValuePoolSize% = 0
     JsonFreeValue% = 0
 END SUB
@@ -148,10 +119,10 @@ FUNCTION JsonValid% (valueIndex AS INTEGER)
     IF valueIndex >= 1 AND valueIndex <= JsonValuePoolSize% THEN JsonValid% = (JsonValueType%(valueIndex) <> JSON_TYPE_FREE)
 END FUNCTION
 
-' Gives back a value and all values in it; it is first removed from the array
+' Gives back a value and all values in it (a document: free its root); it is first removed from the array
 ' or object that holds it. Its handle (and those of its children) are then
 ' invalid and are used again for new values.
-SUB JsonFree (valueIndex AS INTEGER)
+SUB Json_Free (valueIndex AS INTEGER)
     DIM p%, c%, prev%
     IF NOT JsonValid%(valueIndex) THEN EXIT SUB
     p% = JsonParent%(valueIndex)
@@ -423,23 +394,18 @@ FUNCTION JsonObjectKey$ (objectIndex AS INTEGER, index AS INTEGER)
     IF c% > 0 THEN JsonObjectKey$ = JsonKey$(c%)
 END FUNCTION
 
-FUNCTION JSON_LastError$ ()
-    JSON_LastError$ = JsonErrMsg$
-END FUNCTION
-
-FUNCTION JSON_ErrorPosition& ()
-    JSON_ErrorPosition& = JsonErrPos&
+' Byte position (1-based) where the last Json_Parse failed.
+FUNCTION Json_ErrorPos& ()
+    Json_ErrorPos& = JsonErrPos&
 END FUNCTION
 
 '---------------------------------------------------------------- serializer
 
-FUNCTION JSON_Stringify$ (valueIndex AS INTEGER)
-    JSON_Stringify$ = JsonStringifyValue$(valueIndex, 0)
-END FUNCTION
-
-FUNCTION JSON_StringifyPretty$ (valueIndex AS INTEGER)
-    JsonPrettyPrint = -1
-    JSON_StringifyPretty$ = JsonStringifyValue$(valueIndex, 0)
+' JSON text of a value; indent > 0 puts members on lines indented that much.
+FUNCTION Json_Stringify$ (valueIndex AS INTEGER, OPTIONAL indent AS INTEGER = 0)
+    JsonPrettyPrint = (indent > 0)
+    JsonIndentSize% = indent
+    Json_Stringify$ = JsonStringifyValue$(valueIndex, 0)
     JsonPrettyPrint = 0
 END FUNCTION
 
@@ -529,17 +495,15 @@ FUNCTION JsonNewLine$ ()
 END FUNCTION
 
 FUNCTION JsonIndent$ (level AS INTEGER)
-    IF JsonIndentSize% = 0 THEN JsonIndentSize% = 2
-    IF JsonIndentSize% = 0 THEN JsonIndentSize% = 2
+    IF JsonIndentSize% <= 0 THEN JsonIndentSize% = 2
     JsonIndent$ = SPACE$(level * JsonIndentSize%)
 END FUNCTION
 
 '-------------------------------------------------------------------- parser
 
 ' Parses a complete JSON text. Returns the root value, or 0 on error
-' (JSON_LastError$ / JSON_ErrorPosition& describe it; the values made before
-' the error are given back).
-FUNCTION JSON_Parse% (jsonString AS STRING)
+' (LastError$ / Json_ErrorPos& describe it).
+FUNCTION Json_Parse% (jsonString AS STRING)
     DIM v%, i&
     JsonParsing = -1
     JsonParseLogged& = 0
@@ -551,7 +515,8 @@ FUNCTION JSON_Parse% (jsonString AS STRING)
         NEXT
     END IF
     JsonParseLogged& = 0
-    JSON_Parse% = v%
+    Core_SetError JsonErrMsg$
+    Json_Parse% = v%
 END FUNCTION
 
 FUNCTION JsonParseText% (jsonString AS STRING)
@@ -947,35 +912,161 @@ FUNCTION JsonParseObjectAt% ()
     JsonParseObjectAt% = o%
 END FUNCTION
 
-'------------------------------------------- earlier facade (compatibility)
+'-------------------------------------------
 
-FUNCTION JsonParseValue% (parser AS JsonParser)
-    JsonParseValue% = JSON_Parse%(RTRIM$(parser.source))
+'---------------------------------------------------------------- public API
+
+' The value at path inside v ("" = v itself): member names and 0-based
+' indexes, "user.tags.0" or "items[2].id". 0 when there is none.
+FUNCTION Json_Get% (v AS INTEGER, OPTIONAL path AS STRING = "")
+    DIM cur%, i&, c$, part$, p$
+    cur% = v
+    IF NOT JsonValid%(cur%) THEN EXIT FUNCTION
+    p$ = path + "."
+    FOR i& = 1 TO LEN(p$)
+        c$ = MID$(p$, i&, 1)
+        IF c$ = "." OR c$ = "[" OR c$ = "]" THEN
+            IF LEN(part$) THEN
+                cur% = JsonStep%(cur%, part$)
+                IF cur% = 0 THEN EXIT FUNCTION
+                part$ = ""
+            END IF
+        ELSE
+            part$ = part$ + c$
+        END IF
+    NEXT
+    Json_Get% = cur%
 END FUNCTION
 
-FUNCTION JsonParseNull% (parser AS JsonParser)
-    JsonParseNull% = JSON_Parse%(RTRIM$(parser.source))
+' The member name of an object, or the index of an array, one step down.
+FUNCTION JsonStep% (v AS INTEGER, part AS STRING)
+    DIM i&
+    SELECT CASE JsonValueType%(v)
+        CASE JSON_TYPE_OBJECT
+            JsonStep% = JsonObjectGet%(v, part)
+        CASE JSON_TYPE_ARRAY
+            FOR i& = 1 TO LEN(part)
+                IF INSTR("0123456789", MID$(part, i&, 1)) = 0 THEN EXIT FUNCTION
+            NEXT
+            IF LEN(part) < 6 THEN JsonStep% = JsonArrayGet%(v, VAL(part))
+    END SELECT
 END FUNCTION
 
-FUNCTION JsonParseBoolean% (parser AS JsonParser)
-    JsonParseBoolean% = JSON_Parse%(RTRIM$(parser.source))
+' "object", "array", "string", "number", "boolean" or "null"; "" when missing.
+FUNCTION Json_Type$ (v AS INTEGER, OPTIONAL path AS STRING = "")
+    DIM x%
+    x% = Json_Get%(v, path)
+    IF x% = 0 THEN EXIT FUNCTION
+    SELECT CASE JsonValueType%(x%)
+        CASE JSON_TYPE_OBJECT: Json_Type$ = "object"
+        CASE JSON_TYPE_ARRAY: Json_Type$ = "array"
+        CASE JSON_TYPE_STRING: Json_Type$ = "string"
+        CASE JSON_TYPE_NUMBER: Json_Type$ = "number"
+        CASE JSON_TYPE_BOOLEAN: Json_Type$ = "boolean"
+        CASE ELSE: Json_Type$ = "null"
+    END SELECT
 END FUNCTION
 
-FUNCTION JsonParseNumber% (parser AS JsonParser)
-    JsonParseNumber% = JSON_Parse%(RTRIM$(parser.source))
+' -1 when there is a value at path.
+FUNCTION Json_Has% (v AS INTEGER, path AS STRING)
+    Json_Has% = (Json_Get%(v, path) > 0)
 END FUNCTION
 
-FUNCTION JsonParseString% (parser AS JsonParser)
-    JsonParseString% = JSON_Parse%(RTRIM$(parser.source))
+' A string as its text; a number, true or false as JSON text; null or missing as "".
+FUNCTION Json_Str$ (v AS INTEGER, OPTIONAL path AS STRING = "")
+    DIM x%
+    x% = Json_Get%(v, path)
+    IF x% = 0 THEN EXIT FUNCTION
+    SELECT CASE JsonValueType%(x%)
+        CASE JSON_TYPE_STRING: Json_Str$ = JsonStrValue$(x%)
+        CASE JSON_TYPE_NULL
+        CASE ELSE: Json_Str$ = JsonStringifyValue$(x%, 0)
+    END SELECT
 END FUNCTION
 
-FUNCTION JsonParseArray% (parser AS JsonParser)
-    JsonParseArray% = JSON_Parse%(RTRIM$(parser.source))
+' A number (a string through VAL, true = -1); 0 when missing.
+FUNCTION Json_Num# (v AS INTEGER, OPTIONAL path AS STRING = "")
+    DIM x%
+    x% = Json_Get%(v, path)
+    IF x% = 0 THEN EXIT FUNCTION
+    SELECT CASE JsonValueType%(x%)
+        CASE JSON_TYPE_NUMBER: Json_Num# = JsonNumValue#(x%)
+        CASE JSON_TYPE_STRING: Json_Num# = VAL(JsonStrValue$(x%))
+        CASE JSON_TYPE_BOOLEAN: Json_Num# = JsonBoolValue%(x%)
+    END SELECT
 END FUNCTION
 
-FUNCTION JsonParseObject% (parser AS JsonParser)
-    JsonParseObject% = JSON_Parse%(RTRIM$(parser.source))
+' -1 for true or a number that is not 0; 0 otherwise.
+FUNCTION Json_Bool% (v AS INTEGER, OPTIONAL path AS STRING = "")
+    Json_Bool% = (Json_Num#(v, path) <> 0)
 END FUNCTION
 
-SUB JsonSkipWhitespace (parser AS JsonParser)
+' Number of elements of an array or members of an object.
+FUNCTION Json_Count% (v AS INTEGER, OPTIONAL path AS STRING = "")
+    Json_Count% = JsonArrayLength%(Json_Get%(v, path))
+END FUNCTION
+
+' Name of member index (0-based) of an object.
+FUNCTION Json_Key$ (v AS INTEGER, index AS INTEGER, OPTIONAL path AS STRING = "")
+    Json_Key$ = JsonObjectKey$(Json_Get%(v, path), index)
+END FUNCTION
+
+' A new, empty object.
+FUNCTION Json_Object% ()
+    Json_Object% = JsonCreateObject%
+END FUNCTION
+
+' A new, empty array.
+FUNCTION Json_Array% ()
+    Json_Array% = JsonCreateArray%
+END FUNCTION
+
+' Sets member keyName of object o to value x (an object, an array, ...).
+SUB Json_Set (o AS INTEGER, keyName AS STRING, x AS INTEGER)
+    JsonObjectSet o, keyName, x
+END SUB
+
+' Sets member keyName of object o to a string.
+SUB Json_SetStr (o AS INTEGER, keyName AS STRING, text AS STRING)
+    JsonObjectSet o, keyName, JsonCreateString%(text)
+END SUB
+
+' Sets member keyName of object o to a number.
+SUB Json_SetNum (o AS INTEGER, keyName AS STRING, n AS DOUBLE)
+    JsonObjectSet o, keyName, JsonCreateNumber%(n)
+END SUB
+
+' Sets member keyName of object o to true (b <> 0) or false.
+SUB Json_SetBool (o AS INTEGER, keyName AS STRING, b AS INTEGER)
+    JsonObjectSet o, keyName, JsonCreateBoolean%(b <> 0)
+END SUB
+
+' Sets member keyName of object o to null.
+SUB Json_SetNull (o AS INTEGER, keyName AS STRING)
+    JsonObjectSet o, keyName, JsonCreateNull%
+END SUB
+
+' Removes member keyName of object o.
+SUB Json_Remove (o AS INTEGER, keyName AS STRING)
+    JsonObjectRemove o, keyName
+END SUB
+
+' Adds value x at the end of array a.
+SUB Json_Push (a AS INTEGER, x AS INTEGER)
+    JsonArrayPush a, x
+END SUB
+
+' Adds a string at the end of array a.
+SUB Json_PushStr (a AS INTEGER, text AS STRING)
+    JsonArrayPush a, JsonCreateString%(text)
+END SUB
+
+' Adds a number at the end of array a.
+SUB Json_PushNum (a AS INTEGER, n AS DOUBLE)
+    JsonArrayPush a, JsonCreateNumber%(n)
+END SUB
+
+' Adds true (b <> 0) or false at the end of array a.
+SUB Json_PushBool (a AS INTEGER, b AS INTEGER)
+    JsonArrayPush a, JsonCreateBoolean%(b <> 0)
 END SUB

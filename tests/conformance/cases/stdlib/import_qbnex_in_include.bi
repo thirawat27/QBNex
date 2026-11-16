@@ -1,2 +1,2 @@
-'$IMPORT:'collections.stack'
+'$IMPORT:'strings'
 '$IMPORT:'qbnex'

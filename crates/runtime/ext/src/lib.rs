@@ -4,7 +4,8 @@
 //! SHA-512), Base64 and hex, zip archives (`zip`) and HTTP/HTTPS requests
 //! (`ureq` + rustls, no OpenSSL). Each area has a plain Rust API in its
 //! module; [`ffi`] exports them as `qb_ext_*` functions for the BASIC
-//! wrappers in `compiler/stdlib/ext/*.bas`.
+//! modules `compiler/stdlib/{regex,hash,zip,http,utf8,datetime}.bas` (through
+//! the shared plumbing in `compiler/stdlib/ext.bas`).
 //!
 //! BASIC strings are byte strings, so every function works on bytes; text
 //! given to the regex engine and to HTTP URLs is read as UTF-8 (invalid
@@ -13,7 +14,6 @@
 #![deny(unsafe_op_in_unsafe_fn)]
 
 pub mod codec;
-pub mod coll;
 pub mod datetime;
 pub mod ffi;
 pub mod hash;

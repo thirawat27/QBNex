@@ -1,0 +1,1 @@
+New native modules (utf8, datetime); no legacy equivalent. Golden from the current build, checked by hand against the Unicode data (case mapping, NFC/NFD, CP437) and the calendar; the List and Dict part checked against Python list and dict. DOUBLE values print without the legacy extra decimal.

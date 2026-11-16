@@ -1,10 +1,18 @@
 # Regenerates crates/compiler/syntax/src/library_data.rs: the public SUBs and
-# FUNCTIONs of the standard library modules under compiler/stdlib (ext.*,
-# io.*, ...), for hover and completion. Run from the repository root:
+# FUNCTIONs of the standard library modules under compiler/stdlib (collections,
+# json, path, oop.class, ...), for hover and completion. Run from the
+# repository root:
 #   pwsh crates/compiler/syntax/tools/gen-library.ps1
 $ErrorActionPreference = 'Stop'
 $root = 'compiler/stdlib'
 $out = 'crates/compiler/syntax/src/library_data.rs'
+# Internal helpers stay out of the table so completion only offers the public
+# API. They are recognised by naming convention: the qb_ native bindings, the
+# Coll_/Ext_/Core_ plumbing, the Json and Url helpers written without an
+# underscore after the prefix (JsonAllocValue%, UrlSchemeEnd&), and a few
+# named helpers in otherwise public modules. Names compare without suffix.
+$internalPrefix = '^(?i)(qb_|Coll_|Ext_|Core_|Json[^_]|Url[^_])'
+$internalNames = @('HASH_DIGEST', 'HASH_CODEC', 'DATE_FLAG', 'DATE_PART', 'PATH_JOIN2', 'PATH_LASTSEP', 'CSV_DOUBLED')
 $rows = [System.Collections.Generic.List[string]]::new()
 $seen = @{}
 $esc = { param($s) $s.Replace('\', '\\').Replace('"', '\"') }
@@ -17,16 +25,22 @@ foreach ($f in Get-ChildItem $root -Recurse -Filter *.bas | Sort-Object FullName
         $t = $line.Trim()
         if ($t -match '^(?i)DECLARE\s+(DYNAMIC\s+|CUSTOMTYPE\s+|STATIC\s+)?LIBRARY') { $inLib = $true; continue }
         if ($t -match '^(?i)END\s+DECLARE') { $inLib = $false; continue }
+        # A rule line ('====, '---- section) or a metacommand ('$IMPORT) ends the
+        # comment above it: the file header and section titles are not the doc
+        # of the next procedure.
+        if ($t -match "^'\s?([-=*]{3,}|\$)") { $doc.Clear(); continue }
         if ($t -match "^'\s?(.*)$") { $doc.Add($matches[1].Trim()); continue }
         if (-not $inLib -and $t -match '^(?i)(FUNCTION|SUB)\s+([A-Za-z_][\w.]*[%&!#$~`]*)\s*(\(.*\))?') {
             $kind = $matches[1].ToUpperInvariant()
             $name = $matches[2]
             $params = if ($matches[3]) { ' ' + $matches[3] } else { '' }
             $key = $name.ToUpperInvariant()
-            if ($name -notmatch '^(?i)qb_' -and -not $seen.ContainsKey($key)) {
+            $bare = $key.TrimEnd('%', '&', '!', '#', '$', '~', '`')
+            $internal = $name -match $internalPrefix -or $internalNames -contains $bare
+            if (-not $internal -and -not $seen.ContainsKey($key)) {
                 $seen[$key] = 1
                 $syntax = "$kind $name$params"
-                $d = ($doc | Where-Object { $_ -ne '' -and $_ -notmatch '^[-=*]+$' }) -join ' '
+                $d = ($doc | Where-Object { $_ -ne '' }) -join ' '
                 if ($d.Length -gt 300) { $d = $d.Substring(0, 300) + '...' }
                 $isf = if ($kind -eq 'FUNCTION') { 'true' } else { 'false' }
                 $rows.Add("    (`"$(& $esc $name)`", `"$module`", $isf, `"$(& $esc $syntax)`", `"$(& $esc $d)`"),")

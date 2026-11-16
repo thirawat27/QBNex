@@ -3,7 +3,7 @@
 DIM encoded$
 DIM joined$
 DIM rendered$
-DIM version$
+DIM parts AS List
 
 encoded$ = "QBNex"
 
@@ -13,19 +13,26 @@ IF joined$ <> "src\main.bas" AND joined$ <> "src/main.bas" THEN
     SYSTEM 1
 END IF
 
-rendered$ = Json_String$("QBNex")
-IF rendered$ <> CHR$(34) + "QBNex" + CHR$(34) THEN
-    PRINT "Json_String failed"
+o% = Json_Object
+Json_SetStr o%, "name", "QBNex"
+rendered$ = Json_Stringify$(o%)
+IF rendered$ <> "{" + CHR$(34) + "name" + CHR$(34) + ":" + CHR$(34) + "QBNex" + CHR$(34) + "}" THEN
+    PRINT "Json_Stringify failed"
     SYSTEM 1
 END IF
 
-version$ = QBNex_StdLib_Version$
-IF LEN(version$) = 0 THEN
-    PRINT "QBNex_StdLib_Version failed"
+parts.Split "a,b,c"
+IF parts.Count <> 3 OR parts.Join$("+") <> "a+b+c" THEN
+    PRINT "List_Split failed"
+    SYSTEM 1
+END IF
+
+IF LastError$ <> "" THEN
+    PRINT "LastError failed: "; LastError$
     SYSTEM 1
 END IF
 
 PRINT encoded$
 PRINT joined$
 PRINT rendered$
-PRINT version$
+PRINT parts.Join$("+")
