@@ -1325,7 +1325,8 @@ mod tests {
         let d = tmp("bom");
         std::fs::write(d.join("b.txt"), b"\xEF\xBB\xBFab\r\n\xEF\xBB\xBF\r\n").unwrap();
         std::fs::write(d.join("e.txt"), b"\xEFx").unwrap();
-        let f = fresh(155);
+        // its own ten numbers: fresh(150) of another test closes 150 to 159
+        let f = fresh(180);
         let line = |f| {
             let mut cx = Ctx::default();
             (line_input(&mut table(), f, &mut cx), cx.err)

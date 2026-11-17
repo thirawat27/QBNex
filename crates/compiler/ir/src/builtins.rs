@@ -403,6 +403,8 @@ pub static TABLE: &[Builtin] = &[
     b!("func__blink", [], I32),
     b!("sub__controlchr", [I32, I32]),
     b!("func__controlchr", [], I32),
+    // 1 on, 2 off: standard output goes to standard error
+    b!("sub__stderr", [I32, I32]),
     // ---- clipboard
     b!("func__clipboard", [], Str),
     b!("sub__clipboard", [Str, I32]),

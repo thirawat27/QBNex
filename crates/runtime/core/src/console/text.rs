@@ -242,8 +242,9 @@ pub unsafe fn print(h: &mut dyn Host, s: &[u8], finish_on_new_line: bool) {
     let mut i: i32 = 0;
     // Text is UTF-8 when all of it is, as on the Windows console; else its bytes are
     // code page 437. Taken pair by pair, the corner of a box drawn with
-    // STRING$(10, 196) + CHR$(191) was one "L with middle dot" (C4 BF is U+013F).
-    let text_is_utf8 = std::str::from_utf8(s).is_ok();
+    // STRING$(10, 196) + CHR$(191) was one "L with middle dot" (C4 BF is U+013F); valid
+    // UTF-8 that is only such pairs (CHR$(196) + CHR$(191)) is box drawing too.
+    let text_is_utf8 = std::str::from_utf8(s).is_ok() && !super::keys::box_pairs(s);
     while i < len {
         let w = wp(h);
         let mut character = s[i as usize] as u32;

@@ -212,6 +212,12 @@ fn main() {
         } else {
             std::env::remove_var("QBNEX_STDOUT_TERMINAL");
         }
+        // the same for stderr, where `qb run` writes its own messages (`_STDERR ON`)
+        if std::io::IsTerminal::is_terminal(&std::io::stderr()) {
+            std::env::set_var("QBNEX_STDERR_TERMINAL", "1");
+        } else {
+            std::env::remove_var("QBNEX_STDERR_TERMINAL");
+        }
     }
     let exe = std::env::current_exe().and_then(std::fs::read).unwrap_or_default();
     let packaged = payload(&exe);
@@ -265,8 +271,10 @@ fn main() {
         let _ = program.join();
         std::process::exit(1);
     }
-    let stdout = std::io::stdout();
-    let mut out = Stdout(BufWriter::new(stdout.lock()));
+    // not stdout().lock() for the whole run: after `_STDERR` points standard output at
+    // another handle, what went through a lock held from before was lost on Windows (the
+    // BufWriter still sends the text in blocks)
+    let mut out = Stdout(BufWriter::new(std::io::stdout()));
     let result = qb_exec::run_program(&src, image.as_deref(), &mut out);
     let _ = out.flush();
     finish(result)

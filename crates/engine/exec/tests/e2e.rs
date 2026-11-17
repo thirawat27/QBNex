@@ -186,7 +186,7 @@ fn declare_library_with_only_a_c_header_is_a_compile_error() {
     let text = normalize(&out.stdout) + &normalize(&out.stderr);
     assert!(!out.status.success(), "should fail: {text}");
     // where the header lies decides which message the search gives; both stop the build
-    assert!(text.contains("header files are not supported") || text.contains("LIBRARY not found"), "message should say why: {text}");
+    assert!(text.contains("header files are not supported") || text.contains("LIBRARY \"hdronly\" not found"), "message should say why: {text}");
 }
 
 /// `DECLARE DYNAMIC LIBRARY "./name"` is the library in the source folder, also when
@@ -312,7 +312,7 @@ fn declare_library_check_follows_the_runtime_search() {
         let (ok, text) = compile(&src, &out_dir.join(format!("cwd_{tag}.exe")), None);
         drop(planted);
         assert!(!ok, "{kind}: DLL only in the compiler's folder should be refused: {text}");
-        assert!(text.contains(&format!("{kind} not found")), "{kind}: message should say why: {text}");
+        assert!(text.contains(&format!("{kind} \"{cwd_lib}\" not found")), "{kind}: message should say why: {text}");
     }
     let _ = std::fs::remove_dir_all(&dir);
 }

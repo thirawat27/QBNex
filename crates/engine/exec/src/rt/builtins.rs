@@ -234,6 +234,14 @@ impl<'a> RtState<'a> {
         // console text in the system runtime's stdio buffer (`_DEST _CONSOLE` of a window program) is newer
         qb_runtime::console::stdio::flush_pending();
     }
+    /// Standard output now goes elsewhere (`_STDERR`): whether it is a terminal is asked again.
+    pub(crate) fn stdout_changed(&mut self) {
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            self.out_tty = std::io::IsTerminal::is_terminal(&std::io::stdout());
+        }
+        self.tty_text = self.out_tty && STDOUT_TEXT.load(std::sync::atomic::Ordering::Relaxed);
+    }
     /// Console output, or file output through qb-runtime (SCRN: falls back to the console).
     pub(crate) fn write(&mut self, ch: i32, b: &[u8]) -> R<()> {
         if ch == super::lprint::CHANNEL {
@@ -1361,6 +1369,14 @@ fn call_main<'a>(vm: &mut dyn Host<'a>, name: &'static str, a: &[V]) -> R<Option
         "sub__echo" => {
             rt.write(0, s(0))?;
             rt.nl(0)?;
+        }
+        // _STDERR ON | OFF: what the program writes to standard output (PRINT, COLOR, LOCATE)
+        // goes to standard error until OFF; `qb run` keeps its own messages apart from the
+        // program's output this way
+        "sub__stderr" => {
+            rt.flush();
+            qb_runtime::console::stdio::stdout_to_stderr(i(0) == 1);
+            rt.stdout_changed();
         }
         "SLEEP" => {
             // with a window: n seconds or until a key is pressed (no time: until a key)

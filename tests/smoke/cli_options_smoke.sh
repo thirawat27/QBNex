@@ -94,6 +94,24 @@ run run_sub 0 run "$T/clean.bas" -q
 has run_sub "CLEAN_OK"
 run run_args 0 run "$T/args.bas" -q -- one two
 has run_args "ARGS=[one two]"
+# qb run: qb's own messages go to stderr, so stdout holds the program's output alone
+"$QB" run "$T/clean.bas" < /dev/null > "$T/run_out.txt" 2> "$T/run_msg.txt" || { echo "[FAIL] qb run clean.bas failed"; FAIL=1; }
+has run_out "CLEAN_OK"
+hasnot run_out "Build complete"
+hasnot run_out "Program ended"
+has run_msg "Build complete"
+has run_msg "Program ended, exit code 0"
+hasnot run_msg "CLEAN_OK"
+if "$QB" run "$T/err.bas" < /dev/null > "$T/run_err_out.txt" 2> "$T/run_err_msg.txt"; then
+  echo "[FAIL] qb run of a program that does not compile exited with 0"; FAIL=1
+fi
+has run_err_msg "Missing )"
+hasnot run_err_out "Missing )"
+hasnot run_err_out "QBNex"
+# a plain build keeps everything on stdout
+"$QB" "$T/clean.bas" -o "$T/plain" < /dev/null > "$T/plain_out.txt" 2> "$T/plain_msg.txt" || true
+has plain_out "Build complete"
+hasnot plain_msg "Build complete"
 run joined 0 "$T/warn.bas" -wq -o "$T/joined"
 has joined "warning: unused variable"
 hasnot joined "Build complete"

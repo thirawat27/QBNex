@@ -340,6 +340,17 @@ FUNCTION ShellArg$ (a$)
     ShellArg$ = r$
 END FUNCTION
 
+'qb run: what qb itself prints (banner, diagnostics, "Running ...") goes to stderr, so that
+'the program's output is alone on stdout (qb run app.bas > out.txt). onoff -1 switches it on;
+'0 gives stdout back, for the program qb starts.
+SUB StdErrForMessages (onoff AS LONG)
+    IF onoff THEN
+        _STDERR ON
+    ELSE
+        _STDERR OFF
+    END IF
+END SUB
+
 'qb fmt / qb lsp / qb dap: run qb-fmt, qb-lsp or qb-dap with the arguments after the
 'subcommand, and exit with its exit code. On the PATH, qb finds qb.exe before qb.cmd, so
 'qb.exe has to do what qb.cmd and the Unix launcher do. The current directory is the
@@ -524,7 +535,7 @@ SUB ApplyLetterSwitch (c$)
 END SUB
 
 FUNCTION ParseCMDLineArgs$ ()
-    DIM PassedFileName$, firstArg AS LONG, runSubcommand AS LONG, k AS LONG
+    DIM PassedFileName$, firstArg AS LONG, runSubcommand AS LONG, k AS LONG, termVar$
 
     'qb fmt / lsp / dap go to the tools; qb run <file> builds and runs; everything else
     'is for the compiler
@@ -532,14 +543,17 @@ FUNCTION ParseCMDLineArgs$ ()
     IF _COMMANDCOUNT >= 1 THEN
         SELECT CASE LCASE$(COMMAND$(1))
         CASE "fmt", "lsp", "dap": RunToolSubcommand LCASE$(COMMAND$(1))
-        CASE "run": runSubcommand = -1: RunAfterBuild = -1: firstArg = 2
+        CASE "run": runSubcommand = -1: RunAfterBuild = -1: firstArg = 2: StdErrForMessages -1
         END SELECT
     END IF
 
     'NO_COLOR (no-color.org): any non-empty value turns colors off, like -m
     IF LEN(ENVIRON$("NO_COLOR")) THEN MonochromeLoggingMode = -1
-    'output going to a pipe, a file or a CI log gets no color escape sequences
-    IF ENVIRON$("QBNEX_STDOUT_TERMINAL") <> "1" THEN MonochromeLoggingMode = -1
+    'output going to a pipe, a file or a CI log gets no color escape sequences; qb run
+    'writes its messages to stderr
+    termVar$ = "QBNEX_STDOUT_TERMINAL"
+    IF runSubcommand THEN termVar$ = "QBNEX_STDERR_TERMINAL"
+    IF ENVIRON$(termVar$) <> "1" THEN MonochromeLoggingMode = -1
     '-m anywhere on the line, also after -h, -i, -g or -s, which print before the
     'loop below reaches it
     FOR i = 1 TO _COMMANDCOUNT
@@ -663,6 +677,13 @@ FUNCTION ParseCMDLineArgs$ ()
 
     'the ignorewarnings setting hides warnings, also the ones -Werror would block on
     IF IgnoreWarnings THEN SetWarningsAsErrors 0
+
+    'qb run / --run / --: qb's own messages go to stderr (StdErrForMessages), so no colors
+    'when stderr is no terminal either
+    IF RunAfterBuild THEN
+        IF ENVIRON$("QBNEX_STDERR_TERMINAL") <> "1" THEN MonochromeLoggingMode = -1
+        StdErrForMessages -1
+    END IF
 
     IF LEN(PassedFileName$) THEN
         ParseCMDLineArgs$ = PassedFileName$

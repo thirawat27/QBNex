@@ -28,7 +28,7 @@ relative จะนับจากโฟลเดอร์ปัจจุบั�
 | `<file>` | ไฟล์ source (UTF-8 หรือไบต์ CP437 แบบที่ QBasic บันทึกไว้) |
 | `-o <file>` | ไฟล์ executable ที่ต้องการ ถ้าชื่อลงท้ายด้วย `.qir` จะเขียน QIR text ของโปรแกรมแทน (สิ่งที่ [qb-web](../../../crates/web/README.md) ใช้รัน) |
 | `--emit-ir` | เขียน QIR text แทน executable (`-o x.exe` จะกลายเป็น `x.qir`) |
-| `run <file>`, `--run` | รันโปรแกรมหลัง build ผ่าน จากโฟลเดอร์ปัจจุบัน แล้ว qb จบด้วย exit code ของโปรแกรม |
+| `run <file>`, `--run` | รันโปรแกรมหลัง build ผ่าน จากโฟลเดอร์ปัจจุบัน แล้ว qb จบด้วย exit code ของโปรแกรม ข้อความของ qb เอง (banner, diagnostic, "Running", "Program ended") ออกทาง stderr ดังนั้น `qb run app.bas > out.txt` จะได้แต่ output ของโปรแกรม |
 | `-- <args>` | อาร์กิวเมนต์ของโปรแกรม (`COMMAND$`) และรันโปรแกรมหลัง build |
 | `--output`, `--quiet`, `--warnings`, `--no-color`, `--explicit`, `--werror` | ชื่อยาวของ `-o`, `-q`, `-w`, `-m`, `-e`, `-Werror` |
 | `-w` | แสดงคำเตือน และบอกจำนวนคำเตือนตอนจบ (ถ้าไม่ใส่ `-w` จะบอกว่ามีคำเตือนที่ไม่ได้แสดงกี่ข้อ) |

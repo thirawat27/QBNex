@@ -28,7 +28,7 @@ path is resolved against the current folder.
 | `<file>` | Source file (UTF-8, or CP437 bytes as QBasic saved them). |
 | `-o <file>` | Output executable. A name ending in `.qir` writes the program's QIR text instead (what [qb-web](../../../crates/web/README.md) runs). |
 | `--emit-ir` | Write the QIR text instead of an executable (`-o x.exe` becomes `x.qir`). |
-| `run <file>`, `--run` | Run the program after a successful build, from the current folder; qb exits with the program's exit code. |
+| `run <file>`, `--run` | Run the program after a successful build, from the current folder; qb exits with the program's exit code. What qb itself prints (banner, diagnostics, "Running", "Program ended") goes to stderr, so `qb run app.bas > out.txt` keeps the program's output alone. |
 | `-- <args>` | Arguments for the program (`COMMAND$`); the program runs after the build. |
 | `--output`, `--quiet`, `--warnings`, `--no-color`, `--explicit`, `--werror` | Long spellings of `-o`, `-q`, `-w`, `-m`, `-e`, `-Werror`. |
 | `-w` | Show warnings, and a warning count at the end (without `-w` the build says how many it did not show). |

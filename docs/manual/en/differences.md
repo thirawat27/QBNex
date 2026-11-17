@@ -15,6 +15,13 @@ explained, with its tests, in
 - **Standard library and `'$IMPORT`** are QBNex additions
   ([stdlib](stdlib.md)). Imported modules are hoisted: their declarations go
   before the program and their procedures after it.
+- **`_STDERR ON` / `_STDERR OFF`** is a QBNex addition: while on, everything the
+  program writes to standard output (`PRINT` to the console, `COLOR`, `LOCATE`,
+  and programs started with `SHELL`) goes to standard error instead.
+- **Console text:** `PRINT` to a terminal is UTF-8 when the whole string is;
+  other bytes are code page 437, so box drawing shows on any console, and
+  `CHR$(196) + CHR$(191)` is `─┐`, not the letter `Ŀ` those two bytes spell in
+  UTF-8.
 - **Source encoding:** CP437 files compile byte for byte, UTF-8 too.
 - **The runtime is Rust.** No OpenGL, FreeGLUT, FreeType, miniaudio or zlib
   is linked; behaviour was checked against the old runtime with differential

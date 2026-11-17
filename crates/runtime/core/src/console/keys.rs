@@ -20,21 +20,63 @@ pub fn cp437_text(b: &[u8]) -> Vec<u8> {
     out
 }
 
+/// Whether `s`, which is valid UTF-8, is still code page 437 box drawing: every character
+/// past ASCII is two bytes that are two box-drawing characters and, read as UTF-8, a letter
+/// no language is written with (`─┐` C4 BF is "Ŀ", `═╗` CD BB is "ͻ", `╔╗` C9 BB is "ɻ").
+/// Russian, accented Latin letters, `°`, three-byte text (Thai) and any of these letters next
+/// to an ASCII letter or digit are never taken for it.
+pub fn box_pairs(s: &[u8]) -> bool {
+    let mut any = false;
+    let mut i = 0;
+    while i < s.len() {
+        let a = s[i];
+        if a < 0x80 {
+            i += 1;
+            continue;
+        }
+        let Some(&b) = s.get(i + 1) else { return false };
+        // leads ╚ ╔ ╦ ╠ ═ (Latin Extended-B, IPA, modifier letters, combining marks, archaic
+        // Greek), and ─ only before ┤ ╕ ┐; seconds ░ to ┐
+        let pair = (0xB0..=0xBF).contains(&b) && (matches!(a, 0xC8 | 0xC9 | 0xCB | 0xCC | 0xCD) || (a == 0xC4 && matches!(b, 0xB4 | 0xB8 | 0xBF)));
+        // a letter of a word has letters beside it; box drawing has spaces and lines
+        let word = |k: Option<usize>| k.and_then(|k| s.get(k)).is_some_and(u8::is_ascii_alphanumeric);
+        if !pair || word(i.checked_sub(1)) || word(Some(i + 2)) {
+            return false;
+        }
+        any = true;
+        i += 2;
+    }
+    any
+}
+
+/// Valid UTF-8 as it is, unless it is box drawing ([`box_pairs`]).
+fn utf8_or_box(data: Vec<u8>) -> Vec<u8> {
+    if box_pairs(&data) { cp437_text(&data) } else { data }
+}
+
 /// Text for a terminal from the bytes one PRINT item wrote. It is UTF-8 when all of it
-/// is, as on a window page; else its bytes are code page 437 (box drawing). A character
-/// split over two writes (Thai printed a byte at a time with MID$) waits in `carry` for
-/// its other bytes. Nothing invalid reaches the terminal: on a Windows console that is
-/// not in code page 65001 one invalid byte made Rust's stdout drop all later output.
+/// is, as on a window page; else its bytes are code page 437 (box drawing). A character of
+/// three or four bytes split over writes (Thai printed a byte at a time with MID$) waits in
+/// `carry` for its other bytes; a two-byte start is not kept back, as a box drawn a
+/// character at a time (`PRINT CHR$(205);` in a loop, then `CHR$(187)`) would join its
+/// last two into one letter. Nothing invalid reaches the terminal: on a Windows console
+/// that is not in code page 65001 one invalid byte made Rust's stdout drop all later output.
 pub fn terminal_text(carry: &mut Vec<u8>, b: &[u8]) -> Vec<u8> {
     let mut data = std::mem::take(carry);
     data.extend_from_slice(b);
     match std::str::from_utf8(&data) {
-        Ok(_) => data,
+        Ok(_) => utf8_or_box(data),
         Err(e) if e.error_len().is_none() => {
-            // ends inside a character: the rest may come with the next write
-            carry.extend_from_slice(&data[e.valid_up_to()..]);
-            data.truncate(e.valid_up_to());
-            data
+            let v = e.valid_up_to();
+            let tail = data.split_off(v);
+            let mut out = utf8_or_box(data);
+            if tail[0] >= 0xE0 {
+                // ends inside a long character: the rest may come with the next write
+                carry.extend_from_slice(&tail);
+            } else {
+                out.extend(cp437_text(&tail));
+            }
+            out
         }
         Err(_) => cp437_text(&data),
     }
@@ -342,9 +384,28 @@ mod tests {
         }
         assert_eq!(out, thai);
         assert!(carry.is_empty());
-        // a lone byte the program ends on
-        assert_eq!(terminal_text(&mut carry, &[219]), b"");
-        assert_eq!(String::from_utf8(terminal_text_end(&mut carry)).unwrap(), "█");
+        // a lone byte: shown at once
+        assert_eq!(String::from_utf8(terminal_text(&mut carry, &[219])).unwrap(), "█");
+        assert!(carry.is_empty());
+        // a box line a character at a time ends with its corner, not with "ͻ"
+        let mut out = Vec::new();
+        for _ in 0..5 {
+            out.extend(terminal_text(&mut carry, &[205]));
+        }
+        out.extend(terminal_text(&mut carry, &[187]));
+        assert_eq!(String::from_utf8(out).unwrap(), "═════╗");
+        // the first byte of a long character the program ends on
+        assert_eq!(terminal_text(&mut carry, &[0xE0]), b"");
+        assert_eq!(String::from_utf8(terminal_text_end(&mut carry)).unwrap(), "α");
+        // two box characters that read as one letter
+        assert_eq!(String::from_utf8(terminal_text(&mut carry, &[196, 191])).unwrap(), "─┐");
+        assert_eq!(String::from_utf8(terminal_text(&mut carry, &[205, 187])).unwrap(), "═╗");
+        // text stays text
+        assert_eq!(String::from_utf8(terminal_text(&mut carry, &[b' ', 205, 187, b' '])).unwrap(), " ═╗ ");
+        assert!(!box_pairs(&[b'A', 196, 191]), "next to a letter");
+        for s in ["дом", "25°C", "año", "ไทย", "Ĵurnalo", "oʻzbek", "xȳz"] {
+            assert_eq!(terminal_text(&mut carry, s.as_bytes()), s.as_bytes(), "{s}");
+        }
         // "x"; CHR$(224); "y"
         let mut out = Vec::new();
         for item in [&b"x"[..], &[224], b"y"] {

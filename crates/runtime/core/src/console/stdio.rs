@@ -157,6 +157,68 @@ pub fn write_raw(s: &[u8]) {
     C_PENDING.store(true, std::sync::atomic::Ordering::Relaxed);
 }
 
+/// `_STDERR ON` (`on`) points the process's standard output at its standard error, so that
+/// everything written there (PRINT through Rust or the system runtime, COLOR, LOCATE, and the
+/// programs SHELL starts) goes to stderr; `_STDERR OFF` gives standard output back. The caller
+/// flushes what it holds first. The browser build has one output only.
+pub fn stdout_to_stderr(on: bool) {
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        use std::sync::atomic::{AtomicI32, Ordering};
+        use fd::{close, dup, dup2};
+        /// The real standard output while it points at stderr.
+        static SAVED: AtomicI32 = AtomicI32::new(-1);
+        // SAFETY: descriptor calls on 1 and 2 and on the saved copy, which this function owns.
+        unsafe {
+            fflush(c_stdout());
+            if on {
+                if SAVED.load(Ordering::Relaxed) >= 0 {
+                    return;
+                }
+                let saved = dup(1);
+                if saved < 0 || dup2(2, 1) < 0 {
+                    if saved >= 0 {
+                        close(saved);
+                    }
+                    return;
+                }
+                SAVED.store(saved, Ordering::Relaxed);
+            } else {
+                let saved = SAVED.swap(-1, Ordering::Relaxed);
+                if saved < 0 {
+                    return;
+                }
+                dup2(saved, 1);
+                close(saved);
+            }
+            // the Win32 standard handle too: Rust's stdout, the console calls of COLOR and
+            // LOCATE and the programs SHELL starts take that one
+            #[cfg(windows)]
+            win::SetStdHandle(win::STD_OUTPUT_HANDLE, fd::_get_osfhandle(1) as _);
+        }
+    }
+    #[cfg(target_arch = "wasm32")]
+    let _ = on;
+}
+
+/// File descriptors of the system runtime (`_STDERR`).
+#[cfg(windows)]
+mod fd {
+    unsafe extern "C" {
+        #[link_name = "_dup"]
+        pub fn dup(fd: i32) -> i32;
+        #[link_name = "_dup2"]
+        pub fn dup2(from: i32, to: i32) -> i32;
+        #[link_name = "_close"]
+        pub fn close(fd: i32) -> i32;
+        pub fn _get_osfhandle(fd: i32) -> isize;
+    }
+}
+#[cfg(all(unix, not(target_arch = "wasm32")))]
+mod fd {
+    pub use libc::{close, dup, dup2};
+}
+
 /// One byte of stdin (`fgetc`), None at end of input.
 pub fn getc() -> Option<u8> {
     // SAFETY: stdio stream.
@@ -308,7 +370,8 @@ pub fn write_utf8(text: &[u8], finish_on_new_line: bool) {
                 // not UTF-8: code page 437, as on a window page (the console's own code page
                 // turned box drawing into Thai letters on a code page 874 console)
                 let utf8 = windows_sys::Win32::Globalization::CP_UTF8;
-                let wide = win::to_wide(text, utf8, win::utf8_strict())
+                let text_is_utf8 = !super::keys::box_pairs(text);
+                let wide = (if text_is_utf8 { win::to_wide(text, utf8, win::utf8_strict()) } else { None })
                     .or_else(|| win::to_wide(&super::keys::cp437_text(text), utf8, 0))
                     .unwrap_or_default();
                 if !wide.is_empty() {

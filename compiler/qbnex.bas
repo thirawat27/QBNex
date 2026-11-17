@@ -231,7 +231,17 @@ FUNCTION getpid& ()
         END IF
         E = 0
         OPEN tmpdir$ + "temp.bin" FOR OUTPUT LOCK WRITE AS #26
-        IF E THEN ReportNoBuildFolder
+        'locked: another compiler read the records at the same moment and took this folder,
+        'so the next one is tried, as on Windows. Only a folder that cannot be made ends it.
+        DO WHILE E
+            i = i + 1
+            IF i = 1000 THEN ReportNoBuildFolder
+            tmpdir$ = "./target/qb-temp" + str2$(i) + "/"
+            IF _DIREXISTS(tmpdir$) = 0 THEN MKDIR tmpdir$
+            IF _DIREXISTS(tmpdir$) = 0 THEN ReportNoBuildFolder
+            E = 0
+            OPEN tmpdir$ + "temp.bin" FOR OUTPUT LOCK WRITE AS #26
+        LOOP
     ELSE
         ON ERROR GOTO qberror_test
         E = 0

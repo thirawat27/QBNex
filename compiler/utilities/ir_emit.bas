@@ -1519,7 +1519,7 @@ FUNCTION IrGenOK% (cn$)
     l$ = l$ + "sub_strig|func_strig|sub__mousehide|sub__mouseshow|sub_files|"
     l$ = l$ + "asinh|acosh|atanh|func__environcount|func__dir|func__exit|"
     l$ = l$ + "func__blend|func__defaultcolor|func__backgroundcolor|func__printmode|sub__printmode|sub__copypalette|"
-    l$ = l$ + "sub__blink|func__blink|sub__controlchr|func__controlchr|"
+    l$ = l$ + "sub__blink|func__blink|sub__controlchr|func__controlchr|sub__stderr|"
     l$ = l$ + "func__clipboard|sub__clipboard|func__clipboardimage|sub__clipboardimage|"
     l$ = l$ + "func_screenwidth|func_screenheight|func__screenx|func__screeny|sub__screenmove|func_windowexists|"
     l$ = l$ + "sub_screenicon|func_screenicon|sub__screenhide|sub__screenshow|func__screenhide|"
@@ -2860,7 +2860,10 @@ SUB IrRunAfterBuild (exe$)
         TuiColor 111: PRINT "Running " + exe$ + RunArgsShown$
         TuiDefault: PRINT
     END IF
+    'the program writes to the real stdout; qb's own lines stay on stderr
+    StdErrForMessages 0
     rc = SHELL(c$)
+    StdErrForMessages -1
     IF QuietMode = 0 THEN
         PRINT
         TuiColor 248: PRINT "Program ended, exit code " + LTRIM$(STR$(rc))

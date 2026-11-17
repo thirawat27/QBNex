@@ -349,6 +349,7 @@ pub(crate) static REGISTRY: &[(&str, bool, &str, &str)] = &[
     ("SPC", true, "", "SPC(count%)"),
     ("SQR", true, "", "SQR(value)"),
     ("_STARTDIR", true, "$", "_STARTDIR$"),
+    ("_STDERR", false, "", "_STDERR {On|Off}"),
     ("STICK", true, "", "STICK(direction%) or STICK(direction%, axis_number%)"),
     ("STR", true, "$", "STR$(number)"),
     ("_STRCMP", true, "", "_STRCMP(string1$, string2$)"),

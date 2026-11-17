@@ -76,6 +76,29 @@ rem cmd /c must not replace %NAME% in an argument. %%%% is one % here: the batch
 rem file halves it, and call halves it again
 call :run run_pct 0 run "%T%\args.bas" -q -- "%%%%PATH%%%%" "100%%%%"
 call :has run_pct "ARGS=[%%%%PATH%%%% 100%%%%]"
+rem qb run: qb's own messages go to stderr, so stdout holds the program's output alone
+"%QB%" run "%T%\clean.bas" < NUL > "%T%\run_out.txt" 2> "%T%\run_msg.txt"
+call :has run_out "CLEAN_OK"
+call :hasnot run_out "Build complete"
+call :hasnot run_out "Program ended"
+call :has run_msg "Build complete"
+call :has run_msg "Program ended, exit code 0"
+call :hasnot run_msg "CLEAN_OK"
+"%QB%" run "%T%\err.bas" < NUL > "%T%\run_err_out.txt" 2> "%T%\run_err_msg.txt"
+if "%ERRORLEVEL%"=="0" (
+    echo [FAIL] qb run of a program that does not compile exited with 0
+    set "FAIL=1"
+)
+call :has run_err_msg "Missing )"
+call :hasnot run_err_out "Missing )"
+call :hasnot run_err_out "QBNex"
+rem a plain build keeps everything on stdout
+"%QB%" "%T%\clean.bas" -o "%T%\plain.exe" < NUL > "%T%\plain_out.txt" 2> "%T%\plain_msg.txt"
+call :has plain_out "Build complete"
+call :hasnot plain_msg "Build complete"
+rem qb.cmd passes & ( ) inside quotes of any argument through to qb.exe
+call "%ROOT%..\..\qb.cmd" run "%T%\args.bas" -q -- "--x=a&b" "f(2)" > "%T%\cmd_amp.txt" 2>&1
+call :has cmd_amp "ARGS=[--x=a&b f(2)]"
 call :run joined 0 "%T%\warn.bas" -wq -o "%T%\joined.exe"
 call :has joined "warning: unused variable"
 call :hasnot joined "Build complete"

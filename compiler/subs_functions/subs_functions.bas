@@ -310,6 +310,16 @@ id.hr_syntax = "_CONTROLCHR {On|Off}"
 regid
 
 clearid
+id.n = qbnexprefix$ + "StdErr"
+id.subfunc = 2
+id.callname = "sub__stderr"
+id.args = 1
+id.arg = MKL$(LONGTYPE - ISPOINTER)
+id.specialformat = "{On|Off}"
+id.hr_syntax = "_STDERR {On|Off}"
+regid
+
+clearid
 id.n = qbnexprefix$ + "Blink"
 id.subfunc = 2
 id.callname = "sub__blink"
