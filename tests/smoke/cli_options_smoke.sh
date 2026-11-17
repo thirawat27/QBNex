@@ -66,7 +66,7 @@ has info "Repository:"
 hasnot info "Usage:"
 run examples 0 -g
 has examples "Examples:"
-has examples "qb -s:exewithsource=true"
+has examples "qb run hello.bas"
 hasnot examples "Usage:"
 
 # ---- building: <file>, -o; the QB64 switches -c -x -p -z (not in the help) still build ----
@@ -80,6 +80,30 @@ for s in c x p z; do
 done
 "$T/clean" < /dev/null > "$T/clean_run.txt" 2>&1 || true
 has clean_run "CLEAN_OK"
+
+# ---- without -o the executable goes next to the source; --run starts it ----
+rm -f "$T/clean"
+run beside 0 "$T/clean.bas" -q
+exists "$T/clean"
+run run_after 0 "$T/clean.bas" --run -q -o "$T/run_after"
+has run_after "CLEAN_OK"
+
+# ---- qb run, program arguments after --, -wq, suggestions for typos ----
+printf 'PRINT "ARGS=[" + COMMAND$ + "]"\n' > "$T/args.bas"
+run run_sub 0 run "$T/clean.bas" -q
+has run_sub "CLEAN_OK"
+run run_args 0 run "$T/args.bas" -q -- one two
+has run_args "ARGS=[one two]"
+run joined 0 "$T/warn.bas" -wq -o "$T/joined"
+has joined "warning: unused variable"
+hasnot joined "Build complete"
+run typo_switch 1 "$T/clean.bas" --werrror
+has typo_switch "Did you mean -Werror?"
+run typo_file 1 "$T/clen.bas"
+has typo_file "Did you mean"
+has typo_file "clean.bas"
+run hint 0 "$T/clean.bas" -m
+has hint "Run it:"
 
 # ---- -q: no banner or progress ----
 run quiet 0 "$T/clean.bas" -q -o "$T/quiet"
@@ -134,8 +158,8 @@ exists "$T/named.qir"
 run settings 0 -s
 has settings "Settings file:"
 has settings "ignorewarnings"
-run settings_one 0 -s:exewithsource
-has settings_one "exewithsource = "
+run settings_one 0 -s:ignorewarnings
+has settings_one "ignorewarnings = "
 run settings_set 0 -s:debuginfo=false
 has settings_set "debuginfo = false"
 hasnot settings_set "Usage:"

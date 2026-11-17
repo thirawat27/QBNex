@@ -315,9 +315,9 @@ PRINT "Done!"
 qb hello.bas
 ```
 
-The compiler can be run as either `qb` or `qbnex`. Without `-o` the executable goes to the
-QBNex folder (the one that holds `qb` and `crates/`), as in QB64; use `-o` or
-`qb -s:exewithsource=true` to put it somewhere else.
+The compiler can be run as either `qb` or `qbnex`. Without `-o` the executable goes next to
+the source file; use `-o` to put it somewhere else. `qb run hello.bas` compiles and then runs
+the program in one step.
 
 **3. Run the executable:**
 ```bash
@@ -341,6 +341,10 @@ qb hello.bas
 # Choose the output file
 qb hello.bas -o myprogram.exe
 
+# Compile, then run the program (arguments after -- go to COMMAND$)
+qb run hello.bas
+qb run hello.bas -- input.txt
+
 # Show warnings too
 qb hello.bas -w
 
@@ -352,9 +356,15 @@ qb --help
 **Command pattern:**
 ```bash
 qb <source.bas> [switches]
+qb run <source.bas> [switches] [-- program arguments]
+qb fmt|lsp|dap [tool options]
 ```
 
-Exit code 0 means the program compiled.
+Exit code 0 means the program compiled (with `run` or `--run`, the exit code is the program's).
+`qb fmt`, `qb lsp` and `qb dap` start the formatter, the language server and the debug adapter.
+One-letter switches can be run together (`-wq` is `-w -q`). A mistyped switch or file name gets
+a "Did you mean" with the closest one, and a build shows an Options line with the switches it
+took and a "Run it" line with the command that starts the program.
 
 ### Compiler Flags Reference
 
@@ -364,17 +374,19 @@ Exit code 0 means the program compiled.
 | `-v` | `--version` | Show the compiler version (one line) | `qb -v` |
 | `-i` | `--info`, `--about` | Show project information: folders, settings file, platform, license, links | `qb -i` |
 | `-g` | `--examples` | Show common command lines with what each does | `qb -g` |
-| `-o <file>` | - | Output file; a name ending in `.qir` writes the QIR text (for qb-web) | `qb file.bas -o myapp.exe` |
+| `run <file>` | - | Compile, then run the program (same as `--run`) | `qb run file.bas` |
+| `-o <file>` | `--output` | Output file; a name ending in `.qir` writes the QIR text (for qb-web) | `qb file.bas -o myapp.exe` |
 | `--emit-ir` | - | Write the QIR text instead of an executable | `qb file.bas --emit-ir -o file.qir` |
-| `--exe-with-source` | - | Without `-o`: write the executable next to the source file (this build only) | `qb file.bas --exe-with-source` |
-| `-w` | - | Show warnings, and a warning count at the end | `qb file.bas -w` |
-| `-Werror` | `--warnings-as-errors` | Treat warnings as blocking diagnostics | `qb file.bas --warnings-as-errors` |
-| `-q` | - | Quiet mode: no banner or progress (warnings and errors are still shown) | `qb file.bas -q` |
-| `-m` | - | No colours in the compiler output (also when `NO_COLOR` is set) | `qb file.bas -m` |
+| `--run` | - | Run the program after a successful build; qb exits with the program's exit code | `qb file.bas --run` |
+| `-- <args>` | - | Arguments for the program (`COMMAND$`); the program runs after the build | `qb run file.bas -- a b` |
+| `-w` | `--warnings` | Show warnings, and a warning count at the end | `qb file.bas -w` |
+| `-Werror` | `--warnings-as-errors`, `--werror` | Treat warnings as blocking diagnostics | `qb file.bas --warnings-as-errors` |
+| `-q` | `--quiet` | Quiet mode: no banner or progress (warnings and errors are still shown) | `qb file.bas -q` |
+| `-m` | `--no-color` | No colours in the compiler output (also when `NO_COLOR` is set) | `qb file.bas -m` |
 | `-k` | `--compact-errors` | Compact diagnostics (detailed ones are the default) | `qb file.bas -k` |
 | `-d` | `--verbose-errors` | Detailed diagnostics (the default) plus two source lines before and after each one | `qb file.bas -d` |
-| `-e` | - | `OPTION _EXPLICIT` for this compilation | `qb file.bas -e` |
-| `-s[:setting[=true/false]]` | - | Show or change compiler settings | `qb -s:exewithsource=true` |
+| `-e` | `--explicit` | `OPTION _EXPLICIT` for this compilation | `qb file.bas -e` |
+| `-s[:setting[=true/false]]` | - | Show or change compiler settings | `qb -s:ignorewarnings=true` |
 
 Detailed diagnostics (`cause`, `example` and related notes) are shown by default:
 
@@ -392,19 +404,17 @@ qb myprogram.bas -e -q              # OPTION _EXPLICIT, quiet
 
 | Setting | `-s` switch | Default | Description |
 |---------|-------------|---------|-------------|
-| `SaveExeWithSource` | `-s:exewithsource=true/false` | `false` | Write the executable next to the source file instead of the QBNex folder |
 | `DebugInfo` | `-s:debuginfo=true/false` | `false` | Accepted for old scripts; no effect |
 | `IgnoreWarnings` | `-s:ignorewarnings=true/false` | `false` | Hide warnings even with `-w` or `-Werror` |
 
 ```bash
 qb -s                          # show the settings
-qb -s:exewithsource            # show one setting
-qb -s:exewithsource=true       # change it
+qb -s:ignorewarnings           # show one setting
+qb -s:ignorewarnings=true      # change it
 ```
 
 ```ini
 [COMPILER SETTINGS]
-SaveExeWithSource=False
 IgnoreWarnings=False
 DebugInfo=False 'Managed by qbnex -s
 ```
@@ -1168,8 +1178,8 @@ docker run --rm -v "%cd%:/project" qbnex qb yourfile.bas -o yourfile     # cmd.e
 docker run --rm -v "$(pwd)":/project qbnex ./yourfile
 ```
 
-Give `-o` a path under `/project`: without it the compiler writes to the QBNex folder inside the
-container (`/app`), which the `qbnex` user cannot write to. Without arguments the image prints `qb --help`.
+Without `-o` the executable goes next to the source file under `/project`. Without arguments the
+image prints `qb --help`.
 
 **Docker Compose** (`docker/docker-compose.yml`) defines two services that mount the repository root
 on `/project` and pass `DISPLAY` (they use the default bridge network: programs can connect out; publish a
@@ -1426,8 +1436,8 @@ script again, or point `QBNEX_QB_EXEC` at a prebuilt `qb-exec`.
 **"Cannot locate source file".** Check the path. The compiler resolves a relative source path
 against the current folder; when in doubt, give an absolute path.
 
-**The executable is not where I expected.** Without `-o` it goes to the QBNex folder (next to
-`qb`). Use `-o path` or `qb -s:exewithsource=true`.
+**The executable is not where I expected.** Without `-o` it goes next to the source file. Use
+`-o path` to choose.
 
 **`QIR: unsupported: line N: ...`.** The statement is one of the few the QIR back end does not
 compile yet; see [limitations](docs/manual/en/limitations.md#statements-that-are-not-supported-or-behave-differently).

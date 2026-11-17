@@ -35,7 +35,13 @@ the standard builds, faster 3D drawing and `qb --help` options that do what they
 - Messages that named the old back end's compiler or its types now describe the QIR build: the array return type error is now "Unsupported array element type". `$EXEICON`, `$VERSIONINFO` and `$CHECKING:OFF` are accepted and have no effect (see the limitations page).
 - Native executables (preview): with the native kit next to the runner, the compiler links ordinary executables through `rust-lld` and the `qb-native` library.
 - `-z`, `-p` and `--ir` are accepted for old scripts and change nothing. `--emit-ir` (or an `-o` name ending in `.qir`) writes the program's QIR text, for `qb-web`.
-- `-s` shows and sets `exewithsource` (save the executable next to the source) and `debuginfo` (kept for old scripts, no effect). Settings live in `target/qb-config.ini`.
+- `-s` shows and sets `ignorewarnings` and `debuginfo` (kept for old scripts, no effect). Settings live in `target/qb-config.ini`.
+- Without `-o`, the executable (or `--emit-ir`'s `.qir`) is always written next to the source file, never into the QBNex folder. `--exe-with-source` and the `exewithsource` setting (`SaveExeWithSource` in `qb-config.ini`) are removed.
+- `qb run <file>` (or `--run`) runs the program after a successful build, from the current folder, and `qb` exits with the program's exit code; arguments after `--` go to the program's `COMMAND$`.
+- Friendlier command line: one-letter switches run together (`-wq`), long spellings (`--output`, `--quiet`, `--warnings`, `--no-color`, `--explicit`, `--werror`), "Did you mean" for a mistyped switch or source file name (or the list of `.bas` files in that folder), a hint to use `qb run <file> -- <args>` when a second file name is given, and a "Run it" line after the build.
+- The build screen shows an Options line with every switch (and the `ignorewarnings` setting) that changes the build, so a switch whose effect is not visible in a clean build (`-e`, `-w`, `-Werror`, `-d`, `-k`) still shows that it was taken.
+- `qb fmt`, `qb lsp` and `qb dap` work when `qb` is `qb.exe` on the PATH (before, `qb.exe` came first and took the subcommand for a source file name); `qb-lsp` and `qb-dap` answer `--help` and `--version`.
+- `-r` is no longer an undocumented `-Werror`; `-s:ignorewarnings=true` now also keeps `-Werror` from failing the build, as its help says.
 
 #### Console and build screen
 

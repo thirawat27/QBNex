@@ -44,7 +44,7 @@ call :has info "Repository:"
 call :hasnot info "Usage:"
 call :run examples 0 -g
 call :has examples "Examples:"
-call :has examples "qb -s:exewithsource=true"
+call :has examples "qb run hello.bas"
 call :hasnot examples "Usage:"
 
 rem ---- building: <file>, -o; the QB64 switches -c -x -p -z (not in the help) still build ----
@@ -58,6 +58,34 @@ for %%s in (c x p z) do (
 )
 "%T%\clean.exe" < NUL > "%T%\clean_run.txt" 2>&1
 call :has clean_run "CLEAN_OK"
+
+rem ---- without -o the executable goes next to the source; --run starts it ----
+del /q "%T%\clean.exe"
+call :run beside 0 "%T%\clean.bas" -q
+call :exists "%T%\clean.exe"
+call :run run_after 0 "%T%\clean.bas" --run -q -o "%T%\run_after.exe"
+call :has run_after "CLEAN_OK"
+
+rem ---- qb run, program arguments after --, -wq, suggestions for typos ----
+> "%T%\args.bas" echo PRINT "ARGS=[" + COMMAND$ + "]"
+call :run run_sub 0 run "%T%\clean.bas" -q
+call :has run_sub "CLEAN_OK"
+call :run run_args 0 run "%T%\args.bas" -q -- one two
+call :has run_args "ARGS=[one two]"
+rem cmd /c must not replace %NAME% in an argument. %%%% is one % here: the batch
+rem file halves it, and call halves it again
+call :run run_pct 0 run "%T%\args.bas" -q -- "%%%%PATH%%%%" "100%%%%"
+call :has run_pct "ARGS=[%%%%PATH%%%% 100%%%%]"
+call :run joined 0 "%T%\warn.bas" -wq -o "%T%\joined.exe"
+call :has joined "warning: unused variable"
+call :hasnot joined "Build complete"
+call :run typo_switch 1 "%T%\clean.bas" --werrror
+call :has typo_switch "Did you mean -Werror?"
+call :run typo_file 1 "%T%\clen.bas"
+call :has typo_file "Did you mean"
+call :has typo_file "clean.bas"
+call :run hint 0 "%T%\clean.bas" -m
+call :has hint "Run it:"
 
 rem ---- -q: no banner or progress ----
 call :run quiet 0 "%T%\clean.bas" -q -o "%T%\quiet.exe"
@@ -112,8 +140,8 @@ rem ---- -s: list, read one, write one (debuginfo has no effect), reject others 
 call :run settings 0 -s
 call :has settings "Settings file:"
 call :has settings "ignorewarnings"
-call :run settings_one 0 -s:exewithsource
-call :has settings_one "exewithsource = "
+call :run settings_one 0 -s:ignorewarnings
+call :has settings_one "ignorewarnings = "
 rem quoted: call takes = for a separator
 call :run settings_set 0 "-s:debuginfo=false"
 call :has settings_set "debuginfo = false"

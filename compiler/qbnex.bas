@@ -280,6 +280,11 @@ FUNCTION getpid& ()
     IF CMDLineFile <> "" AND _FILEEXISTS(_STARTDIR$ + "/" + CMDLineFile) THEN
         CMDLineFile = _STARTDIR$ + "/" + CMDLineFile
     END IF
+    'not there: say which .bas file was probably meant, before the build starts
+    IF CMDLineFile <> "" AND _FILEEXISTS(CMDLineFile) = 0 AND os$ = "WIN" THEN ReportMissingSource CMDLineFile
+    IF CMDLineFile <> "" AND os$ <> "WIN" THEN
+        IF ResolvePathCase$(CMDLineFile) = "" THEN ReportMissingSource CMDLineFile
+    END IF
 
     ConsoleMode = -1
     _DEST _CONSOLE
@@ -832,10 +837,9 @@ DIM SHARED incRangeFrom AS LONG, incRangeTo AS LONG, incRangeSkip AS LONG, incRa
         IF RIGHT$(path.source$, 1) <> pathsep$ THEN path.source$ = path.source$ + pathsep$
         CHDIR currentdir$
     END IF
-    IF SaveExeWithSource THEN path.exe$ = path.source$
-    IF path.exe$ = "" THEN
-        IF INSTR(_OS$, "WIN") THEN path.exe$ = "..\..\" ELSE path.exe$ = "../../"
-    END IF
+    'without -o the executable is written next to the source file
+    path.exe$ = path.source$
+    IF path.exe$ = "" THEN path.exe$ = _STARTDIR$ + pathsep$
     pendingOutputBinary$ = path.exe$ + f$ + extension$
 
     FOR x = LEN(f$) TO 1 STEP -1
@@ -11065,6 +11069,12 @@ SUB TuiBanner
         NEXT
     END IF
     TuiColor 152: PRINT s$
+    o$ = ActiveOptionsText$("  " + U8$(183) + "  ")
+    IF LEN(o$) THEN
+        PRINT "  " + U8$(9881) + " ";
+        TuiDefault: PRINT "Options ";
+        TuiColor 222: PRINT o$
+    END IF
     TuiDefault
 END SUB
 
@@ -11122,15 +11132,40 @@ SUB ShowBuildComplete (outPath$)
     PRINT
     IF MonochromeLoggingMode THEN
         PRINT "Build complete: " + outPath$
+        ShowRunHint outPath$
     ELSE
         PRINT "  " + U8$(9989) + " ";
         TuiColor 114: PRINT "Build complete: ";
         TuiColor 152: PRINT outPath$;
         TuiColor 248: PRINT "  (" + TuiElapsed$ + ")"
+        ShowRunHint outPath$
         TuiDefault
         PRINT
     END IF
     ShowWarningSummary
+END SUB
+
+'how to start the program just built: its path from the folder qb was started in
+'(--run starts it, so then nothing is shown)
+SUB ShowRunHint (outPath$)
+    DIM r$, s$
+    IF RunAfterBuild THEN EXIT SUB
+    r$ = outPath$
+    s$ = _STARTDIR$
+    IF RIGHT$(s$, 1) <> pathsep$ THEN s$ = s$ + pathsep$
+    IF os$ = "WIN" THEN
+        IF LCASE$(LEFT$(r$, LEN(s$))) = LCASE$(s$) THEN r$ = "." + pathsep$ + MID$(r$, LEN(s$) + 1)
+    ELSE
+        IF LEFT$(r$, LEN(s$)) = s$ THEN r$ = "." + pathsep$ + MID$(r$, LEN(s$) + 1)
+    END IF
+    IF INSTR(r$, " ") THEN r$ = CHR$(34) + r$ + CHR$(34)
+    IF MonochromeLoggingMode THEN
+        PRINT "Run it: " + r$
+    ELSE
+        PRINT "  " + U8$(9654) + " ";
+        TuiColor 248: PRINT "Run it  ";
+        TuiColor 152: PRINT r$
+    END IF
 END SUB
 
 SUB ShowWarningSummary
@@ -11171,6 +11206,8 @@ SUB ShowCompilerBanner
             PRINT "  QQQQ    BBBB    N   N   EEEEE   X   X"
             PRINT
             PRINT "QBNex Compiler"
+            o$ = ActiveOptionsText$(", ")
+            IF LEN(o$) THEN PRINT "Options: " + o$
         ELSE
             PRINT
             TuiBanner

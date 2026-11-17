@@ -138,10 +138,10 @@ docker run --rm -v "$(pwd)":/project qbnex qb yourfile.bas -o yourfile
 
 ```bash
 qb --version
-qb hello.bas        # writes hello.exe (Windows) or hello in the QBNex folder
+qb hello.bas        # writes hello.exe (Windows) or hello next to hello.bas
 ```
 
-Without `-o` the output goes to the QBNex folder (see [commands](commands.md)).
+Without `-o` the output goes next to the source file (see [commands](commands.md)).
 
 Platform notes: the Windows build is the one tested most. Linux and macOS
 builds are built and tested in CI (GitHub Actions) only.

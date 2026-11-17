@@ -13,7 +13,18 @@ fn main() -> std::process::ExitCode {
     if std::env::var("QBNEX_SUBCOMMAND").is_ok_and(|s| s.eq_ignore_ascii_case("dap")) && args.first().is_some_and(|a| a.eq_ignore_ascii_case("dap")) {
         args.remove(0);
     }
-    let code = if args.first().map(String::as_str) == Some("--debuggee") {
+    match args.first().map(String::as_str) {
+        Some("-h" | "--help") => {
+            println!("usage: qb-dap\n\nDebug adapter (Debug Adapter Protocol) for QBNex programs on standard input/output.\nAn editor starts it; it is not used from a terminal.");
+            return std::process::ExitCode::SUCCESS;
+        }
+        Some("-V" | "--version") => {
+            println!("qb-dap {}", env!("CARGO_PKG_VERSION"));
+            return std::process::ExitCode::SUCCESS;
+        }
+        _ => {}
+    }
+    let code =if args.first().map(String::as_str) == Some("--debuggee") {
         let (Some(qir), Some(port)) = (args.get(1), args.get(2).and_then(|p| p.parse().ok())) else {
             eprintln!("usage: qb-dap --debuggee <program.qir> <port> [--no-debug] [--stop-on-entry]");
             return std::process::ExitCode::from(2);

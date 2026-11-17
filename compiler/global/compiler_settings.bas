@@ -1,4 +1,4 @@
-DIM SHARED SaveExeWithSource AS _BYTE, IgnoreWarnings AS _BYTE
+DIM SHARED IgnoreWarnings AS _BYTE
 DIM SHARED qbnexversionprinted AS _BYTE
 DIM SHARED generalSettingsSection$, ConfigFile$, DebugInfoIniWarning$
 
@@ -11,7 +11,6 @@ IniSetForceReload -1
 IniSetAllowBasicComments -1
 IniSetAutoCommit -1
 
-SaveExeWithSource = ReadWriteBooleanSettingValue%(generalSettingsSection$, "SaveExeWithSource", 0)
 IgnoreWarnings = ReadWriteBooleanSettingValue%(generalSettingsSection$, "IgnoreWarnings", 0)
 'the file is written only when a setting is missing or invalid (-s writes the ones it changes):
 'rewriting it on every start fails on a read-only install and races between parallel builds

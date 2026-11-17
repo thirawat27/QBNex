@@ -2,8 +2,8 @@
 
 [Manual index](../README.md) · [ภาษาไทย](../th/commands.md)
 
-`qb` and `qbnex` are the same compiler. `qbnex` (the launch script) also runs
-the developer tools.
+`qb` and `qbnex` are the same compiler, and both run the developer tools
+(`qb fmt`, `qb lsp`, `qb dap`).
 
 ## Compile
 
@@ -11,19 +11,26 @@ the developer tools.
 qb hello.bas                  # hello.exe on Windows, ./hello elsewhere
 qb hello.bas -o tools/hi.exe  # choose the output file
 qb hello.bas -w               # also show warnings
+qb run hello.bas              # compile, then run the program
+qb run hello.bas -- a b       # ... with COMMAND$ = "a b"
+qb hello.bas -wq              # one-letter switches together: -w -q
 ```
 
-Without `-o` the executable goes to the QBNex folder (the one that holds
-`qb` and `crates/`), as in QB64; `-s:exewithsource=true` puts it next to
-the source instead. A relative source path is resolved against the current
-folder.
+A mistyped switch or file name gets a "Did you mean" with the closest one. The
+build screen shows an Options line with the switches it took, and after the
+build a "Run it" line with the command that starts the program.
+
+Without `-o` the executable goes next to the source file. A relative source
+path is resolved against the current folder.
 
 | Switch | Meaning |
 | --- | --- |
 | `<file>` | Source file (UTF-8, or CP437 bytes as QBasic saved them). |
 | `-o <file>` | Output executable. A name ending in `.qir` writes the program's QIR text instead (what [qb-web](../../../crates/web/README.md) runs). |
 | `--emit-ir` | Write the QIR text instead of an executable (`-o x.exe` becomes `x.qir`). |
-| `--exe-with-source` | Without `-o`: write the executable next to the source file, for this build (the setting is `-s:exewithsource=true`). |
+| `run <file>`, `--run` | Run the program after a successful build, from the current folder; qb exits with the program's exit code. |
+| `-- <args>` | Arguments for the program (`COMMAND$`); the program runs after the build. |
+| `--output`, `--quiet`, `--warnings`, `--no-color`, `--explicit`, `--werror` | Long spellings of `-o`, `-q`, `-w`, `-m`, `-e`, `-Werror`. |
 | `-w` | Show warnings, and a warning count at the end (without `-w` the build says how many it did not show). |
 | `-Werror`, `--warnings-as-errors` | Treat warnings as errors (exit code 1). |
 | `-q` | Quiet: no banner or progress (warnings and errors are still shown). |
@@ -31,10 +38,11 @@ folder.
 | `-k`, `--compact-errors` | Short diagnostics (detailed ones are the default). |
 | `-d`, `--verbose-errors` | Detailed diagnostics plus the two source lines before and after each one. |
 | `-e` | `OPTION _EXPLICIT` for this compilation. |
-| `-s[:setting=true/false]` | Show or change compiler settings (`exewithsource`, `ignorewarnings`; `debuginfo` is kept but has no effect). `-s` alone lists them with the settings file. |
+| `-s[:setting=true/false]` | Show or change compiler settings (`ignorewarnings`; `debuginfo` is kept but has no effect). `-s` alone lists them with the settings file. |
 | `-h`, `--help` · `-v`, `--version` · `-i`, `--info`, `--about` · `-g`, `--examples` | Help; the version (one line); project information (folders, settings file, platform, license); examples with what each does. The Windows-style `/?`, `/help` and `/version` work too. |
 
-Exit code 0 means the program compiled. Diagnostics name the file, line and
+Exit code 0 means the program compiled (with `--run`, the exit code is the
+program's). Diagnostics name the file, line and
 column and quote the source line.
 
 ## Run

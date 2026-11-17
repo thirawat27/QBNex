@@ -8,8 +8,9 @@ REPO_ROOT="$(CDPATH= cd -- "$ROOT/../.." && pwd)"
 QB="$REPO_ROOT/qb"
 SRC_OK_REL="tests/fixtures/label_recompile_success.bas"
 SRC_CONSOLE_REL="tests/fixtures/cli_console_output.bas"
-BIN_XMODE="$REPO_ROOT/cli_console_output"
-BIN_ZMODE="$REPO_ROOT/label_recompile_success"
+# without -o the executable is written next to the source
+BIN_XMODE="$REPO_ROOT/tests/fixtures/cli_console_output"
+BIN_ZMODE="$REPO_ROOT/tests/fixtures/label_recompile_success"
 
 if [ ! -x "$QB" ]; then
   echo "[FAIL] qb not found at \"$QB\""
@@ -165,8 +166,8 @@ grep -F "debuginfo" "$OUT_SETTINGS" >/dev/null 2>&1 || {
   echo "[FAIL] -s output is missing debuginfo setting."
   FAIL=1
 }
-grep -F "exewithsource" "$OUT_SETTINGS" >/dev/null 2>&1 || {
-  echo "[FAIL] -s output is missing exewithsource setting."
+grep -F "ignorewarnings" "$OUT_SETTINGS" >/dev/null 2>&1 || {
+  echo "[FAIL] -s output is missing ignorewarnings setting."
   FAIL=1
 }
 

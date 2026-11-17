@@ -29,36 +29,47 @@ SUB ShowCommandLineHelp
     PRINT
     TuiColor 114: PRINT "Usage: ";
     TuiColor 152: PRINT "qb <file> [switches]"
+    PRINT "       qb run <file> [switches] [-- program arguments]"
+    PRINT "       qb fmt|lsp|dap [tool options]"
     TuiDefault
     PRINT
     HelpHead "Commands:"
+    HelpRow "run <file>", "Compile, then run the program (same as --run)"
     HelpRow "-h, --help", "Show this help"
     HelpRow "-v, --version", "Show the compiler version (one line)"
     HelpRow "-i, --info, --about", "Show project information: folders, settings"
     HelpRow "", "   file, platform, license and links"
     HelpRow "-g, --examples", "Show common command lines with what each does"
+    HelpRow "fmt [options] [files]", "Format source files (qb fmt --help)"
+    HelpRow "lsp", "Language server on stdio (for editors)"
+    HelpRow "dap", "Debug adapter on stdio (for editors)"
     PRINT
     HelpHead "Options:"
-    HelpRow "<file>", "Source file to compile"
-    HelpRow "-o <output file>", "Write output executable to <output file>"
-    HelpRow "--exe-with-source", "Without -o: write the executable next to the"
-    HelpRow "", "   source file (this build only)"
-    HelpRow "-w", "Show warnings, and a warning count at the end"
+    HelpRow "<file>", "Source file to compile; without -o the executable"
+    HelpRow "", "   is written next to it"
+    HelpRow "-o, --output <file>", "Write output executable to <file>"
+    HelpRow "--run", "Run the program after a successful build (qb then"
+    HelpRow "", "   exits with the program's exit code)"
+    HelpRow "-- <arguments>", "Arguments for the program (COMMAND$); also runs it"
+    HelpRow "-w, --warnings", "Show warnings, and a warning count at the end"
     HelpRow "-Werror, --warnings-as-errors", ""
     HelpRow "", "Treat warnings as blocking diagnostics (exit code 1)"
-    HelpRow "-q", "Quiet mode: no banner or progress (warnings and"
+    HelpRow "-q, --quiet", "Quiet mode: no banner or progress (warnings and"
     HelpRow "", "   errors are still shown)"
-    HelpRow "-m", "Do not colorize compiler output (monochrome mode;"
+    HelpRow "-m, --no-color", "Do not colorize compiler output (monochrome mode;"
     HelpRow "", "   also when NO_COLOR is set)"
     HelpRow "-d, --verbose-errors", "Detailed diagnostics (the default) plus the"
     HelpRow "", "   source lines around each one"
     HelpRow "-k, --compact-errors", "Use compact diagnostics (hide extra detail notes)"
-    HelpRow "-e", "Enable OPTION _EXPLICIT, making variable declaration"
+    HelpRow "-e, --explicit", "Enable OPTION _EXPLICIT, making variable declaration"
     HelpRow "", "   mandatory (per-compilation; doesn't affect the"
     HelpRow "", "   source file or global settings)"
     HelpRow "-s[:switch=true/false]", "View/edit compiler settings (-s lists them)"
     HelpRow "--emit-ir", "Write the program's QIR text instead of an executable"
     HelpRow "", "   (also when -o names a .qir file; for qb-web)"
+    PRINT
+    TuiColor 248: PRINT "One-letter switches can be run together: -wq is -w -q."
+    TuiDefault
     PRINT
 END SUB
 
@@ -122,11 +133,7 @@ SUB ShowProjectInfo
     IF MacOSX THEN platform$ = "macOS"
     InfoRow "Executable:  ", "qb (" + NativePath$(COMMAND$(0)) + ")"
     InfoRow "Home:        ", NativePath$(QBNexRoot$) + "  (holds crates and compiler)"
-    IF SaveExeWithSource THEN
-        InfoRow "Output:      ", "next to the source file (without -o; -s:exewithsource)"
-    ELSE
-        InfoRow "Output:      ", "the Home folder (without -o)"
-    END IF
+    InfoRow "Output:      ", "next to the source file (without -o)"
     InfoRow "Settings:    ", SettingsFilePath$ + "  (qb -s)"
     InfoRow "Platform:    ", platform$ + " " + LTRIM$(STR$(OS_BITS)) + "-bit"
     InfoRow "License:     ", "GPL-3.0 with the QBNex Compiled Program Exception"
@@ -146,19 +153,21 @@ SUB ShowCommandExamples
     _DEST _CONSOLE
     IF os$ = "WIN" THEN exe$ = "hello.exe" ELSE exe$ = "hello"
     HelpHead "Examples:"
-    ExampleRow "qb hello.bas", "compile; the executable goes to the QBNex folder"
+    ExampleRow "qb hello.bas", "compile; " + exe$ + " goes next to hello.bas"
+    ExampleRow "qb run hello.bas", "compile, then run the program"
+    ExampleRow "qb run hello.bas -- a b", "run it with COMMAND$ = " + CHR$(34) + "a b" + CHR$(34)
     ExampleRow "qb hello.bas -o " + exe$, "choose the output file"
-    ExampleRow "qb hello.bas --exe-with-source", "write the executable next to hello.bas"
     ExampleRow "qb hello.bas -w", "also show warnings"
     ExampleRow "qb hello.bas -Werror", "fail the build on any warning"
     ExampleRow "qb hello.bas -e", "every variable must be declared (DIM)"
     ExampleRow "qb hello.bas -q", "no banner or progress, only problems"
+    ExampleRow "qb hello.bas -wq", "-w and -q together"
     ExampleRow "qb hello.bas -m", "no colors (setting NO_COLOR does the same)"
     ExampleRow "qb broken.bas -k", "short diagnostics"
     ExampleRow "qb broken.bas -d", "diagnostics with the lines around them"
     ExampleRow "qb hello.bas -o hello.qir", "write QIR text for qb-web (or --emit-ir)"
     ExampleRow "qb -s", "list the compiler settings"
-    ExampleRow "qb -s:exewithsource=true", "always write executables next to the source"
+    ExampleRow "qb fmt --write hello.bas", "format hello.bas in place"
     ExampleRow "qb --info", "show folders, settings file and license"
 END SUB
 
@@ -166,7 +175,6 @@ SUB ShowSettingsUsageAndExit (token$)
     PRINT "Invalid settings switch: "; token$
     PRINT
     PRINT "Valid switches:"
-    PRINT "    -s:exewithsource=true/false  (Save .EXE in the source folder)"
     PRINT "    -s:ignorewarnings=true/false (Hide warnings, even with -w or -Werror)"
     PRINT "    -s:debuginfo=true/false      (Accepted for old scripts; no effect)"
     SYSTEM 1
@@ -188,25 +196,12 @@ SUB HandleSettingsSwitch (token$)
     CASE ""
         TuiColor 248: PRINT "Settings file: ";
         TuiDefault: PRINT SettingsFilePath$
-        SettingRow "exewithsource", (SaveExeWithSource), "write the executable next to the source (without -o)"
         SettingRow "ignorewarnings", (IgnoreWarnings), "hide warnings, even with -w or -Werror"
         SettingRow "debuginfo", (compilerdebuginfo), "kept for old scripts; no effect"
         PRINT
         TuiColor 248: PRINT "Change one with -s:<name>=true or -s:<name>=false."
         TuiDefault
         SYSTEM
-    CASE ":exewithsource"
-        PRINT "exewithsource = ";
-        IF SaveExeWithSource THEN PRINT "true" ELSE PRINT "false"
-        SYSTEM
-    CASE ":exewithsource=true"
-        WriteConfigSetting generalSettingsSection$, "SaveExeWithSource", "True"
-        PRINT "exewithsource = true"
-        SaveExeWithSource = -1
-    CASE ":exewithsource=false"
-        WriteConfigSetting generalSettingsSection$, "SaveExeWithSource", "False"
-        PRINT "exewithsource = false"
-        SaveExeWithSource = 0
     CASE ":ignorewarnings"
         PRINT "ignorewarnings = ";
         IF IgnoreWarnings THEN PRINT "true" ELSE PRINT "false"
@@ -248,16 +243,248 @@ FUNCTION NormalizeCommandToken$ (token$)
     IF normalized = "-g" OR normalized = "--examples" OR normalized = "--example" OR normalized = "/examples" OR normalized = "/example" THEN normalized = "-g"
     IF normalized = "--verbose-errors" OR normalized = "--detailed-errors" THEN normalized = "-d"
     IF normalized = "--compact-errors" OR normalized = "--compact-diagnostics" THEN normalized = "-k"
-    IF normalized = "-werror" OR normalized = "--warnings-as-errors" THEN normalized = "-r"
+    IF normalized = "--warnings-as-errors" OR normalized = "--werror" THEN normalized = "-werror"
+    IF normalized = "--run" THEN normalized = "-run"
+    'long spellings people try first
+    IF normalized = "--output" THEN normalized = "-o"
+    IF normalized = "--quiet" THEN normalized = "-q"
+    IF normalized = "--warnings" THEN normalized = "-w"
+    IF normalized = "--explicit" THEN normalized = "-e"
+    IF normalized = "--no-color" OR normalized = "--no-colour" OR normalized = "--monochrome" THEN normalized = "-m"
+    IF normalized = "--settings" THEN normalized = "-s"
     IF normalized = "--ir" THEN normalized = "-ir"
     IF normalized = "--emit-ir" THEN normalized = "-irtext"
-    IF normalized = "--exe-with-source" THEN normalized = "-exewithsource"
 
     NormalizeCommandToken$ = normalized
 END FUNCTION
 
+'the switches and settings that change this build, for the line under the banner, so each
+'one shows that it was taken (empty: none). -q has no banner and -m shows by itself.
+FUNCTION ActiveOptionsText$ (sep$)
+    DIM r$
+    IF ShowWarnings THEN r$ = r$ + sep$ + "-w show warnings"
+    IF WarningsAsErrors THEN r$ = r$ + sep$ + "-Werror warnings stop the build"
+    IF optionexplicit_cmd THEN r$ = r$ + sep$ + "-e OPTION _EXPLICIT"
+    IF DiagnosticNeighborLines > 0 THEN r$ = r$ + sep$ + "-d errors with the lines around them"
+    IF VerboseMode = 0 THEN r$ = r$ + sep$ + "-k compact errors"
+    IF LEN(outputfile_cmd$) THEN r$ = r$ + sep$ + "-o " + outputfile_cmd$
+    IF IrEmitText THEN r$ = r$ + sep$ + "--emit-ir QIR text"
+    IF RunAfterBuild THEN r$ = r$ + sep$ + "--run run after the build"
+    IF IgnoreWarnings THEN r$ = r$ + sep$ + "ignorewarnings=true (qb -s)"
+    ActiveOptionsText$ = MID$(r$, LEN(sep$) + 1)
+END FUNCTION
+
+'one program argument for the shell: "..." on Windows (the quoting rules the tools'
+'C runtime and Rust read), '...' elsewhere
+FUNCTION ShellArg$ (a$)
+    DIM r$, k AS LONG, bs AS LONG, c$
+    IF os$ <> "WIN" THEN ShellArg$ = QuotedFilename$(a$): EXIT FUNCTION
+    r$ = CHR$(34)
+    FOR k = 1 TO LEN(a$)
+        c$ = MID$(a$, k, 1)
+        IF c$ = "\" THEN
+            bs = bs + 1
+        ELSEIF c$ = CHR$(34) THEN
+            'backslashes before a quote are doubled, and the quote is escaped
+            r$ = r$ + STRING$(bs * 2 + 1, "\") + c$: bs = 0
+        ELSE
+            r$ = r$ + STRING$(bs, "\") + c$: bs = 0
+        END IF
+    NEXT
+    'backslashes at the end are doubled, so the closing quote stays a quote (C:\dir\)
+    r$ = r$ + STRING$(bs * 2, "\") + CHR$(34)
+    'SHELL runs cmd /c, which replaces %NAME% even between quotes: each % leaves the
+    'quotes as "^%" (cmd drops the ^, and the program still reads one argument, as
+    '"a"%"b" is a%b). Between two such % signs cmd sees a name with " and ^ in it, which
+    'is no variable, so nothing is replaced.
+    k = INSTR(r$, "%")
+    DO WHILE k
+        r$ = LEFT$(r$, k - 1) + CHR$(34) + "^%" + CHR$(34) + MID$(r$, k + 1)
+        k = INSTR(k + 4, r$, "%")
+    LOOP
+    ShellArg$ = r$
+END FUNCTION
+
+'qb fmt / qb lsp / qb dap: run qb-fmt, qb-lsp or qb-dap with the arguments after the
+'subcommand, and exit with its exit code. On the PATH, qb finds qb.exe before qb.cmd, so
+'qb.exe has to do what qb.cmd and the Unix launcher do. The current directory is the
+'QBNex folder here (VerifyInternalFolderOrExit): the tool is looked up next to qb, then
+'in a cargo build of this checkout, then on the PATH.
+SUB RunToolSubcommand (sc$)
+    DIM tool$, exe$, c$, d$, k AS LONG, rc AS LONG
+    tool$ = "qb-" + sc$
+    IF os$ = "WIN" THEN tool$ = tool$ + ".exe"
+    exe$ = ""
+    FOR k = 1 TO 3
+        SELECT CASE k
+        CASE 1: d$ = ""
+        CASE 2: d$ = "target" + pathsep$ + "release" + pathsep$
+        CASE 3: d$ = "target" + pathsep$ + "debug" + pathsep$
+        END SELECT
+        IF _FILEEXISTS(d$ + tool$) THEN exe$ = QBNexRoot$ + d$ + tool$: EXIT FOR
+    NEXT
+    IF LEN(exe$) THEN c$ = ShellArg$(exe$) ELSE c$ = "qb-" + sc$
+    FOR k = 2 TO _COMMANDCOUNT
+        c$ = c$ + " " + ShellArg$(COMMAND$(k))
+    NEXT
+    'the tools drop their first argument when it is the subcommand named here (qb.cmd
+    'passes it on); it is not passed on from here
+    ENVIRON "QBNEX_SUBCOMMAND="
+    'the tool reads and writes files relative to the folder qb was started in
+    CHDIR _STARTDIR$
+    'cmd /c takes away the first and the last quote of a line with several quoted names
+    IF os$ = "WIN" THEN c$ = CHR$(34) + c$ + CHR$(34)
+    rc = SHELL(c$)
+    IF LEN(exe$) = 0 AND ((os$ = "WIN" AND rc = 9009) OR (os$ <> "WIN" AND rc = 127)) THEN
+        PRINT "qb: qb-" + sc$ + " was not found. Build it with: cargo build --release -p qb-" + sc$
+    END IF
+    SYSTEM rc
+END SUB
+
+'how many one-character edits turn a$ into b$, letter case ignored ("did you mean")
+FUNCTION EditDistance& (a$, b$)
+    DIM x$, y$, i AS LONG, j AS LONG, m AS LONG, diag AS LONG, up AS LONG, c AS LONG
+    x$ = LCASE$(a$): y$ = LCASE$(b$)
+    m = LEN(y$)
+    REDIM row(0 TO m) AS LONG
+    FOR j = 0 TO m: row(j) = j: NEXT
+    FOR i = 1 TO LEN(x$)
+        diag = row(0): row(0) = i
+        FOR j = 1 TO m
+            up = row(j)
+            c = diag: IF MID$(x$, i, 1) <> MID$(y$, j, 1) THEN c = diag + 1
+            IF up + 1 < c THEN c = up + 1
+            IF row(j - 1) + 1 < c THEN c = row(j - 1) + 1
+            row(j) = c
+            diag = up
+        NEXT
+    NEXT
+    EditDistance& = row(m)
+END FUNCTION
+
+'the closest of the space-separated words$ to w$: at most two edits away, or a word that
+'starts with w$ (--out for --output). "" when none is close.
+FUNCTION ClosestWord$ (w$, words$)
+    DIM p AS LONG, q AS LONG, c$, best$, bestd AS LONG, d AS LONG
+    bestd = 3
+    p = 1
+    DO WHILE p <= LEN(words$)
+        q = INSTR(p, words$, " ")
+        IF q = 0 THEN q = LEN(words$) + 1
+        c$ = MID$(words$, p, q - p)
+        p = q + 1
+        IF LEN(c$) THEN
+            d = EditDistance&(w$, c$)
+            IF LEN(w$) >= 4 AND LCASE$(LEFT$(c$, LEN(w$))) = LCASE$(w$) THEN d = 1
+            IF d < bestd THEN bestd = d: best$ = c$
+        END IF
+    LOOP
+    ClosestWord$ = best$
+END FUNCTION
+
+SUB ReportUnknownSwitch (raw$)
+    DIM s$
+    _DEST _CONSOLE
+    PRINT "Unknown switch: "; raw$
+    'one-letter switches are too short to guess from
+    IF LEN(raw$) > 2 THEN
+        s$ = ClosestWord$(raw$, "--help --version --info --examples --output --run --warnings -Werror --warnings-as-errors --quiet --no-color --verbose-errors --compact-errors --explicit --settings --emit-ir")
+        IF LEN(s$) THEN PRINT "Did you mean "; s$; "?"
+    END IF
+    PRINT "Run 'qb --help' for usage."
+    SYSTEM 1
+END SUB
+
+'the source file is not there: say so, and name the .bas file that was probably meant,
+'or the ones that are in that folder
+SUB ReportMissingSource (f$)
+    DIM typed$, dir$, nm$, lst$, c$, listing$, e$, best$, names$, fh AS LONG, p AS LONG, q AS LONG, n AS LONG, rc AS LONG
+    _DEST _CONSOLE
+    PRINT "Cannot find the source file: " + f$
+    typed$ = getfilepath$(f$)
+    nm$ = MID$(f$, LEN(typed$) + 1)
+    dir$ = typed$
+    IF dir$ = "" THEN
+        dir$ = _STARTDIR$ + pathsep$
+    ELSEIF LEFT$(dir$, 1) <> "/" AND LEFT$(dir$, 1) <> "\" AND MID$(dir$, 2, 1) <> ":" THEN
+        dir$ = _STARTDIR$ + pathsep$ + dir$
+    END IF
+    IF _DIREXISTS(dir$) = 0 THEN
+        PRINT "The folder does not exist: " + typed$
+        SYSTEM 1
+    END IF
+    'the shell lists the folder's .bas files (the runtime has no function that does)
+    lst$ = tmpdir$ + "basfiles.txt"
+    IF os$ = "WIN" THEN
+        c$ = CHR$(34) + "dir /b /a-d " + QuotedFilename$(dir$ + "*.bas") + " > " + QuotedFilename$(lst$) + " 2> nul" + CHR$(34)
+    ELSE
+        c$ = "(cd -- " + QuotedFilename$(dir$) + " 2>/dev/null && for f in *.bas *.BAS *.Bas; do [ -f " + CHR$(34) + "$f" + CHR$(34) + " ] && printf '%s\n' " + CHR$(34) + "$f" + CHR$(34) + "; done) > " + QuotedFilename$(lst$) + " 2>/dev/null"
+    END IF
+    rc = _SHELLHIDE(c$)
+    IF _FILEEXISTS(lst$) THEN
+        fh = FREEFILE
+        OPEN lst$ FOR BINARY AS #fh
+        IF LOF(fh) THEN listing$ = SPACE$(LOF(fh)): GET #fh, , listing$
+        CLOSE #fh
+        KILL lst$
+    END IF
+    p = 1
+    DO WHILE p <= LEN(listing$)
+        q = INSTR(p, listing$, CHR$(10))
+        IF q = 0 THEN q = LEN(listing$) + 1
+        e$ = MID$(listing$, p, q - p)
+        p = q + 1
+        IF RIGHT$(e$, 1) = CHR$(13) THEN e$ = LEFT$(e$, LEN(e$) - 1)
+        IF LEN(e$) THEN
+            n = n + 1
+            IF n <= 6 THEN names$ = names$ + "  " + typed$ + e$ + CHR$(10)
+            IF n = 7 THEN names$ = names$ + "  ..." + CHR$(10)
+            'the name, or the name without .bas when that was typed (qb helo)
+            IF EditDistance&(nm$, e$) <= 2 OR EditDistance&(RemoveFileExtension$(nm$), RemoveFileExtension$(e$)) <= 2 THEN
+                IF best$ = "" THEN best$ = e$
+            END IF
+        END IF
+    LOOP
+    IF LEN(best$) THEN
+        PRINT "Did you mean "; typed$ + best$; "?"
+    ELSEIF n THEN
+        PRINT "Source files in that folder:"
+        PRINT names$;
+    ELSE
+        PRINT "There is no .bas file in that folder."
+    END IF
+    SYSTEM 1
+END SUB
+
+'-w -q -m -d -k -e, alone or run together (-wq)
+SUB ApplyLetterSwitch (c$)
+    SELECT CASE c$
+    CASE "w": ShowWarnings = -1
+    CASE "q": QuietMode = -1
+    CASE "m": MonochromeLoggingMode = -1
+    CASE "d"
+        'the default detail, plus the source lines around each diagnostic
+        SetVerboseMode -1
+        DiagnosticNeighborLines = 2
+    CASE "k"
+        SetVerboseMode 0
+        DiagnosticNeighborLines = 0
+    CASE "e": optionexplicit_cmd = -1
+    END SELECT
+END SUB
+
 FUNCTION ParseCMDLineArgs$ ()
-    DIM PassedFileName$
+    DIM PassedFileName$, firstArg AS LONG, runSubcommand AS LONG, k AS LONG
+
+    'qb fmt / lsp / dap go to the tools; qb run <file> builds and runs; everything else
+    'is for the compiler
+    firstArg = 1
+    IF _COMMANDCOUNT >= 1 THEN
+        SELECT CASE LCASE$(COMMAND$(1))
+        CASE "fmt", "lsp", "dap": RunToolSubcommand LCASE$(COMMAND$(1))
+        CASE "run": runSubcommand = -1: RunAfterBuild = -1: firstArg = 2
+        END SELECT
+    END IF
 
     'NO_COLOR (no-color.org): any non-empty value turns colors off, like -m
     IF LEN(ENVIRON$("NO_COLOR")) THEN MonochromeLoggingMode = -1
@@ -266,13 +493,25 @@ FUNCTION ParseCMDLineArgs$ ()
     '-m anywhere on the line, also after -h, -i, -g or -s, which print before the
     'loop below reaches it
     FOR i = 1 TO _COMMANDCOUNT
+        IF COMMAND$(i) = "--" THEN EXIT FOR
         IF LCASE$(COMMAND$(i)) = "-m" THEN MonochromeLoggingMode = -1
     NEXT i
 
-    'Recall that COMMAND$ is a concatenation of argv[] elements, so we don't have
-    'to worry about more than one space between things (unless they used quotes,
-    'in which case they're simply asking for trouble).
-    FOR i = 1 TO _COMMANDCOUNT
+    FOR i = firstArg TO _COMMANDCOUNT
+        'everything after -- is for the program, which then runs after the build
+        IF COMMAND$(i) = "--" THEN
+            FOR k = i + 1 TO _COMMANDCOUNT
+                RunArgs$ = RunArgs$ + " " + ShellArg$(COMMAND$(k))
+                IF INSTR(COMMAND$(k), " ") OR LEN(COMMAND$(k)) = 0 THEN
+                    RunArgsShown$ = RunArgsShown$ + " " + CHR$(34) + COMMAND$(k) + CHR$(34)
+                ELSE
+                    RunArgsShown$ = RunArgsShown$ + " " + COMMAND$(k)
+                END IF
+            NEXT
+            RunAfterBuild = -1
+            cmdlineswitch = -1
+            EXIT FOR
+        END IF
         token$ = COMMAND$(i)
         token$ = NormalizeCommandToken$(token$)
 
@@ -281,13 +520,11 @@ FUNCTION ParseCMDLineArgs$ ()
         sw$ = LCASE$(LEFT$(token$, 2))
         IF LEN(token$) > 2 AND LEFT$(token$, 1) = "-" THEN
             IF token$ <> "-ir" AND token$ <> "-irtext" AND sw$ <> "-s" THEN sw$ = ""
-            IF token$ = "-exewithsource" THEN sw$ = token$
+            IF token$ = "-werror" OR token$ = "-run" THEN sw$ = token$
         END IF
         SELECT CASE sw$
-        CASE "-exewithsource"
-            'this build only (-s:exewithsource=true is the setting): the executable is
-            'written next to the source file, not into the compiler's folder
-            SaveExeWithSource = -1
+        CASE "-run"
+            RunAfterBuild = -1
             cmdlineswitch = -1
         CASE "-?"
             ShowCommandLineHelp
@@ -324,29 +561,11 @@ FUNCTION ParseCMDLineArgs$ ()
             END IF
             outputfile_cmd$ = COMMAND$(i + 1): i = i + 1
             cmdlineswitch = -1
-        CASE "-w"
-            ShowWarnings = -1
+        CASE "-w", "-q", "-m", "-d", "-k", "-e"
+            ApplyLetterSwitch MID$(sw$, 2, 1)
             cmdlineswitch = -1
-        CASE "-r"
+        CASE "-werror"
             SetWarningsAsErrors -1
-            cmdlineswitch = -1
-        CASE "-q"
-            QuietMode = -1
-            cmdlineswitch = -1
-        CASE "-m"
-            MonochromeLoggingMode = -1
-            cmdlineswitch = -1
-        CASE "-d"
-            'the default detail, plus the source lines around each diagnostic
-            SetVerboseMode -1
-            DiagnosticNeighborLines = 2
-            cmdlineswitch = -1
-        CASE "-k"
-            SetVerboseMode 0
-            DiagnosticNeighborLines = 0
-            cmdlineswitch = -1
-        CASE "-e"
-            optionexplicit_cmd = -1
             cmdlineswitch = -1
         CASE "-s"
             HandleSettingsSwitch token$
@@ -364,25 +583,35 @@ FUNCTION ParseCMDLineArgs$ ()
             IF LEFT$(token$, 1) = "/" AND os$ = "WIN" THEN isswitch = -1
             IF _FILEEXISTS(rawtoken$) THEN isswitch = 0
             IF isswitch THEN
-                _DEST _CONSOLE
-                PrintCommandLineBanner
-                PRINT
-                PRINT "Unknown switch: "; token$
-                PRINT "Run 'qb --help' for usage."
-                SYSTEM 1
-            END IF
-            IF PassedFileName$ = "" THEN
+                'one-letter switches run together: -wq is -w -q
+                letters = (LEFT$(token$, 1) = "-" AND LEN(token$) > 2)
+                FOR k = 2 TO LEN(token$)
+                    IF INSTR("wqmdke", MID$(token$, k, 1)) = 0 THEN letters = 0
+                NEXT
+                IF letters = 0 THEN ReportUnknownSwitch rawtoken$
+                FOR k = 2 TO LEN(token$)
+                    ApplyLetterSwitch MID$(token$, k, 1)
+                NEXT
+                cmdlineswitch = -1
+            ELSEIF PassedFileName$ = "" THEN
                 PassedFileName$ = rawtoken$
             ELSE
                 PRINT "Only one source file can be compiled: "; PassedFileName$; " and "; rawtoken$
-                PRINT "Run 'qb --help' for usage."
+                PRINT "To pass arguments to the program, put them after --:"
+                PRINT "  qb run "; PassedFileName$; " -- "; rawtoken$
                 SYSTEM 1
             END IF
         END SELECT
     NEXT i
 
+    'the ignorewarnings setting hides warnings, also the ones -Werror would block on
+    IF IgnoreWarnings THEN SetWarningsAsErrors 0
+
     IF LEN(PassedFileName$) THEN
         ParseCMDLineArgs$ = PassedFileName$
+    ELSEIF runSubcommand OR LEN(RunArgs$) THEN
+        PRINT "Name the source file to build and run, for example:  qb run hello.bas"
+        SYSTEM 1
     ELSE
         IF cmdlineswitch = 0 AND settingsMode = -1 THEN SYSTEM
     END IF

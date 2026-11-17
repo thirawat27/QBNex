@@ -1327,8 +1327,7 @@ END FUNCTION
 
 'The folder the program is written to, which the runner searches first for a library
 'named without a path: the folder of -o (relative to the folder the compiler was started
-'from), else the source folder with exewithsource, else the compiler's folder. IrFinish
-'picks the output path by the same rules.
+'from), else the source folder. IrFinish picks the output path by the same rules.
 FUNCTION IrProgramDir$
     DIM o$
     o$ = outputfile_cmd$
@@ -1337,10 +1336,7 @@ FUNCTION IrProgramDir$
         IrProgramDir$ = getfilepath$(o$)
         EXIT FUNCTION
     END IF
-    IF SaveExeWithSource THEN IrProgramDir$ = path.source$: EXIT FUNCTION
-    o$ = _CWD$
-    IF RIGHT$(o$, 1) <> pathsep$ THEN o$ = o$ + pathsep$
-    IrProgramDir$ = o$
+    IrProgramDir$ = path.exe$
 END FUNCTION
 
 FUNCTION IrUserCall$ (idn AS LONG, nargs AS LONG)
@@ -2727,14 +2723,8 @@ SUB IrFinish (src$, outExe$)
         END IF
     END IF
     IF outPath$ = "" THEN
-        'no -o: next to the source with --exe-with-source or the exewithsource setting, else in the compiler's folder
-        IF SaveExeWithSource THEN
-            outPath$ = path.source$
-        ELSE
-            outPath$ = _CWD$
-            IF RIGHT$(outPath$, 1) <> pathsep$ THEN outPath$ = outPath$ + pathsep$
-        END IF
-        outPath$ = outPath$ + file$ + extension$
+        'no -o: next to the source file
+        outPath$ = path.exe$ + file$ + extension$
     END IF
 
     ' --emit-ir or -o <name>.qir: the QIR text itself (what qb-web runs), no executable
@@ -2755,6 +2745,7 @@ SUB IrFinish (src$, outExe$)
         PUT #fh, , q$
         CLOSE #fh
         IF QuietMode = 0 THEN PRINT: PRINT "QIR written: " + outPath$: ShowWarningSummary
+        IF RunAfterBuild THEN PRINT "Not run: --run starts an executable, and QIR text was written"
         ExitCompilerProcess
     END IF
 
@@ -2777,7 +2768,8 @@ SUB IrFinish (src$, outExe$)
         IF os$ = "WIN" THEN c$ = CHR$(34) + c$ + CHR$(34)
         rc = _SHELLHIDE(c$)
         IF rc = 0 AND _FILEEXISTS(outPath$) THEN
-            IF QuietMode = 0 THEN PRINT "QIR: linked " + outPath$: ShowWarningSummary
+            IF QuietMode = 0 THEN PRINT "QIR: linked " + outPath$: ShowRunHint outPath$: ShowWarningSummary
+            IrRunAfterBuild outPath$
             SYSTEM 0
         END IF
         IF QuietMode = 0 THEN PRINT "QIR: native link failed, writing the runner with the program"
@@ -2798,7 +2790,31 @@ SUB IrFinish (src$, outExe$)
     CLOSE #fh
     IF os$ <> "WIN" THEN SHELL _HIDE "chmod +x " + QuotedFilename$(outPath$)
     IF QuietMode = 0 THEN ShowBuildComplete outPath$
+    IF HasErrors% = 0 AND compfailed = 0 THEN IrRunAfterBuild outPath$
     ExitCompilerProcess
+END SUB
+
+'--run: start the executable just built, from the folder qb was started in, and leave with
+'its exit code. The build files are closed first, so the build folder is free while it runs.
+SUB IrRunAfterBuild (exe$)
+    DIM c$, rc AS LONG, k AS LONG
+    IF RunAfterBuild = 0 THEN EXIT SUB
+    CleanupErrorHandler
+    FOR k = 1 TO 255: CLOSE k: NEXT
+    CHDIR _STARTDIR$
+    c$ = ShellArg$(exe$) + RunArgs$
+    IF os$ = "WIN" THEN c$ = CHR$(34) + c$ + CHR$(34)
+    IF QuietMode = 0 THEN
+        TuiColor 111: PRINT "Running " + exe$ + RunArgsShown$
+        TuiDefault: PRINT
+    END IF
+    rc = SHELL(c$)
+    IF QuietMode = 0 THEN
+        PRINT
+        TuiColor 248: PRINT "Program ended, exit code " + LTRIM$(STR$(rc))
+        TuiDefault
+    END IF
+    SYSTEM rc
 END SUB
 
 'Marks the Windows executable exe$ as a GUI program: the PE subsystem field (3 console,

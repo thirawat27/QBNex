@@ -8,8 +8,9 @@ set "REPO_ROOT=%ROOT%..\.."
 set "QB=%REPO_ROOT%\qb.exe"
 set "SRC_OK=%ROOT%..\fixtures\label_recompile_success.bas"
 set "SRC_CONSOLE=%ROOT%..\fixtures\cli_console_output.bas"
-set "BIN_XMODE=%REPO_ROOT%\cli_console_output.exe"
-set "BIN_ZMODE=%REPO_ROOT%\label_recompile_success.exe"
+rem without -o the executable is written next to the source
+set "BIN_XMODE=%ROOT%..\fixtures\cli_console_output.exe"
+set "BIN_ZMODE=%ROOT%..\fixtures\label_recompile_success.exe"
 
 if not exist "%QB%" (
     echo [FAIL] qb.exe not found at "%QB%"
@@ -174,8 +175,8 @@ findstr /L /C:"debuginfo" "%OUT_SETTINGS%" >nul || (
     echo [FAIL] -s output is missing debuginfo setting.
     set "FAIL=1"
 )
-findstr /L /C:"exewithsource" "%OUT_SETTINGS%" >nul || (
-    echo [FAIL] -s output is missing exewithsource setting.
+findstr /L /C:"ignorewarnings" "%OUT_SETTINGS%" >nul || (
+    echo [FAIL] -s output is missing ignorewarnings setting.
     set "FAIL=1"
 )
 

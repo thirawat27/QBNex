@@ -13,6 +13,12 @@ DIM SHARED ConsoleMode
 DIM SHARED ShowWarnings AS _BYTE, QuietMode AS _BYTE, CMDLineFile AS STRING
 DIM SHARED MonochromeLoggingMode AS _BYTE
 DIM SHARED outputfile_cmd$
+'--run: start the executable after a successful build
+DIM SHARED RunAfterBuild AS _BYTE
+'the arguments after --, quoted for the shell, for the program --run starts
+DIM SHARED RunArgs$
+'the same arguments as typed, for the "Running" line
+DIM SHARED RunArgsShown$
 DIM SHARED compilerBannerShown AS _BYTE
 DIM SHARED compilerProgressVisible AS _BYTE
 DIM SHARED compilerProgressLastPercentage AS LONG

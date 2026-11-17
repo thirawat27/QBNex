@@ -2,8 +2,8 @@
 
 [สารบัญคู่มือ](../README.md) · [English](../en/commands.md)
 
-`qb` กับ `qbnex` คือคอมไพเลอร์ตัวเดียวกัน แต่ `qbnex` (ซึ่งเป็นสคริปต์
-สำหรับเรียกใช้) รันเครื่องมือสำหรับนักพัฒนาได้ด้วย
+`qb` กับ `qbnex` คือคอมไพเลอร์ตัวเดียวกัน และทั้งสองตัวรันเครื่องมือสำหรับ
+นักพัฒนาได้ด้วย (`qb fmt`, `qb lsp`, `qb dap`)
 
 ## คอมไพล์
 
@@ -11,18 +11,26 @@
 qb hello.bas                  # ได้ hello.exe บน Windows หรือ ./hello บนระบบอื่น
 qb hello.bas -o tools/hi.exe  # กำหนดไฟล์ผลลัพธ์เอง
 qb hello.bas -w               # แสดงคำเตือนด้วย
+qb run hello.bas              # คอมไพล์แล้วรันโปรแกรมต่อเลย
+qb run hello.bas -- a b       # ... โดยให้ COMMAND$ = "a b"
+qb hello.bas -wq              # รวม switch ตัวอักษรเดียวได้: -w -q
 ```
 
-ถ้าไม่ใส่ `-o` ไฟล์ executable จะไปอยู่ในโฟลเดอร์ QBNex (โฟลเดอร์ที่มี `qb`
-และ `crates/`) เหมือน QB64 ถ้าตั้ง `-s:exewithsource=true` จะไปอยู่ข้างไฟล์
-source แทน path ของ source แบบ relative จะนับจากโฟลเดอร์ปัจจุบัน
+ถ้าพิมพ์ switch หรือชื่อไฟล์ผิด จะมีบรรทัด "Did you mean" บอกตัวที่ใกล้ที่สุด
+หน้าจอ build จะแสดงบรรทัด Options บอก switch ที่รับไป และหลัง build เสร็จจะมี
+บรรทัด "Run it" บอกคำสั่งที่ใช้รันโปรแกรม
+
+ถ้าไม่ใส่ `-o` ไฟล์ executable จะไปอยู่ข้างไฟล์ source path ของ source แบบ
+relative จะนับจากโฟลเดอร์ปัจจุบัน
 
 | Switch | ความหมาย |
 | --- | --- |
 | `<file>` | ไฟล์ source (UTF-8 หรือไบต์ CP437 แบบที่ QBasic บันทึกไว้) |
 | `-o <file>` | ไฟล์ executable ที่ต้องการ ถ้าชื่อลงท้ายด้วย `.qir` จะเขียน QIR text ของโปรแกรมแทน (สิ่งที่ [qb-web](../../../crates/web/README.md) ใช้รัน) |
 | `--emit-ir` | เขียน QIR text แทน executable (`-o x.exe` จะกลายเป็น `x.qir`) |
-| `--exe-with-source` | เมื่อไม่มี `-o`: เขียนไฟล์โปรแกรมไว้ข้างไฟล์ซอร์ส เฉพาะการ build ครั้งนี้ (ค่าตั้งถาวรคือ `-s:exewithsource=true`) |
+| `run <file>`, `--run` | รันโปรแกรมหลัง build ผ่าน จากโฟลเดอร์ปัจจุบัน แล้ว qb จบด้วย exit code ของโปรแกรม |
+| `-- <args>` | อาร์กิวเมนต์ของโปรแกรม (`COMMAND$`) และรันโปรแกรมหลัง build |
+| `--output`, `--quiet`, `--warnings`, `--no-color`, `--explicit`, `--werror` | ชื่อยาวของ `-o`, `-q`, `-w`, `-m`, `-e`, `-Werror` |
 | `-w` | แสดงคำเตือน และบอกจำนวนคำเตือนตอนจบ (ถ้าไม่ใส่ `-w` จะบอกว่ามีคำเตือนที่ไม่ได้แสดงกี่ข้อ) |
 | `-Werror`, `--warnings-as-errors` | ถือว่าคำเตือนเป็น error (exit code 1) |
 | `-q` | โหมดเงียบ: ไม่มี banner และ progress (ยังแสดงคำเตือนและ error) |
@@ -30,10 +38,10 @@ source แทน path ของ source แบบ relative จะนับจา�
 | `-k`, `--compact-errors` | diagnostic แบบสั้น (ค่าเริ่มต้นคือแบบละเอียด) |
 | `-d`, `--verbose-errors` | diagnostic แบบละเอียด พร้อมบรรทัด source สองบรรทัดก่อนและหลังจุดที่มีปัญหา |
 | `-e` | เปิด `OPTION _EXPLICIT` สำหรับการคอมไพล์ครั้งนี้ |
-| `-s[:setting=true/false]` | ดูหรือแก้ค่าตั้งของคอมไพเลอร์ (`exewithsource`, `ignorewarnings` ส่วน `debuginfo` ยังรับอยู่แต่ไม่มีผล) `-s` อย่างเดียวจะแสดงทุกค่าพร้อมตำแหน่งไฟล์ค่าตั้ง |
+| `-s[:setting=true/false]` | ดูหรือแก้ค่าตั้งของคอมไพเลอร์ (`ignorewarnings` ส่วน `debuginfo` ยังรับอยู่แต่ไม่มีผล) `-s` อย่างเดียวจะแสดงทุกค่าพร้อมตำแหน่งไฟล์ค่าตั้ง |
 | `-h`, `--help` · `-v`, `--version` · `-i`, `--info`, `--about` · `-g`, `--examples` | วิธีใช้; เวอร์ชัน (บรรทัดเดียว); ข้อมูลโปรเจกต์ (โฟลเดอร์ ไฟล์ค่าตั้ง แพลตฟอร์ม license); ตัวอย่างพร้อมคำอธิบาย ใช้แบบ Windows อย่าง `/?`, `/help` และ `/version` ได้ด้วย |
 
-exit code 0 แปลว่าคอมไพล์ผ่าน diagnostic จะบอกชื่อไฟล์ บรรทัด คอลัมน์ และ
+exit code 0 แปลว่าคอมไพล์ผ่าน (ถ้าใช้ `--run` จะเป็น exit code ของโปรแกรม) diagnostic จะบอกชื่อไฟล์ บรรทัด คอลัมน์ และ
 ยกบรรทัด source ที่มีปัญหามาให้ดู
 
 ## รันโปรแกรม
