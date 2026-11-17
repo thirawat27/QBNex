@@ -1325,6 +1325,43 @@ FUNCTION IrSharedLibFound% (libpath$, x$, libver$)
     LOOP
 END FUNCTION
 
+'Is there a library (or a header) named x$ in folder$, which ends in a separator? The
+'names DECLARE [DYNAMIC] LIBRARY looks for: x.dll, libx.so[.ver], libx[.ver].dylib, the
+'static ones and the headers, or x$ itself when it names the file.
+FUNCTION LibraryFilesInFolder% (folder$, x$, libver$)
+    DIM b$, l$
+    b$ = folder$ + x$
+    l$ = folder$ + "lib" + x$
+    IF _FILEEXISTS(b$ + ".dll") OR _FILEEXISTS(l$ + ".so") OR _FILEEXISTS(l$ + ".dylib") OR _FILEEXISTS(b$) THEN LibraryFilesInFolder% = -1: EXIT FUNCTION
+    IF _FILEEXISTS(b$ + ".lib") OR _FILEEXISTS(b$ + ".a") OR _FILEEXISTS(b$ + ".o") OR _FILEEXISTS(l$ + ".a") OR _FILEEXISTS(l$ + ".o") THEN LibraryFilesInFolder% = -1: EXIT FUNCTION
+    IF _FILEEXISTS(b$ + ".h") OR _FILEEXISTS(b$ + ".hpp") THEN LibraryFilesInFolder% = -1: EXIT FUNCTION
+    IF LEN(libver$) THEN
+        IF _FILEEXISTS(l$ + ".so." + libver$) OR _FILEEXISTS(l$ + "." + libver$ + ".dylib") THEN LibraryFilesInFolder% = -1
+    END IF
+END FUNCTION
+
+'The folder a library written with a folder was looked for in: next to the source file for
+'a relative one that is not there either, else the folder as written ("" for a bare name).
+FUNCTION LibraryFolderShown$ (libpath$, searched$)
+    IF LEN(searched$) THEN LibraryFolderShown$ = searched$ ELSE LibraryFolderShown$ = libpath$
+END FUNCTION
+
+'"name" not found, and where it was looked for (IrSharedLibFound%'s folders on Windows):
+'a library written with a folder in that folder (folder$, next to the source file for a
+'relative one), a bare name in the program's folder and the system's folders.
+FUNCTION LibraryNotFoundText$ (written$, folder$, x$)
+    DIM r$, pd$
+    r$ = CHR$(34) + written$ + CHR$(34) + " not found: there is no " + x$ + ".dll in "
+    IF LEN(folder$) THEN
+        r$ = r$ + folder$
+    ELSE
+        pd$ = IrProgramDir$
+        IF LEN(pd$) THEN r$ = r$ + pd$ + ", "
+        r$ = r$ + "System32, the Windows folder or a folder on the PATH"
+    END IF
+    LibraryNotFoundText$ = r$
+END FUNCTION
+
 'The folder the program is written to, which the runner searches first for a library
 'named without a path: the folder of -o (relative to the folder the compiler was started
 'from), else the source folder. IrFinish picks the output path by the same rules.
@@ -1332,7 +1369,7 @@ FUNCTION IrProgramDir$
     DIM o$
     o$ = outputfile_cmd$
     IF o$ <> "" THEN
-        IF LEFT$(o$, 1) <> "/" AND LEFT$(o$, 1) <> "\" AND MID$(o$, 2, 1) <> ":" THEN o$ = _STARTDIR$ + pathsep$ + o$
+        IF IsAbsolutePath%(o$) = 0 THEN o$ = JoinPath$(_STARTDIR$, o$)
         IrProgramDir$ = getfilepath$(o$)
         EXIT FUNCTION
     END IF
@@ -2704,9 +2741,7 @@ SUB IrFinish (src$, outExe$)
     outPath$ = outExe$
     'a relative -o is relative to the folder the compiler was started from (the folder
     'check below looked in the compiler's own folder)
-    IF outPath$ <> "" AND LEFT$(outPath$, 1) <> "/" AND LEFT$(outPath$, 1) <> "\" AND MID$(outPath$, 2, 1) <> ":" THEN
-        outPath$ = _STARTDIR$ + pathsep$ + outPath$
-    END IF
+    IF outPath$ <> "" AND IsAbsolutePath%(outPath$) = 0 THEN outPath$ = JoinPath$(_STARTDIR$, outPath$)
     IF outPath$ <> "" THEN
         IF _DIREXISTS(outPath$) THEN
             PRINT
@@ -2723,8 +2758,15 @@ SUB IrFinish (src$, outExe$)
         END IF
     END IF
     IF outPath$ = "" THEN
-        'no -o: next to the source file
+        'no -o: next to the source file, where a folder of that name (app/ next to app.bas
+        'on Linux and macOS) cannot be replaced either
         outPath$ = path.exe$ + file$ + extension$
+        IF _DIREXISTS(outPath$) THEN
+            PRINT
+            PRINT "Can't create output executable - it is a folder: " + outPath$
+            PRINT "Choose another name for the executable with -o <name>"
+            SYSTEM 1
+        END IF
     END IF
 
     ' --emit-ir or -o <name>.qir: the QIR text itself (what qb-web runs), no executable
@@ -2739,7 +2781,7 @@ SUB IrFinish (src$, outExe$)
             outPath$ = outPath$ + ".qir"
         END IF
         fh = FREEFILE: OPEN ir$ FOR BINARY AS #fh: q$ = SPACE$(LOF(fh)): GET #fh, , q$: CLOSE #fh
-        IF _FILEEXISTS(outPath$) THEN KILL outPath$
+        IrPrepareOutput outPath$
         fh = FREEFILE
         OPEN outPath$ FOR BINARY AS #fh
         PUT #fh, , q$
@@ -2749,8 +2791,15 @@ SUB IrFinish (src$, outExe$)
         ExitCompilerProcess
     END IF
 
-    IF outPath$ <> "" AND INSTR(UCASE$(outPath$), ".EXE") = 0 AND os$ = "WIN" THEN outPath$ = outPath$ + ".exe"
-    'qb prog.bas -o prog.bas replaced the source with the executable
+    'qb prog.bas -o prog.bas replaced the source with the executable; checked before .exe is
+    'added too, or on Windows it wrote prog.bas.exe
+    IF IrSamePath%(outPath$, sourcefile$) THEN
+        PRINT
+        PRINT "Can't create output executable - it is the source file: " + outPath$
+        SYSTEM 1
+    END IF
+    'the name's own extension: a folder called app.exe.d does not make prog an .exe
+    IF outPath$ <> "" AND UCASE$(RIGHT$(outPath$, 4)) <> ".EXE" AND os$ = "WIN" THEN outPath$ = outPath$ + ".exe"
     IF IrSamePath%(outPath$, sourcefile$) THEN
         PRINT
         PRINT "Can't create output executable - it is the source file: " + outPath$
@@ -2761,8 +2810,11 @@ SUB IrFinish (src$, outExe$)
     ' executable (rust-lld + qb-native); else the runner with the QIR appended.
     kit$ = LEFT$(runner$, LEN(runner$) - LEN("qb-exec" + extension$)) + "native" + pathsep$ + "kit.txt"
     IF _FILEEXISTS(kit$) THEN
-        IF _FILEEXISTS(outPath$) THEN KILL outPath$
-        c$ = QuotedFilename$(runner$) + " build " + QuotedFilename$(ir$) + " -o " + QuotedFilename$(outPath$) + " --native-link"
+        'the linker writes the file: it is removed after the check, so a failed link leaves none
+        IrPrepareOutput outPath$
+        KILL outPath$
+        'ShellArg$: cmd /c would replace %NAME% in a path (QuotedFilename$ only adds quotes)
+        c$ = ShellArg$(runner$) + " build " + ShellArg$(ir$) + " -o " + ShellArg$(outPath$) + " --native-link"
         'cmd /c takes away the first and the last quote of a line with several quoted
         'names: one more pair around the whole line is what it removes
         IF os$ = "WIN" THEN c$ = CHR$(34) + c$ + CHR$(34)
@@ -2780,7 +2832,7 @@ SUB IrFinish (src$, outExe$)
     'a window program (no $CONSOLE) is a GUI program on Windows, as `qb-exec build` makes
     'it: a console program would open an empty console next to its window
     IF os$ = "WIN" AND DEPENDENCY(DEPENDENCY_CONSOLE_ONLY) = 0 AND Console = 0 THEN IrGuiSubsystem r$
-    IF _FILEEXISTS(outPath$) THEN KILL outPath$
+    IrPrepareOutput outPath$
     fh = FREEFILE
     OPEN outPath$ FOR BINARY AS #fh
     PUT #fh, , r$
@@ -2815,6 +2867,27 @@ SUB IrRunAfterBuild (exe$)
         TuiDefault
     END IF
     SYSTEM rc
+END SUB
+
+'Removes the old output path$ and creates it empty, so a file that cannot be written (the
+'old executable still running, a read-only file or folder) ends the build with a message
+'that says so, not with an internal compiler error.
+SUB IrPrepareOutput (path$)
+    DIM fh AS LONG
+    ON ERROR GOTO qberror_test
+    E = 0
+    IF _FILEEXISTS(path$) THEN KILL path$
+    IF E = 0 THEN
+        fh = FREEFILE
+        OPEN path$ FOR BINARY AS #fh
+        IF E = 0 THEN CLOSE #fh
+    END IF
+    ON ERROR GOTO qberror
+    IF E THEN
+        PRINT
+        PRINT "Cannot write " + path$ + ": the file is in use (is the program still running?), or it or its folder is read-only"
+        SYSTEM 1
+    END IF
 END SUB
 
 'Marks the Windows executable exe$ as a GUI program: the PE subsystem field (3 console,

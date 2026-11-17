@@ -79,7 +79,12 @@ if not exist "%QBNEX_BOOTSTRAP%" (
 )
 
 echo Building 'qb-stage0.exe' from %QBNEX_BOOTSTRAP% ^(%QBNEX_QIR_PACK%^)
-if exist qb-stage0.exe del /q qb-stage0.exe >nul 2>nul
+if exist qb-stage0.exe del /f /q qb-stage0.exe >nul 2>nul
+rem the check below takes an existing file for a new build: an old one must be gone
+if exist qb-stage0.exe (
+    echo Error: the old qb-stage0.exe cannot be deleted. Close the program that uses it and run this script again.
+    goto fail
+)
 if /i not "%QBNEX_QIR_PACK%"=="native" (
     powershell -NoProfile -ExecutionPolicy Bypass -File scripts\qir_pack.ps1 -Runner "%RUNNER%" -Qir "%QBNEX_BOOTSTRAP%" -Out qb-stage0.exe
 ) else (
@@ -96,14 +101,26 @@ if "%QBNEX_SKIP_SELFHOST%"=="1" (
 )
 
 echo Self-hosting 'QBNex' through QIR
-if exist qb.exe del /q qb.exe >nul 2>nul
+if exist qb.exe del /f /q qb.exe >nul 2>nul
+rem An old qb.exe that is still running (a terminal, the editor's language server)
+rem cannot be deleted. Building on would leave it in place and report it as new.
+if exist qb.exe (
+    echo Error: the old qb.exe cannot be deleted; it is probably still running.
+    echo Close the programs that use it and run this script again.
+    goto fail
+)
 .\qb-stage0.exe compiler\qbnex.bas -o qb.exe %QBNEX_STAGE1_ARGS%
+if errorlevel 1 (
+    echo Error: the final compiler build failed.
+    goto fail
+)
 if not exist qb.exe (
-    echo Final compiler build failed.
+    echo Error: the final compiler build failed ^(no qb.exe was written^).
     goto fail
 )
 
 echo Smoke test
+del /q "%TEMP%\qbnex_qir_smoke.exe" >nul 2>nul
 > "%TEMP%\qbnex_qir_smoke.bas" echo PRINT "QBNex QIR OK"
 .\qb.exe "%TEMP%\qbnex_qir_smoke.bas" -o "%TEMP%\qbnex_qir_smoke.exe"
 if not exist "%TEMP%\qbnex_qir_smoke.exe" (

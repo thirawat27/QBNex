@@ -94,6 +94,9 @@ FUNCTION StdLib_MetaArgFromLine$ (rawLine$, meta$)
     LOOP
     IF UCASE$(LEFT$(t, 4)) = "REM " THEN t = LTRIM$(MID$(t, 5))
     IF UCASE$(LEFT$(t, LEN(meta$))) <> meta$ THEN EXIT FUNCTION
+    'the meta command itself, not one that begins with its name ($INCLUDEONCE)
+    p = INSTR(" :" + CHR$(9), MID$(t, LEN(meta$) + 1, 1))
+    IF p = 0 OR LEN(t) = LEN(meta$) THEN EXIT FUNCTION
     p = INSTR(t, ":")
     IF p = 0 THEN EXIT FUNCTION
     q1 = INSTR(p, t, "'")
@@ -115,21 +118,129 @@ FUNCTION StdLib_ReadText$ (path$)
 END FUNCTION
 
 FUNCTION StdLib_FindInclude$ (folder$, name$, fromFolder AS LONG)
-    'The file an $INCLUDE of name$ in a file in folder$ opens, tried in the include managers'
-    'order: relative to folder$, then as written; then both with another letter case
-    '(ResolvePathCase$). fromFolder tells which of the two it is. "" when there is none.
-    DIM f AS STRING
+    'The file an $INCLUDE of name$ in a file in folder$ opens, found as the include managers
+    'find it (ResolveIncludeFile$). fromFolder is -1 when it is relative to folder$. "" when
+    'there is none.
+    DIM mode AS LONG, foundIn AS LONG
 
-    fromFolder = -1
-    f = folder$ + name$
-    IF _FILEEXISTS(f) THEN StdLib_FindInclude$ = f: EXIT FUNCTION
-    fromFolder = 0
-    IF _FILEEXISTS(name$) THEN StdLib_FindInclude$ = name$: EXIT FUNCTION
-    fromFolder = -1
-    f = ResolvePathCase$(folder$ + name$)
-    IF LEN(f) THEN StdLib_FindInclude$ = f: EXIT FUNCTION
-    fromFolder = 0
-    StdLib_FindInclude$ = ResolvePathCase$(name$)
+    IF IsCompilerFile%(folder$) THEN mode = 1
+    StdLib_FindInclude$ = ResolveIncludeFile$(name$, folder$, mode, foundIn)
+    fromFolder = (foundIn = 1)
+END FUNCTION
+
+'The folder an $INCLUDE is looked for in, k-th in the search order (mode 0: a user's file,
+'1: a file of the compiler, 2: a file the compiler includes at the first or last line).
+'A user's file is looked for next to the including file (in folder$), next to the main
+'source file, then in the folder qb was started in: never in the QBNex folder the compiler
+'works in, where it found QBNex's own files (README.md). The compiler's files are next to
+'the including file or in the QBNex folder. "" when there is no k-th folder.
+FUNCTION IncludeSearchFolder$ (k AS LONG, folder$, mode AS LONG)
+    SELECT CASE mode * 10 + k
+    CASE 1, 11: IncludeSearchFolder$ = folder$
+    CASE 2: IncludeSearchFolder$ = getfilepath$(sourcefile$)
+    CASE 3: IncludeSearchFolder$ = JoinPath$(_STARTDIR$, "")
+    CASE 12, 21: IncludeSearchFolder$ = QBNexRoot$
+    END SELECT
+END FUNCTION
+
+'The file an $INCLUDE of name$ opens; folder$ is the including file's folder. An absolute
+'path is taken as written, a relative one is looked for in the IncludeSearchFolder$ order:
+'each name as written first, then (Linux, macOS) with another letter case
+'(ResolvePathCase$), so an exact match anywhere wins. foundIn is the folder's number in that
+'order. Returns: the path to open, or "" when there is none.
+FUNCTION ResolveIncludeFile$ (name$, folder$, mode AS LONG, foundIn AS LONG)
+    DIM nm AS STRING, d AS STRING, f AS STRING, k AS LONG, pass AS LONG
+
+    foundIn = 0
+    nm = name$
+    DO WHILE LEFT$(nm, 2) = "./" OR LEFT$(nm, 2) = ".\"
+        nm = MID$(nm, 3)
+    LOOP
+    FOR pass = 1 TO 2
+        FOR k = 1 TO 3
+            f = ""
+            IF IsAbsolutePath%(nm) THEN
+                IF k = 1 THEN f = nm
+            ELSE
+                d = IncludeSearchFolder$(k, folder$, mode)
+                IF LEN(d) THEN f = Path_Normalize$(d + nm)
+            END IF
+            IF LEN(f) AND pass = 2 THEN f = ResolvePathCase$(f)
+            IF LEN(f) THEN
+                IF _FILEEXISTS(f) THEN ResolveIncludeFile$ = f: foundIn = k: EXIT FUNCTION
+            END IF
+        NEXT
+    NEXT
+END FUNCTION
+
+'"File name not found", with the folders it was looked for in.
+FUNCTION IncludeNotFoundText$ (name$, folder$, mode AS LONG)
+    DIM r AS STRING, d AS STRING, seen AS STRING, k AS LONG
+
+    r = "File " + name$ + " not found"
+    IF IsAbsolutePath%(name$) THEN IncludeNotFoundText$ = r: EXIT FUNCTION
+    seen = CHR$(0)
+    FOR k = 1 TO 3
+        d = IncludeSearchFolder$(k, folder$, mode)
+        IF LEN(d) THEN
+            IF INSTR(seen, CHR$(0) + d + CHR$(0)) = 0 THEN
+                IF seen = CHR$(0) THEN r = r + " (looked in " ELSE r = r + ", "
+                r = r + d
+                seen = seen + d + CHR$(0)
+            END IF
+        END IF
+    NEXT
+    IF seen <> CHR$(0) THEN r = r + ")"
+    IncludeNotFoundText$ = r
+END FUNCTION
+
+'A file of the compiler: under the QBNex folder's compiler folder (the stdlib modules), or
+'a generated import file; its own includes may be in the QBNex folder.
+FUNCTION IsCompilerFile% (f$)
+    DIM r AS STRING, p AS STRING
+
+    IF StdLib_IsGeneratedFile%(f$) THEN IsCompilerFile% = -1: EXIT FUNCTION
+    r = Path_Normalize$(QBNexRoot$ + "compiler" + Path_Sep$)
+    p = Path_Normalize$(f$)
+    IF os$ = "WIN" THEN p = UCASE$(p): r = UCASE$(r)
+    IF LEFT$(p, LEN(r)) = r THEN IsCompilerFile% = -1
+END FUNCTION
+
+'A path in the QBNex folder written relative to it, for the generated $INCLUDE lines: the
+'folder's own name may have a ' in it (O'Neil), which would end '$INCLUDE:'...' early.
+FUNCTION StdLib_RootRelative$ (path$)
+    DIM r AS STRING, p AS STRING
+
+    StdLib_RootRelative$ = path$
+    r = QBNexRoot$
+    p = path$
+    IF os$ = "WIN" THEN r = UCASE$(r): p = UCASE$(p)
+    IF LEFT$(p, LEN(r)) = r THEN StdLib_RootRelative$ = MID$(path$, LEN(r) + 1)
+END FUNCTION
+
+'Files with $INCLUDEONCE (QB64-PE) are included the first time only; the key is a file's
+'full path (letter case ignored on Windows), so another relative name of the same file
+'is the same file.
+FUNCTION IncludeOnce_Key$ (f$)
+    DIM d AS STRING, k AS STRING, n AS LONG
+
+    n = Path_LastSep&(f$)
+    d = LEFT$(f$, n)
+    k = ResolveAbsoluteDirectory$(d)
+    IF LEN(k) = 0 THEN k = d
+    k = Path_Normalize$(k + MID$(f$, n + 1))
+    IF os$ = "WIN" THEN k = UCASE$(k)
+    IncludeOnce_Key$ = CHR$(0) + k + CHR$(0)
+END FUNCTION
+
+SUB IncludeOnce_Mark (f$)
+    IF IncludeOnce_Seen%(f$) THEN EXIT SUB
+    includeOnceFiles$ = includeOnceFiles$ + IncludeOnce_Key$(f$)
+END SUB
+
+FUNCTION IncludeOnce_Seen% (f$)
+    IF LEN(includeOnceFiles$) = 0 THEN EXIT FUNCTION
+    IF INSTR(includeOnceFiles$, IncludeOnce_Key$(f$)) THEN IncludeOnce_Seen% = -1
 END FUNCTION
 
 SUB StdLib_SplitIncludeRange (spec$, fromLine AS LONG, toLine AS LONG)
@@ -153,7 +264,8 @@ SUB StdLib_EmitRange (path$, fromLine AS LONG, toLine AS LONG, inBody AS INTEGER
     DIM directive AS STRING
 
     IF fromLine > toLine THEN EXIT SUB
-    directive = "'$INCLUDE:'" + path$ + "|" + LTRIM$(STR$(fromLine)) + "|" + LTRIM$(STR$(toLine)) + "'" + CHR$(13) + CHR$(10)
+    'relative to the QBNex folder (the include managers look there for the compiler's files)
+    directive = "'$INCLUDE:'" + StdLib_RootRelative$(path$) + "|" + LTRIM$(STR$(fromLine)) + "|" + LTRIM$(STR$(toLine)) + "'" + CHR$(13) + CHR$(10)
     IF inBody THEN bodyText$ = bodyText$ + directive ELSE headText$ = headText$ + directive
 END SUB
 
@@ -230,6 +342,7 @@ SUB StdLib_HoistModule (module$, headText$, bodyText$)
     modulePath = StdLib_ImportPath$(moduleKey)
     IF _FILEEXISTS(modulePath) = 0 THEN EXIT SUB 'left to the in-place $IMPORT, which reports it
     stdlibHoisted$ = stdlibHoisted$ + moduleKey + "@"
+    stdlibImportOrigins$ = stdlibImportOrigins$ + CHR$(0) + moduleKey + CHR$(1) + stdlibOriginNow$
     'the in-place $IMPORT lines (also inside modules) become no-ops
     importedModules$ = stdlibHoisted$
     StdLib_HoistFile modulePath, headText$, bodyText$, 0
@@ -249,8 +362,12 @@ SUB StdLib_PrepareHoistedImports
     DIM codeText AS STRING
     DIM commentText AS STRING
     DIM fromFolder AS LONG
+    DIM lineNo AS LONG
 
     stdlibHoisted$ = "@"
+    stdlibImportOrigins$ = ""
+    'each pass (and a recompile) starts at the first line here: $INCLUDEONCE files are read again
+    includeOnceFiles$ = ""
     syntaxExtUsesTry = 0
     stdlibHeadFile$ = ""
     stdlibBodyFile$ = ""
@@ -263,6 +380,8 @@ SUB StdLib_PrepareHoistedImports
         IF nl = 0 THEN nl = LEN(text) + 1
         lineText = MID$(text, p, nl - p)
         p = nl + 1
+        lineNo = lineNo + 1
+        stdlibOriginNow$ = "line " + LTRIM$(STR$(lineNo)) + " of " + sourcefile$
         moduleName = StdLib_MetaArgFromLine$(lineText, "$IMPORT")
         IF LEN(moduleName) THEN StdLib_HoistModule moduleName, headText, bodyText
         IF RIGHT$(lineText, 1) = CHR$(13) THEN lineText = LEFT$(lineText, LEN(lineText) - 1)
@@ -291,8 +410,9 @@ SUB StdLib_PrepareHoistedImports
         headText = "DIM SHARED QBNEX_TRYERR AS LONG" + CHR$(13) + CHR$(10) + "GOTO QBNEX_TRY_SKIP" + CHR$(13) + CHR$(10) + "QBNEX_TRY_HANDLER:" + CHR$(13) + CHR$(10) + "QBNEX_TRYERR = ERR" + CHR$(13) + CHR$(10) + "RESUME NEXT" + CHR$(13) + CHR$(10) + "QBNEX_TRY_SKIP:" + CHR$(13) + CHR$(10) + headText
     END IF
 
-    'these files take the place of the vwatch includes at the first/last line
-    vwatchDir = QBNexRoot$ + "compiler" + pathsep$ + "support" + pathsep$ + "vwatch" + pathsep$
+    'these files take the place of the vwatch includes at the first/last line (relative to
+    'the QBNex folder, see StdLib_RootRelative$)
+    vwatchDir = "compiler" + pathsep$ + "support" + pathsep$ + "vwatch" + pathsep$
     IF vWatchOn THEN
         headText = "'$INCLUDE:'" + vwatchDir + "vwatch.bi'" + CHR$(13) + CHR$(10) + headText
         bodyText = bodyText + "'$INCLUDE:'" + vwatchDir + "vwatch.bm'" + CHR$(13) + CHR$(10)
@@ -302,14 +422,15 @@ SUB StdLib_PrepareHoistedImports
 
     'no head file when there is nothing to put first (a program with only DEF FN):
     'including an empty file reads past its end
+    'full paths: diagnostics name them, and the include managers open them as written
     IF LEN(headText) THEN
-        stdlibHeadFile$ = tmpdir$ + "imports_head.bas"
+        stdlibHeadFile$ = QBNexRoot$ + MID$(tmpdir$, 3) + "imports_head.bas"
         fh = FREEFILE
         OPEN stdlibHeadFile$ FOR OUTPUT AS #fh
         PRINT #fh, headText;
         CLOSE #fh
     END IF
-    stdlibBodyFile$ = tmpdir$ + "imports_body.bas"
+    stdlibBodyFile$ = QBNexRoot$ + MID$(tmpdir$, 3) + "imports_body.bas"
     fh = FREEFILE
     OPEN stdlibBodyFile$ FOR OUTPUT AS #fh
     PRINT #fh, bodyText;
@@ -325,6 +446,7 @@ SUB StdLib_HoistIncludeImports (path$, headText$, bodyText$, depth AS LONG)
     DIM p AS LONG
     DIM nl AS LONG
     DIM fromFolder AS LONG
+    DIM lineNo AS LONG
 
     IF depth > 20 OR LEN(path$) = 0 THEN EXIT SUB
     IF _FILEEXISTS(path$) = 0 THEN EXIT SUB
@@ -336,6 +458,8 @@ SUB StdLib_HoistIncludeImports (path$, headText$, bodyText$, depth AS LONG)
         IF nl = 0 THEN nl = LEN(text) + 1
         lineText = MID$(text, p, nl - p)
         p = nl + 1
+        lineNo = lineNo + 1
+        stdlibOriginNow$ = "line " + LTRIM$(STR$(lineNo)) + " of " + path$
         argText = StdLib_MetaArgFromLine$(lineText, "$IMPORT")
         IF LEN(argText) THEN StdLib_HoistModule argText, headText$, bodyText$
         argText = StdLib_MetaArgFromLine$(lineText, "$INCLUDE")
@@ -368,4 +492,52 @@ FUNCTION StdLib_FileUsesTry% (path$, depth AS LONG)
             IF StdLib_FileUsesTry%(StdLib_FindInclude$(getfilepath$(path$), incName, fromFolder), depth + 1) THEN StdLib_FileUsesTry% = -1: EXIT FUNCTION
         END IF
     LOOP
+END FUNCTION
+'The generated import files: target\qb-temp\imports_head.bas and imports_body.bas.
+FUNCTION StdLib_IsGeneratedFile% (f$)
+    DIM a AS STRING, b AS STRING, p AS STRING
+
+    'asked for each line read from an $INCLUDE file: most paths differ in length
+    IF LEN(f$) <> LEN(stdlibHeadFile$) AND LEN(f$) <> LEN(stdlibBodyFile$) THEN EXIT FUNCTION
+    p = f$: a = stdlibHeadFile$: b = stdlibBodyFile$
+    IF os$ = "WIN" THEN p = UCASE$(p): a = UCASE$(a): b = UCASE$(b)
+    IF (LEN(a) > 0 AND p = a) OR (LEN(b) > 0 AND p = b) THEN StdLib_IsGeneratedFile% = -1
+END FUNCTION
+
+'Where the stdlib module in path$ was imported ("line 3 of D:\x\main.bas"), and its name
+'in modKey$; "" when path$ is no hoisted module.
+FUNCTION StdLib_ImportOriginOf$ (path$, modKey$)
+    DIM rel AS STRING, r AS STRING, p AS LONG, q AS LONG
+
+    modKey$ = ""
+    r = Path_Normalize$(QBNexRoot$ + "compiler" + pathsep$ + "stdlib" + pathsep$)
+    rel = Path_Normalize$(path$)
+    IF os$ = "WIN" THEN
+        IF UCASE$(LEFT$(rel, LEN(r))) <> UCASE$(r) THEN EXIT FUNCTION
+    ELSE
+        IF LEFT$(rel, LEN(r)) <> r THEN EXIT FUNCTION
+    END IF
+    modKey$ = StdLib_CanonicalImportKey$(MID$(rel, LEN(r) + 1))
+    p = INSTR(stdlibImportOrigins$, CHR$(0) + modKey$ + CHR$(1))
+    IF p = 0 THEN modKey$ = "": EXIT FUNCTION
+    p = p + LEN(modKey$) + 2
+    q = INSTR(p, stdlibImportOrigins$, CHR$(0))
+    IF q = 0 THEN q = LEN(stdlibImportOrigins$) + 1
+    StdLib_ImportOriginOf$ = MID$(stdlibImportOrigins$, p, q - p)
+END FUNCTION
+
+'How an include chain names incname$(x): a generated import file by the $IMPORT in the
+'program that brought the next file in, else as QBNex's generated file, with its full path.
+FUNCTION IncludeChainName$ (x AS LONG)
+    DIM o AS STRING, modKey AS STRING
+
+    IncludeChainName$ = incname$(x)
+    IF StdLib_IsGeneratedFile%(incname$(x)) = 0 THEN EXIT FUNCTION
+    IF x < inclevel THEN o = StdLib_ImportOriginOf$(incname$(x + 1), modKey)
+    IF LEN(o) THEN
+        'no quotes: the first quoted name in a message is the one it is about
+        IncludeChainName$ = "the $IMPORT of module " + modKey + " in " + o
+    ELSE
+        IncludeChainName$ = "QBNex's generated file " + incname$(x)
+    END IF
 END FUNCTION

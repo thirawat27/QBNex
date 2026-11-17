@@ -270,6 +270,14 @@ fn input_chr(t: &mut Table, i: i32, cx: &mut Ctx) -> i32 {
         t.f(i).eof_passed = 1;
         return -1;
     }
+    if c == 0xEF && t.f(i).type_ == 3 && t.getpos(i) == 1 {
+        // the UTF-8 byte order mark of a text file (Notepad's "UTF-8 with BOM") is no part
+        // of its first line: `IF a$ = "ไทย"` failed on such a file
+        if (t.read_byte(i), t.read_byte(i)) == (Ok(0xBB), Ok(0xBF)) {
+            return input_chr(t, i, cx);
+        }
+        t.setpos(i, 1);
+    }
     i32::from(c)
 }
 
@@ -1309,6 +1317,26 @@ mod tests {
                 Err(62)
             ]
         );
+        close(f);
+    }
+
+    #[test]
+    fn a_utf8_byte_order_mark_starts_no_line() {
+        let d = tmp("bom");
+        std::fs::write(d.join("b.txt"), b"\xEF\xBB\xBFab\r\n\xEF\xBB\xBF\r\n").unwrap();
+        std::fs::write(d.join("e.txt"), b"\xEFx").unwrap();
+        let f = fresh(155);
+        let line = |f| {
+            let mut cx = Ctx::default();
+            (line_input(&mut table(), f, &mut cx), cx.err)
+        };
+        assert_eq!(open(&p(&d, "b.txt"), 3, 0, 0, f, 0, false), 0);
+        assert_eq!(line(f), (Some(b"ab".to_vec()), 0));
+        // further on, the same bytes are text
+        assert_eq!(line(f), (Some(b"\xEF\xBB\xBF".to_vec()), 0));
+        close(f);
+        assert_eq!(open(&p(&d, "e.txt"), 3, 0, 0, f, 0, false), 0);
+        assert_eq!(line(f), (Some(b"\xEFx".to_vec()), 0));
         close(f);
     }
 

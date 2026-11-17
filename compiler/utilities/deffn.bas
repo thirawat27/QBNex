@@ -512,6 +512,10 @@ SUB DefFn_ScanIncludes (text AS STRING, folder AS STRING, depth AS LONG, defStat
             incPath = StdLib_FindInclude$(folder, incName, fromFolder)
             IF LEN(incPath) THEN
                 incText = StdLib_ReadText$(incPath)
+                'a file with $INCLUDEONCE is compiled once, so its DEF FN make one FUNCTION each
+                IF INSTR(UCASE$(incText), "$INCLUDEONCE") THEN
+                    IF INSTR(defFnOnceScanned$, IncludeOnce_Key$(incPath)) THEN incText = "" ELSE defFnOnceScanned$ = defFnOnceScanned$ + IncludeOnce_Key$(incPath)
+                END IF
                 IF INSTR(UCASE$(incText), "FN") THEN
                     DefFn_ScanIncludes incText, getfilepath$(incPath), depth + 1, defState, anyDefType
                     DefFn_RewriteText incText, defState, anyDefType
@@ -552,6 +556,7 @@ SUB DefFn_RewriteBuffer
     defFnBodyText$ = ""
     defFnDimTypes$ = "|"
     defFnIncInDef = 0
+    defFnOnceScanned$ = ""
     mark = CHR$(2)
     crlf = CHR$(13) + CHR$(10)
     DefFn_RewriteText lineinput3buffer$, defState, anyDefType
@@ -572,3 +577,48 @@ SUB DefFn_RewriteBuffer
         LOOP
     END IF
 END SUB
+
+'The DEF FN that line lineNo of the generated imports_body.bas was made from, as "DEF FNa in
+'line 2 of D:\x\main.bas"; "" when it is not in the main source file.
+FUNCTION DefFn_OriginOf$ (bodyFile$, lineNo AS LONG)
+    DIM text AS STRING, lineText AS STRING, t AS STRING, fnName AS STRING, c AS STRING
+    DIM p AS LONG, nl AS LONG, n AS LONG, k AS LONG
+
+    IF _FILEEXISTS(bodyFile$) = 0 OR _FILEEXISTS(sourcefile$) = 0 THEN EXIT FUNCTION
+    'the FUNCTION the line is in
+    text = StdLib_ReadText$(bodyFile$)
+    p = 1
+    DO WHILE p <= LEN(text) AND n < lineNo
+        nl = INSTR(p, text, CHR$(10))
+        IF nl = 0 THEN nl = LEN(text) + 1
+        t = UCASE$(DefFn_Trim$(MID$(text, p, nl - p)))
+        p = nl + 1
+        n = n + 1
+        IF LEFT$(t, 9) = "FUNCTION " THEN
+            t = LTRIM$(MID$(t, 10))
+            k = INSTR(t, " ")
+            IF k THEN fnName = LEFT$(t, k - 1) ELSE fnName = t
+        END IF
+    LOOP
+    IF LEFT$(fnName, 2) <> "FN" THEN EXIT FUNCTION
+    'its DEF line in the main source
+    text = StdLib_ReadText$(sourcefile$)
+    p = 1
+    n = 0
+    DO WHILE p <= LEN(text)
+        nl = INSTR(p, text, CHR$(10))
+        IF nl = 0 THEN nl = LEN(text) + 1
+        lineText = MID$(text, p, nl - p)
+        p = nl + 1
+        n = n + 1
+        t = UCASE$(lineText)
+        k = INSTR(t, "DEF " + fnName)
+        IF k THEN
+            c = MID$(t, k + 4 + LEN(fnName), 1)
+            IF c = "" OR INSTR("ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._", c) = 0 THEN
+                DefFn_OriginOf$ = "DEF " + MID$(lineText, k + 4, LEN(fnName)) + " in line " + LTRIM$(STR$(n)) + " of " + sourcefile$
+                EXIT FUNCTION
+            END IF
+        END IF
+    LOOP
+END FUNCTION

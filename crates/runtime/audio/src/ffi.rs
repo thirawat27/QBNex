@@ -151,7 +151,17 @@ pub fn qb_snd_rate() -> i32 {
 fn path_from(name: &[u8]) -> PathBuf {
     // QB64 handed a NUL-terminated string to its decoder: stop at the first NUL.
     let end = name.iter().position(|&c| c == 0).unwrap_or(name.len());
-    os_path(&name[..end])
+    // the separators of this system, as OPEN does (gfs::fixdir): "sfx\boom.wav"
+    // was not found on Linux and macOS
+    let mut v = name[..end].to_vec();
+    for c in &mut v {
+        if cfg!(windows) && *c == b'/' {
+            *c = b'\\';
+        } else if !cfg!(windows) && *c == b'\\' {
+            *c = b'/';
+        }
+    }
+    os_path(&v)
 }
 
 /// The file name's bytes as a path: byte for byte on Unix (a name that is

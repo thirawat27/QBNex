@@ -1,6 +1,8 @@
 //! File-system helpers: the FILES listing and `_DIR$`.
 //!
-//! On Windows the same Win32 calls are made as in QB64 (ANSI entry points).
+//! On Windows the same Win32 calls are made as in QB64, through the Unicode ("W")
+//! entry points: names are the runtime's UTF-8 bytes (the ANSI ones failed in a
+//! folder with a Thai name, and gave ? for a Thai user name).
 //! KILL, NAME, CHDIR, MKDIR, RMDIR, `_FILEEXISTS`, `_DIREXISTS` and `_CWD$`
 //! are implemented by the runner (`engine/exec/src/rt/builtins.rs`).
 
@@ -50,7 +52,7 @@ fn user_folder(context: &[u8]) -> Option<UserFolder> {
 /// "DOWNLOADS" is the profile folder's `Downloads`, created when missing.
 #[cfg(windows)]
 pub fn special_dir(context: &[u8]) -> Vec<u8> {
-    use crate::win32::{MAX_PATH, SHGetFolderPathA};
+    use crate::win32::{MAX_PATH, SHGetFolderPathW, utf8_name};
     const CSIDL_DESKTOP: i32 = 0x00;
     const CSIDL_PERSONAL: i32 = 0x05;
     const CSIDL_MYMUSIC: i32 = 0x0d;
@@ -62,11 +64,10 @@ pub fn special_dir(context: &[u8]) -> Vec<u8> {
     const CSIDL_PROFILE: i32 = 0x28;
     const CSIDL_PROGRAM_FILESX86: i32 = 0x2a;
     let shell = |csidl: i32| -> Option<Vec<u8>> {
-        let mut buf = [0u8; MAX_PATH];
-        // SAFETY: the API writes at most MAX_PATH bytes including the NUL.
-        let hr = unsafe { SHGetFolderPathA(std::ptr::null_mut(), csidl, std::ptr::null_mut(), 0, buf.as_mut_ptr()) };
-        let len = buf.iter().position(|&c| c == 0).unwrap_or(MAX_PATH);
-        (hr >= 0).then(|| buf[..len].to_vec())
+        let mut buf = [0u16; MAX_PATH];
+        // SAFETY: the API writes at most MAX_PATH units including the NUL.
+        let hr = unsafe { SHGetFolderPathW(std::ptr::null_mut(), csidl, std::ptr::null_mut(), 0, buf.as_mut_ptr()) };
+        (hr >= 0).then(|| utf8_name(&buf))
     };
     let with_sep = |mut p: Vec<u8>| {
         p.push(b'\\');
@@ -132,28 +133,27 @@ pub fn files(spec: Option<&[u8]>) -> (i32, Vec<Vec<u8>>) {
     let mut lines = Vec::new();
     // SAFETY: Win32 calls with owned buffers.
     unsafe {
-        let mut curdir = [0u8; 4096];
-        let mut curdir2 = [0u8; 4096];
-        let i2 = GetCurrentDirectoryA(4096, curdir.as_mut_ptr());
+        let mut curdir = [0u16; 4096];
+        let mut curdir2 = [0u16; 4096];
+        let i2 = GetCurrentDirectoryW(4096, curdir.as_mut_ptr());
         if i2 == 0 {
             return (5, lines);
         }
-        let i2 = GetShortPathNameA(curdir.as_ptr(), curdir2.as_mut_ptr(), 4096);
+        let i2 = GetShortPathNameW(curdir.as_ptr(), curdir2.as_mut_ptr(), 4096);
         if i2 == 0 {
             return (5, lines);
         }
-        lines.push(curdir2[..i2 as usize].to_ascii_uppercase());
+        lines.push(utf8_name(&curdir2[..i2 as usize]).to_ascii_uppercase());
         let mut pattern = strz.clone();
         fixdir(&mut pattern);
-        let mut fd = WIN32_FIND_DATAA::zeroed();
-        let h = FindFirstFileA(pattern.as_ptr(), &mut fd);
+        let mut fd = WIN32_FIND_DATAW::zeroed();
+        let h = FindFirstFileW(wide_name(&pattern).as_ptr(), &mut fd);
         if h == INVALID_HANDLE_VALUE {
             return (53, lines);
         }
         loop {
-            let cz = |b: &[u8]| b[..b.iter().position(|&c| c == 0).unwrap_or(b.len())].to_vec();
-            let alt = cz(&fd.cAlternateFileName);
-            let mut s = if alt.is_empty() { cz(&fd.cFileName) } else { alt }.to_ascii_uppercase();
+            let alt = utf8_name(&fd.cAlternateFileName);
+            let mut s = if alt.is_empty() { utf8_name(&fd.cFileName) } else { alt }.to_ascii_uppercase();
             if s.len() < 12 {
                 s.resize(12, b' ');
                 if let Some(i) = s[..12].iter().position(|&c| c == b'.') {
@@ -170,16 +170,15 @@ pub fn files(spec: Option<&[u8]>) -> (i32, Vec<Vec<u8>>) {
             }
             s.extend_from_slice(if fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY != 0 { b"<DIR> " } else { b"      " });
             lines.push(s);
-            if FindNextFileA(h, &mut fd) == 0 {
+            if FindNextFileW(h, &mut fd) == 0 {
                 break;
             }
         }
         FindClose(h);
-        let mut p = strpath;
-        p.push(0);
+        let p = wide_name(&strpath);
         let (mut avail, mut total, mut free) = (0u64, 0u64, 0u64);
-        let dir = if p.len() == 1 { std::ptr::null() } else { p.as_ptr() };
-        let bytes = if GetDiskFreeSpaceExA(dir, &mut avail, &mut total, &mut free) != 0 { avail as i64 } else { 0 };
+        let dir = if strpath.is_empty() { std::ptr::null() } else { p.as_ptr() };
+        let bytes = if GetDiskFreeSpaceExW(dir, &mut avail, &mut total, &mut free) != 0 { avail as i64 } else { 0 };
         let mut last = crate::numfmt::str_i64(bytes);
         last.extend_from_slice(b" Bytes free");
         lines.push(last);
@@ -232,5 +231,20 @@ mod tests {
         assert!(lines.last().unwrap().ends_with(b" Bytes free"));
         let (e, lines) = files(Some(&p(&d, "*.none")));
         assert_eq!((e, lines.len()), (53, 1));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn files_works_in_a_thai_folder() {
+        // the ANSI calls failed here: FILES was "Illegal function call"
+        let d = tmp("files_thai").join("โฟลเดอร์");
+        std::fs::create_dir_all(&d).unwrap();
+        std::fs::write(d.join("ab.txt"), b"1").unwrap();
+        let mut spec = p(&d, "");
+        spec.push(b'\\');
+        let (e, lines) = files(Some(&spec));
+        assert_eq!(e, 0, "{:?}", lines);
+        assert!(lines.contains(&b"AB      .TXT      ".to_vec()), "{:?}", lines);
+        assert!(lines.last().unwrap().ends_with(b" Bytes free"));
     }
 }

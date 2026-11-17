@@ -502,7 +502,10 @@ FUNCTION InferErrorCode% (requestedCode AS INTEGER, message AS STRING, context A
 
     IF requestedCode <> ERR_INVALID_SYNTAX AND requestedCode <> ERR_UNEXPECTED_TOKEN THEN EXIT FUNCTION
 
-    IF INSTR(upperMessage, "TYPE MISMATCH") > 0 THEN
+    'a file that is not there ($INCLUDE, $EXEICON): no "Metacommands must start with $" hint
+    IF LEFT$(upperMessage, 5) = "FILE " AND INSTR(upperMessage, " NOT FOUND") > 0 THEN
+        InferErrorCode% = ERR_FILE_NOT_FOUND
+    ELSEIF INSTR(upperMessage, "TYPE MISMATCH") > 0 THEN
         InferErrorCode% = ERR_TYPE_MISMATCH
     ELSEIF INSTR(upperMessage, "NAME ALREADY IN USE") > 0 OR INSTR(upperMessage, "ALREADY DEFINED") > 0 THEN
         InferErrorCode% = ERR_REDEFINED_SYMBOL
@@ -879,6 +882,13 @@ FUNCTION GetDetailedSuggestion$ (errCode AS INTEGER, message AS STRING, context 
             GetDetailedSuggestion$ = basicSuggestion
         END IF
 
+    CASE ERR_FILE_NOT_FOUND
+        IF INSTR(UCASE$(context), "$INCLUDE") THEN
+            GetDetailedSuggestion$ = "Check the file name. A relative $INCLUDE path is looked for next to the including file, next to the main source file, then in the folder qb was started in."
+        ELSE
+            GetDetailedSuggestion$ = "Check the file name. A relative name is looked for next to the source file."
+        END IF
+
     CASE ERR_EXPECTED_THEN
         GetDetailedSuggestion$ = "Add THEN after the IF condition. If you intended a jump, use IF condition GOTO label."
 
@@ -959,6 +969,7 @@ FUNCTION GetErrorCause$ (errCode AS INTEGER, message AS STRING, context AS STRIN
         ELSE
             GetErrorCause$ = "The compiler could not parse the statement due to incorrect syntax or unexpected symbols."
         END IF
+
     CASE ERR_EXPECTED_THEN
         GetErrorCause$ = "The compiler parsed an IF condition but never found THEN or GOTO to finish the statement."
     CASE ERR_EXPECTED_TO

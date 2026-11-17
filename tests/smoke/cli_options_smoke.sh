@@ -104,6 +104,53 @@ has typo_file "Did you mean"
 has typo_file "clean.bas"
 run hint 0 "$T/clean.bas" -m
 has hint "Run it:"
+# -o takes no switch for a name, and never the source file itself
+run o_switch 1 "$T/clean.bas" -o -q
+has o_switch "is a switch"
+run o_source 1 "$T/clean.bas" -o "$T/clean.bas"
+has o_source "it is the source file"
+
+# ---- paths: a relative name is relative to the folder qb was started in, and what a
+# source names ($INCLUDE) is next to it ----
+mkdir -p "$T/src"
+printf "'\$INCLUDEONCE\nDIM SHARED onceArr(3) AS LONG\n" > "$T/src/once.bi"
+printf "'\$INCLUDE:'once.bi'\n'\$INCLUDE:'once.bi'\nPRINT \"ONCE_OK\"; UBOUND(onceArr)\n" > "$T/src/once.bas"
+run include_once 0 "$T/src/once.bas" -q -o "$T/once"
+"$T/once" < /dev/null > "$T/once_run.txt" 2>&1 || true
+has once_run "ONCE_OK"
+# not QBNex's own README.md, from the folder qb works in (started in $T)
+printf "'\$INCLUDE:'README.md'\n" > "$T/src/readme.bas"
+cd "$T"
+run include_missing 1 "$T/src/readme.bas" -q -o "$T/readme"
+cd - > /dev/null
+has include_missing "File README.md not found (looked in"
+hasnot include_missing "Metacommands must start with"
+# a source named in another letter case is that file (case-sensitive file systems)
+run case_src 0 "$T/CLEAN.bas" -q -o "$T/case_src"
+exists "$T/case_src"
+# a relative source path is not looked for in the QBNex folder
+(cd "$T" && "$QB" compiler/qbnex.bas -q > "$T/not_in_qbnex.txt" 2>&1) && { echo "[FAIL] compiler/qbnex.bas was found outside the start folder"; FAIL=1; }
+has not_in_qbnex "Cannot find the source file"
+# the stale-output warning names the file -o writes
+run stale_ok 0 "$T/clean.bas" -q -o "$T/app.v2"
+exists "$T/app.v2"
+run stale 1 "$T/err.bas" -q -o "$T/app.v2"
+has stale "Existing executable may be stale"
+has stale "app.v2"
+# an output folder that cannot be written is said as such (root writes anyway)
+if [ "$(id -u)" != 0 ]; then
+  mkdir -p "$T/ro"
+  chmod 555 "$T/ro"
+  run ro_out 1 "$T/clean.bas" -q -o "$T/ro/app"
+  has ro_out "Cannot write"
+  hasnot ro_out "internal"
+  chmod 755 "$T/ro"
+fi
+# the default output next to app.bas is a folder app/
+mkdir -p "$T/folderout"
+printf 'PRINT 1\n' > "$T/folderout.bas"
+run folderout 1 "$T/folderout.bas" -q
+has folderout "it is a folder"
 
 # ---- -q: no banner or progress ----
 run quiet 0 "$T/clean.bas" -q -o "$T/quiet"

@@ -589,15 +589,19 @@ impl Table {
 /// the bytes as they are: read as UTF-8 text, every byte that is not UTF-8 became
 /// U+FFFD, and two different names (CHR$(200), CHR$(201)) named one file.
 pub fn os_path(name: &[u8]) -> std::path::PathBuf {
-    #[cfg(unix)]
-    {
-        use std::os::unix::ffi::OsStrExt;
-        std::path::PathBuf::from(std::ffi::OsStr::from_bytes(name))
-    }
-    #[cfg(not(unix))]
-    {
-        std::path::PathBuf::from(String::from_utf8_lossy(name).into_owned())
-    }
+    // as OPEN reads it: on Windows a name that is not UTF-8 is in the ANSI code page
+    // (KILL and _FILEEXISTS made it U+FFFD, so they did not find the file OPEN made)
+    std::path::PathBuf::from(crate::osstr::os_string(name))
+}
+
+/// A path a program gave (`\` or `/`, any OS) as the system's path: what OPEN does
+/// with a name, for the statements that load a file another way (_LOADIMAGE, BLOAD,
+/// _SNDOPEN, ...), which skipped the separator change and failed with
+/// "assets\hero.png" on Linux and macOS.
+pub fn user_path(name: &[u8]) -> std::path::PathBuf {
+    let mut v = name.to_vec();
+    fixdir(&mut v);
+    os_path(&v)
 }
 
 /// `fixdir`: converts path separators to the OS form.
@@ -945,7 +949,7 @@ mod os {
     impl Handle {
         pub const NONE: Handle = Handle(null_mut());
         pub fn close(&mut self) {
-            // SAFETY: handle came from CreateFileA.
+            // SAFETY: handle came from CreateFileA or CreateFileW.
             unsafe { CloseHandle(self.0) };
         }
     }
@@ -1042,10 +1046,16 @@ mod os {
                 return 0;
             }
 
+            // a UTF-8 name (ไทย.bas) through CreateFileW, as _FILEEXISTS and KILL read it
+            let wide = utf16z(namez);
+            let create = |access: DWORD, share: DWORD, disposition: DWORD| match &wide {
+                Some(w) => CreateFileW(w.as_ptr(), access, share, null_mut(), disposition, FILE_ATTRIBUTE_NORMAL, null_mut()),
+                None => CreateFileA(namez.as_ptr(), access, share, null_mut(), disposition, FILE_ATTRIBUTE_NORMAL, null_mut()),
+            };
             let x3 = if how != 0 { OPEN_ALWAYS } else { OPEN_EXISTING };
             let mut h;
             loop {
-                h = CreateFileA(namez.as_ptr(), x, x2, null_mut(), x3, FILE_ATTRIBUTE_NORMAL, null_mut());
+                h = create(x, x2, x3);
                 if h != INVALID_HANDLE_VALUE {
                     break;
                 }
@@ -1070,7 +1080,7 @@ mod os {
                 let lo = GetFileSize(h, &mut hi);
                 if lo != 0 || hi != 0 {
                     CloseHandle(h);
-                    h = CreateFileA(namez.as_ptr(), x, x2, null_mut(), TRUNCATE_EXISTING, FILE_ATTRIBUTE_NORMAL, null_mut());
+                    h = create(x, x2, TRUNCATE_EXISTING);
                     if h == INVALID_HANDLE_VALUE {
                         return map_open_error(GetLastError());
                     }
@@ -1514,6 +1524,26 @@ pub(crate) mod tests {
         let (missing_dir, missing_dir_create) = if cfg!(windows) { (-6, -6) } else { (-5, -11) };
         assert_eq!(t.open(&p(&d, "nodir/x.txt"), 1, 0, 0), missing_dir);
         assert_eq!(t.open(&p(&d, "nodir/x.txt"), 3, 0, 3), missing_dir_create);
+    }
+
+    #[test]
+    fn opens_names_that_are_not_ascii() {
+        // UTF-8 names, as _FILEEXISTS and KILL read them: on Windows OPEN used the
+        // ANSI code page and did not find ไทย.bas, nor a file in a Thai folder
+        let d = tmp("utf8").join("โฟลเดอร์");
+        std::fs::create_dir_all(&d).unwrap();
+        std::fs::write(d.join("ไทย.bas"), b"PRINT 1").unwrap();
+        let mut t = table();
+        let i = t.open(&p(&d, "ไทย.bas"), 1, 0, 0);
+        assert!(i >= 0, "{i}");
+        let mut buf = [0u8; 7];
+        assert_eq!(t.read(i, -1, &mut buf), 0);
+        assert_eq!(&buf, b"PRINT 1");
+        assert_eq!(t.close(i), 0);
+        let i = t.open(&p(&d, "ใหม่.txt"), 3, 0, 3);
+        assert!(i >= 0, "{i}");
+        assert_eq!(t.close(i), 0);
+        assert!(d.join("ใหม่.txt").exists());
     }
 
     #[test]

@@ -51,8 +51,12 @@ set "RUN_URL=%TMPDIR%\stdlib_url_run.txt"
 "%QB%" "%SRC_QBNEX%" -o "%BIN_QBNEX%" > "%OUT_QBNEX%" 2>&1
 set "EC_QBNEX=%ERRORLEVEL%"
 
+rem the fixture includes compiler/stdlib/qbnex.bas, a path relative to the folder qb is
+rem started in (a relative $INCLUDE is never looked for in the QBNex folder)
+pushd "%REPO_ROOT%"
 "%QB%" "%SRC_QBNEX_INCLUDE%" -o "%BIN_QBNEX_INCLUDE%" > "%OUT_QBNEX_INCLUDE%" 2>&1
 set "EC_QBNEX_INCLUDE=%ERRORLEVEL%"
+popd
 
 "%QB%" "%SRC_URL%" -o "%BIN_URL%" > "%OUT_URL%" 2>&1
 set "EC_URL=%ERRORLEVEL%"

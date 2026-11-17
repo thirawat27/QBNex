@@ -20,6 +20,13 @@ fn main() -> std::process::ExitCode {
     }
     match qb_lsp::run_stdio() {
         Ok(()) => std::process::ExitCode::SUCCESS,
+        // the LSP specification: exit code 1 when `exit` came without `shutdown`
+        Err(e) if e.is::<qb_lsp::ExitWithoutShutdown>() => std::process::ExitCode::FAILURE,
+        // lsp-server's words for standard input that ended before an exit message
+        Err(e) if e.to_string() == "disconnected channel" => {
+            eprintln!("qb-lsp: the input ended without an exit message (an editor starts qb-lsp; see qb-lsp --help)");
+            std::process::ExitCode::FAILURE
+        }
         Err(e) => {
             eprintln!("qb-lsp: {e}");
             std::process::ExitCode::FAILURE

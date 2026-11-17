@@ -186,8 +186,11 @@ FUNCTION getpid& ()
 
     thisinstancepid = getpid&
     IF os$ = "LNX" THEN
+        'the errors go to qberror_test (E = 1): a read-only QBNex folder is said as such
+        E = 0
         fh = FREEFILE
         OPEN "./target/qb-temp/tempfoldersearch.bin" FOR RANDOM AS #fh LEN = LEN(tempfolderindex)
+        IF E THEN ReportNoBuildFolder
         tempfolderrecords = LOF(fh) / LEN(tempfolderindex)
         i = 1
         IF tempfolderrecords = 0 THEN
@@ -198,12 +201,16 @@ FUNCTION getpid& ()
                 'check if any of the temp folders is being used = pid still active
                 GET #fh, i, tempfoldersearch
 
-                SHELL _HIDE "ps -p " + STR$(tempfoldersearch) + " > /dev/null 2>&1; echo $? > target/qb-temp/checkpid.bin"
+                'ps answers 0 (running) or 1; without ps (127) /proc or kill -0 answer, so a
+                'missing ps does not make every folder busy and add one more each run
+                pidtext$ = LTRIM$(STR$(tempfoldersearch))
+                SHELL _HIDE "ps -p " + pidtext$ + " > /dev/null 2>&1; r=$?; if [ $r -eq 127 ]; then if [ -d /proc/self ]; then [ -d /proc/" + pidtext$ + " ]; else kill -0 " + pidtext$ + " 2>/dev/null; fi; r=$?; fi; echo $r > target/qb-temp/checkpid.bin"
+                checkpid$ = ""
                 fh2 = FREEFILE
                 OPEN "target/qb-temp/checkpid.bin" FOR BINARY AS #fh2
                 LINE INPUT #fh2, checkpid$
                 CLOSE #fh2
-                IF VAL(checkpid$) = 1 THEN
+                IF VAL(checkpid$) <> 0 THEN
                     'This temp folder was locked by an instance that's no longer active, so
                     'this will be our temp folder
                     PUT #fh, i, thisinstancepid
@@ -222,7 +229,9 @@ FUNCTION getpid& ()
                 MKDIR tmpdir$
             END IF
         END IF
+        E = 0
         OPEN tmpdir$ + "temp.bin" FOR OUTPUT LOCK WRITE AS #26
+        IF E THEN ReportNoBuildFolder
     ELSE
         ON ERROR GOTO qberror_test
         E = 0
@@ -230,8 +239,10 @@ FUNCTION getpid& ()
         OPEN tmpdir$ + "temp.bin" FOR OUTPUT LOCK WRITE AS #26
         DO WHILE E
             i = i + 1
-            IF i = 1000 THEN PRINT "Unable to create a build folder in 'target'": END 1
+            IF i = 1000 THEN ReportNoBuildFolder
             IF _DIREXISTS(".\target\qb-temp" + str2$(i)) = 0 THEN MKDIR ".\target\qb-temp" + str2$(i)
+            'a folder that cannot be made: target is read-only, the next numbers fail too
+            IF _DIREXISTS(".\target\qb-temp" + str2$(i)) = 0 THEN ReportNoBuildFolder
             IF os$ = "WIN" THEN tmpdir$ = ".\target\qb-temp" + str2$(i) + "\"
             IF os$ = "LNX" THEN tmpdir$ = "./target/qb-temp" + str2$(i) + "/"
             E = 0
@@ -269,21 +280,28 @@ FUNCTION getpid& ()
     '$INCLUDE:'global\compiler_settings.bas'
 
     CMDLineFile = ParseCMDLineArgs$
-    IF CMDLineFile <> "" AND FileHasExtension(CMDLineFile) = 0 THEN
-        'name.bas where it exists (file names are case sensitive outside Windows), else name.BAS
-        IF _FILEEXISTS(_STARTDIR$ + "/" + CMDLineFile + ".bas") OR _FILEEXISTS(CMDLineFile + ".bas") THEN
-            CMDLineFile = CMDLineFile + ".bas"
-        ELSE
-            CMDLineFile = CMDLineFile + ".BAS"
+    'started from Explorer with a source file: build in a child and keep the window open
+    IF CMDLineFile <> "" AND ENVIRON$("QBNEX_OWN_CONSOLE") = "1" THEN RunInOwnConsoleWindow
+    IF CMDLineFile <> "" THEN
+        'a relative source path is relative to the folder qb was started in, never to the
+        'QBNex folder qb works in; the name as typed is kept for the messages
+        cmdTypedFile$ = CMDLineFile
+        f$ = CMDLineFile
+        IF IsAbsolutePath%(f$) = 0 THEN f$ = JoinPath$(_STARTDIR$, f$)
+        'qb sub, where sub is a folder (and there is no sub.bas): not "sub.BAS was not found"
+        IF _DIREXISTS(f$) AND _FILEEXISTS(f$ + ".bas") = 0 AND _FILEEXISTS(f$ + ".BAS") = 0 THEN ReportMissingSource cmdTypedFile$, -1
+        IF FileHasExtension(f$) = 0 THEN
+            'name.bas where it exists (file names are case sensitive outside Windows), else name.BAS
+            IF _FILEEXISTS(f$ + ".bas") THEN cmdExt$ = ".bas" ELSE cmdExt$ = ".BAS"
+            f$ = f$ + cmdExt$
+            cmdTypedFile$ = cmdTypedFile$ + cmdExt$
         END IF
-    END IF
-    IF CMDLineFile <> "" AND _FILEEXISTS(_STARTDIR$ + "/" + CMDLineFile) THEN
-        CMDLineFile = _STARTDIR$ + "/" + CMDLineFile
-    END IF
-    'not there: say which .bas file was probably meant, before the build starts
-    IF CMDLineFile <> "" AND _FILEEXISTS(CMDLineFile) = 0 AND os$ = "WIN" THEN ReportMissingSource CMDLineFile
-    IF CMDLineFile <> "" AND os$ <> "WIN" THEN
-        IF ResolvePathCase$(CMDLineFile) = "" THEN ReportMissingSource CMDLineFile
+        'not there: say which .bas file was probably meant, before the build starts. Outside
+        'Windows a name that differs only in letter case is the file (ResolvePathCase$), and
+        'that name is the one opened.
+        cmdResolvedFile$ = ResolvePathCase$(f$)
+        IF cmdResolvedFile$ = "" THEN ReportMissingSource cmdTypedFile$, 0
+        CMDLineFile = cmdResolvedFile$
     END IF
 
     ConsoleMode = -1
@@ -673,9 +691,12 @@ FUNCTION getpid& ()
     DIM SHARED addmetainclude AS STRING
     DIM SHARED importedModules AS STRING
 DIM SHARED stdlibHoisted AS STRING, stdlibHeadFile AS STRING, stdlibBodyFile AS STRING 'hoisted $IMPORT modules (imports.bas)
+DIM SHARED stdlibImportOrigins AS STRING, stdlibOriginNow AS STRING 'imports.bas: the $IMPORT line that brought each hoisted module in
+DIM SHARED includeOnceFiles AS STRING 'imports.bas: the files that have $INCLUDEONCE, included once
 DIM SHARED defFnBodyText AS STRING 'FUNCTIONs made from single-line DEF FN (deffn.bas)
 DIM SHARED defFnDimTypes AS STRING 'deffn.bas: |NAME=TYPE| of the module's DIM name AS type
 DIM SHARED defFnIncInDef AS LONG 'deffn.bas: inside DEF FN ... END DEF of an included file
+DIM SHARED defFnOnceScanned AS STRING 'deffn.bas: the $INCLUDEONCE files already scanned for DEF FN
 DIM SHARED syntaxExtEnumActive AS LONG, syntaxExtEnumNext AS STRING, syntaxExtForStack AS STRING, syntaxExtTryStack AS STRING, syntaxExtCounter AS LONG, syntaxExtOptional AS STRING, syntaxExtArrays AS STRING, syntaxExtUsesTry AS LONG, syntaxExtLoopStack AS STRING, syntaxExtTryLabels AS STRING, syntaxExtMainPass AS LONG 'syntax_ext.bas
 DIM SHARED incRangeFrom AS LONG, incRangeTo AS LONG, incRangeSkip AS LONG, incRangeEnd(100) AS LONG 'include of a line range: 'file|from|to'
     DIM SHARED topLevelRuntimeLines AS STRING
@@ -2278,46 +2299,34 @@ DIM SHARED incRangeFrom AS LONG, incRangeTo AS LONG, incRangeSkip AS LONG, incRa
 
                                     StdLib_SplitIncludeRange a$, incRangeFrom, incRangeTo
                                     IF inclevel = 100 THEN a$ = "Too many indwelling INCLUDE files": GOTO errmes
-                                    '1. Verify file exists (location is either (a)relative to source file or (b)absolute)
+                                    '1. Find the file (ResolveIncludeFile$): a user's file next to the including
+                                    'file, the main source file or in the folder qb was started in; the files the
+                                    'compiler includes from the first and last line in the QBNex folder
                                     fh = 99 + inclevel + 1
-
-                                    firstTryMethod = 1
-                                    IF includingFromRoot <> 0 AND inclevel = 0 THEN firstTryMethod = 2
-                                    'the paths as written first; then the same paths with another letter case
-                                    '(ResolvePathCase$), so an exact match anywhere wins
-                                    incCaseTry = 0
-                                    incopenretry1:
-                                    FOR try = firstTryMethod TO 2 'if including file from root, do not attempt including from relative location
-                                        IF try = 1 THEN
-                                            IF inclevel = 0 THEN
-                                                p$ = getfilepath$(sourcefile$)
-                                            ELSE
-                                                p$ = getfilepath$(incname(inclevel))
-                                            END IF
-                                            f$ = p$ + a$
+                                    incSearchMode& = 0
+                                    IF includingFromRoot <> 0 AND inclevel = 0 THEN incSearchMode& = 2
+                                    IF inclevel = 0 THEN incFolder$ = getfilepath$(sourcefile$) ELSE incFolder$ = getfilepath$(incname(inclevel))
+                                    IF incSearchMode& = 0 AND inclevel > 0 THEN
+                                        IF IsCompilerFile%(incname(inclevel)) THEN incSearchMode& = 1
+                                    END IF
+                                    f$ = ResolveIncludeFile$(a$, incFolder$, incSearchMode&, incFoundIn&)
+                                    IF LEN(f$) = 0 THEN a$ = IncludeNotFoundText$(a$, incFolder$, incSearchMode&): GOTO errmes
+                                    'a file with $INCLUDEONCE in it is read the first time only
+                                    IF IncludeOnce_Seen%(f$) = 0 THEN
+                                        qberrorhappened = -3
+                                        'We're using the faster LINE INPUT, which requires a BINARY open.
+                                        OPEN f$ FOR BINARY AS #fh
+                                        qberrorhappened3:
+                                        IF qberrorhappened <> -3 THEN qberrorhappened = 0: a$ = "File " + f$ + " cannot be read": GOTO errmes
+                                        qberrorhappened = 0 'opened: a later internal error must not RESUME into this loop
+                                        inclevel = inclevel + 1: incname$(inclevel) = f$: inclinenumber(inclevel) = 0
+                                        incRangeEnd(inclevel) = incRangeTo
+                                        IF incRangeFrom > 1 THEN
+                                            FOR incRangeSkip = 2 TO incRangeFrom
+                                                IF EOF(fh) = 0 THEN LINE INPUT #fh, x$
+                                            NEXT
+                                            inclinenumber(inclevel) = incRangeFrom - 1
                                         END IF
-                                        IF try = 2 THEN f$ = a$
-                                        IF incCaseTry THEN f$ = ResolvePathCase$(f$)
-                                        IF _FILEEXISTS(f$) THEN
-                                            qberrorhappened = -3
-                                            'We're using the faster LINE INPUT, which requires a BINARY open.
-                                            OPEN f$ FOR BINARY AS #fh
-                                            'And another line below edited
-                                            qberrorhappened3:
-                                            IF qberrorhappened = -3 THEN EXIT FOR
-                                        END IF
-                                        qberrorhappened = 0
-                                    NEXT
-                                    IF qberrorhappened <> -3 AND incCaseTry = 0 THEN incCaseTry = -1: GOTO incopenretry1
-                                    IF qberrorhappened <> -3 THEN qberrorhappened = 0: a$ = "File " + a$ + " not found": GOTO errmes
-                                    qberrorhappened = 0 'opened: a later internal error must not RESUME into this loop
-                                    inclevel = inclevel + 1: incname$(inclevel) = f$: inclinenumber(inclevel) = 0
-                                    incRangeEnd(inclevel) = incRangeTo
-                                    IF incRangeFrom > 1 THEN
-                                        FOR incRangeSkip = 2 TO incRangeFrom
-                                            IF EOF(fh) = 0 THEN LINE INPUT #fh, x$
-                                        NEXT
-                                        inclinenumber(inclevel) = incRangeFrom - 1
                                     END IF
                                 END IF 'fall through to next section...
                                 '--------------------
@@ -2343,11 +2352,11 @@ DIM SHARED incRangeFrom AS LONG, incRangeTo AS LONG, incRangeSkip AS LONG, incRa
                                         wholeline$ = TopLevelRuntime_ProcessLine$(wholeline$)
                                         'create extended error string 'incerror$'
                                         errorLineInInclude = inclinenumber(inclevel)
-                                        e$ = " in line " + str2(inclinenumber(inclevel)) + " of " + incname$(inclevel) + " included"
+                                        e$ = " in line " + str2(inclinenumber(inclevel)) + " of " + IncludeChainName$(CLNG(inclevel)) + " included"
                                         IF inclevel > 1 THEN
                                             e$ = e$ + " (through "
                                             FOR x = 1 TO inclevel - 1 STEP 1
-                                                e$ = e$ + incname$(x)
+                                                e$ = e$ + IncludeChainName$(CLNG(x))
                                                 IF x < inclevel - 1 THEN 'a sep is req
                                                 IF x = inclevel - 2 THEN
                                                     e$ = e$ + " then "
@@ -3173,6 +3182,18 @@ DIM SHARED incRangeFrom AS LONG, incRangeTo AS LONG, incRangeSkip AS LONG, incRa
                     IF LEN(libpath$) = 0 THEN libpath$ = currentdir$
                     IF LEN(libpath$) > 0 AND RIGHT$(libpath$, 1) <> pathsep$ THEN libpath$ = libpath$ + pathsep$
                 END IF
+                'a relative folder ("lib\x", "./lib/x") is next to the source file too, as "./x"
+                'is, when the library is there (not in the QBNex folder the compiler works in);
+                'else the path stays as written (the loader also tries it under System32)
+                libsearched$ = ""
+                IF LEN(libpath$) > 0 AND IsAbsolutePath%(libpath$) = 0 THEN
+                    libsearched$ = libpath$
+                    DO WHILE LEFT$(libsearched$, 2) = "./" OR LEFT$(libsearched$, 2) = ".\"
+                        libsearched$ = MID$(libsearched$, 3)
+                    LOOP
+                    IF LEN(path.source$) THEN libsearched$ = JoinPath$(path.source$, libsearched$) ELSE libsearched$ = JoinPath$(_STARTDIR$, libsearched$)
+                    IF LibraryFilesInFolder%(libsearched$, x$, libver$) THEN libpath$ = libsearched$
+                END IF
 
                 'Create a path which can be used for inline code (uses \\ instead of \)
                 libpath_inline$ = ""
@@ -3524,11 +3545,11 @@ DIM SHARED incRangeFrom AS LONG, incRangeTo AS LONG, incRangeSkip AS LONG, incRa
 END IF 'Dynamic
 
 'library found?
-IF dynamiclibrary <> 0 AND LEN(libname$) = 0 THEN a$ = "DYNAMIC LIBRARY not found": GOTO errmes
+IF dynamiclibrary <> 0 AND LEN(libname$) = 0 THEN a$ = "DYNAMIC LIBRARY " + LibraryNotFoundText$(autoformat_x$, LibraryFolderShown$(libpath$, libsearched$), x$): GOTO errmes
 'QIR has no linker: DECLARE LIBRARY "name" without a static library or header uses the
 'shared library of that name at run time, as DECLARE DYNAMIC LIBRARY does
 IF LEN(libname$) = 0 AND LEN(headername$) = 0 THEN
-    IF IrSharedLibFound%(libpath$, x$, libver$) = 0 THEN a$ = "LIBRARY not found": GOTO errmes
+    IF IrSharedLibFound%(libpath$, x$, libver$) = 0 THEN a$ = "LIBRARY " + LibraryNotFoundText$(autoformat_x$, LibraryFolderShown$(libpath$, libsearched$), x$): GOTO errmes
 END IF
 
 END IF
@@ -8966,43 +8987,31 @@ IF LEN(addmetainclude$) THEN
 
     StdLib_SplitIncludeRange a$, incRangeFrom, incRangeTo
     IF inclevel = 100 THEN a$ = "Too many indwelling INCLUDE files": GOTO errmes
-    '1. Verify file exists (location is either (a)relative to source file or (b)absolute)
+    '1. Find the file, as the first pass does (ResolveIncludeFile$)
     fh = 99 + inclevel + 1
-
-    firstTryMethod = 1
-    IF includingFromRoot <> 0 AND inclevel = 0 THEN firstTryMethod = 2
-    'the paths as written first; then the same paths with another letter case (ResolvePathCase$)
-    incCaseTry = 0
-    incopenretry2:
-    FOR try = firstTryMethod TO 2 'if including file from root, do not attempt including from relative location
-        IF try = 1 THEN
-            IF inclevel = 0 THEN
-                p$ = getfilepath$(sourcefile$)
-            ELSE
-                p$ = getfilepath$(incname(inclevel))
-            END IF
-            f$ = p$ + a$
+    incSearchMode& = 0
+    IF includingFromRoot <> 0 AND inclevel = 0 THEN incSearchMode& = 2
+    IF inclevel = 0 THEN incFolder$ = getfilepath$(sourcefile$) ELSE incFolder$ = getfilepath$(incname(inclevel))
+    IF incSearchMode& = 0 AND inclevel > 0 THEN
+        IF IsCompilerFile%(incname(inclevel)) THEN incSearchMode& = 1
+    END IF
+    f$ = ResolveIncludeFile$(a$, incFolder$, incSearchMode&, incFoundIn&)
+    IF LEN(f$) = 0 THEN a$ = IncludeNotFoundText$(a$, incFolder$, incSearchMode&): GOTO errmes
+    'a file with $INCLUDEONCE in it is read the first time only
+    IF IncludeOnce_Seen%(f$) = 0 THEN
+        qberrorhappened = -2 '***
+        OPEN f$ FOR BINARY AS #fh
+        qberrorhappened2: '***
+        IF qberrorhappened <> -2 THEN qberrorhappened = 0: a$ = "File " + f$ + " cannot be read": GOTO errmes
+        qberrorhappened = 0 'opened: a later internal error must not RESUME into this loop
+        inclevel = inclevel + 1: incname$(inclevel) = f$: inclinenumber(inclevel) = 0
+        incRangeEnd(inclevel) = incRangeTo
+        IF incRangeFrom > 1 THEN
+            FOR incRangeSkip = 2 TO incRangeFrom
+                IF EOF(fh) = 0 THEN LINE INPUT #fh, x$
+            NEXT
+            inclinenumber(inclevel) = incRangeFrom - 1
         END IF
-        IF try = 2 THEN f$ = a$
-        IF incCaseTry THEN f$ = ResolvePathCase$(f$)
-        IF _FILEEXISTS(f$) THEN
-            qberrorhappened = -2 '***
-            OPEN f$ FOR BINARY AS #fh
-            qberrorhappened2: '***
-            IF qberrorhappened = -2 THEN EXIT FOR '***
-        END IF
-        qberrorhappened = 0
-    NEXT
-    IF qberrorhappened <> -2 AND incCaseTry = 0 THEN incCaseTry = -1: GOTO incopenretry2
-    IF qberrorhappened <> -2 THEN qberrorhappened = 0: a$ = "File " + a$ + " not found": GOTO errmes
-    qberrorhappened = 0 'opened: a later internal error must not RESUME into this loop
-    inclevel = inclevel + 1: incname$(inclevel) = f$: inclinenumber(inclevel) = 0
-    incRangeEnd(inclevel) = incRangeTo
-    IF incRangeFrom > 1 THEN
-        FOR incRangeSkip = 2 TO incRangeFrom
-            IF EOF(fh) = 0 THEN LINE INPUT #fh, x$
-        NEXT
-        inclinenumber(inclevel) = incRangeFrom - 1
     END IF
 END IF 'fall through to next section...
 '--------------------
@@ -9026,11 +9035,11 @@ DO WHILE inclevel
         continuelinefrom = 0
         'create extended error string 'incerror$'
         errorLineInInclude = inclinenumber(inclevel)
-        e$ = " in line " + str2(inclinenumber(inclevel)) + " of " + incname$(inclevel) + " included"
+        e$ = " in line " + str2(inclinenumber(inclevel)) + " of " + IncludeChainName$(CLNG(inclevel)) + " included"
         IF inclevel > 1 THEN
             e$ = e$ + " (through "
             FOR x = 1 TO inclevel - 1 STEP 1
-                e$ = e$ + incname$(x)
+                e$ = e$ + IncludeChainName$(CLNG(x))
                 IF x < inclevel - 1 THEN 'a sep is req
                 IF x = inclevel - 2 THEN
                     e$ = e$ + " then "
@@ -9309,9 +9318,11 @@ IF recompile THEN
         '_ECHO "linefragment = {" + linefragment+ "}"
 
         IF Debug THEN ShowQbErrorDebugDisplay
-        'not for the source file that is not there (qberrorhappened = -1 is the probe that
-        'opens it): "Cannot locate source file" follows
-        IF NOT (ERR = 53 AND qberrorhappened = -1) THEN PRINT "QIR: internal error"; ERR; "at line"; _ERRORLINE; _INCLERRORLINE; _INCLERRORFILE$
+        'not for the source file or an $INCLUDE file that cannot be opened (qberrorhappened
+        '-1 is the probe that opens the source, -2 and -3 open an include; 53 file not found,
+        '76 path not found, 75 access denied): "Cannot locate source file" or "File ... cannot
+        'be read" follows
+        IF NOT ((ERR = 53 OR ERR = 75 OR ERR = 76) AND qberrorhappened < 0) THEN PRINT "QIR: internal error"; ERR; "at line"; _ERRORLINE; _INCLERRORLINE; _INCLERRORFILE$
 
         qberrorhappenedvalue = qberrorhappened
         qberrorhappened = 1

@@ -25,6 +25,66 @@ fn existing_ancestor(path: &Path) -> Option<&Path> {
     path.ancestors().find(|p| p.is_dir())
 }
 
+/// Something the user must know before installing into a folder.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Caution {
+    pub text: String,
+    /// Install only after a yes (or `--yes`): the installed compiler would not work
+    /// for the user as things are.
+    pub ask: bool,
+}
+
+/// True when a terminal would run `path` as a command.
+fn runnable(path: &Path) -> bool {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::metadata(path).is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
+    }
+    #[cfg(not(unix))]
+    {
+        path.is_file()
+    }
+}
+
+/// The command a terminal runs: the first of `names` found in the first of `dirs`
+/// that has one (within a folder `names` are tried in order, as PATHEXT orders them
+/// on Windows).
+fn first_on_path(dirs: &[PathBuf], names: &[String]) -> Option<PathBuf> {
+    dirs.iter().find_map(|d| names.iter().map(|n| d.join(n)).find(|p| runnable(p)))
+}
+
+#[cfg(test)]
+mod shared_tests {
+    use super::*;
+
+    #[test]
+    fn the_first_folder_on_path_with_the_command_wins() {
+        let root = std::env::temp_dir().join(format!("qbnex-setup-path-{}", std::process::id()));
+        let (a, b, c) = (root.join("a"), root.join("b"), root.join("c"));
+        for d in [&a, &b, &c] {
+            std::fs::create_dir_all(d).unwrap();
+        }
+        let make = |p: &Path| {
+            std::fs::write(p, "x").unwrap();
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                std::fs::set_permissions(p, std::fs::Permissions::from_mode(0o755)).unwrap();
+            }
+        };
+        make(&b.join("qb.cmd"));
+        make(&c.join("qb.exe"));
+        make(&c.join("qb.cmd"));
+        let names = ["qb.exe".to_string(), "qb.cmd".to_string()];
+        let dirs = [a.clone(), b.clone(), c.clone()];
+        assert_eq!(first_on_path(&dirs, &names), Some(b.join("qb.cmd")), "an earlier folder wins over a better name");
+        assert_eq!(first_on_path(&dirs[2..], &names), Some(c.join("qb.exe")), "within a folder the names go in order");
+        assert_eq!(first_on_path(&dirs[..1], &names), None);
+        std::fs::remove_dir_all(&root).unwrap();
+    }
+}
+
 #[cfg(windows)]
 mod imp {
     use std::os::windows::process::CommandExt;
@@ -34,16 +94,17 @@ mod imp {
     use windows::Win32::System::Com::{CLSCTX_INPROC_SERVER, COINIT_APARTMENTTHREADED, CoCreateInstance, CoInitializeEx, CoUninitialize, IPersistFile, STGM_READ};
     use windows::Win32::UI::Shell::{IShellLinkW, ShellLink};
     use windows::core::{HSTRING, Interface};
-    use windows_sys::Win32::Foundation::{ERROR_FILE_NOT_FOUND, ERROR_SUCCESS};
+    use windows_sys::Win32::Foundation::{ERROR_FILE_NOT_FOUND, ERROR_SUCCESS, HANDLE};
+    use windows_sys::Win32::Security::{GetTokenInformation, TOKEN_ELEVATION, TokenElevation};
     use windows_sys::Win32::Storage::FileSystem::GetDiskFreeSpaceExW;
     use windows_sys::Win32::System::Console::{FreeConsole, GetConsoleProcessList};
     use windows_sys::Win32::System::Registry::{
-        HKEY, HKEY_CURRENT_USER, KEY_READ, KEY_WRITE, REG_DWORD, REG_EXPAND_SZ, REG_OPTION_NON_VOLATILE, REG_SZ,
+        HKEY, HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE, KEY_READ, KEY_WRITE, REG_DWORD, REG_EXPAND_SZ, REG_OPTION_NON_VOLATILE, REG_SZ,
         RegCloseKey, RegCreateKeyExW, RegDeleteTreeW, RegOpenKeyExW, RegQueryValueExW, RegSetValueExW,
     };
     use windows_sys::Win32::UI::WindowsAndMessaging::{HWND_BROADCAST, SMTO_ABORTIFHUNG, SendMessageTimeoutW, WM_SETTINGCHANGE};
 
-    use super::{Options, existing_ancestor, sandbox};
+    use super::{Caution, Options, existing_ancestor, first_on_path, sandbox};
 
     const UNINSTALL_KEY: &str = r"Software\Microsoft\Windows\CurrentVersion\Uninstall\QBNex";
     /// The entry in the menu Explorer shows for a `.bas` file, whatever program opens it.
@@ -144,6 +205,15 @@ mod imp {
             (r == ERROR_SUCCESS).then_some(Key(h))
         }
 
+        /// A key below HKLM, for reading only.
+        fn open_machine(path: &str) -> Option<Key> {
+            let mut h: HKEY = null_mut();
+            let p = wide(path);
+            // SAFETY: as above.
+            let r = unsafe { RegOpenKeyExW(HKEY_LOCAL_MACHINE, p.as_ptr(), 0, KEY_READ, &mut h) };
+            (r == ERROR_SUCCESS).then_some(Key(h))
+        }
+
         /// Removes the key and everything below it; a missing key is not an error.
         fn delete(path: &str) {
             let p = wide(&key_path(path));
@@ -198,9 +268,52 @@ mod imp {
         }
     }
 
+    /// `text` with each `%NAME%` that `lookup` knows replaced by its value, as Windows
+    /// expands a REG_EXPAND_SZ value; an unknown name stays as written.
+    fn expand_vars(text: &str, lookup: &dyn Fn(&str) -> Option<String>) -> String {
+        let mut out = String::new();
+        let mut rest = text;
+        while let Some(start) = rest.find('%') {
+            out.push_str(&rest[..start]);
+            let after = &rest[start + 1..];
+            match after.find('%').filter(|&end| end > 0).and_then(|end| Some((end, lookup(&after[..end])?))) {
+                Some((end, value)) => {
+                    out.push_str(&value);
+                    rest = &after[end + 1..];
+                }
+                None => {
+                    out.push('%');
+                    rest = after;
+                }
+            }
+        }
+        out.push_str(rest);
+        out
+    }
+
+    fn env_var(name: &str) -> Option<String> {
+        std::env::var(name).ok()
+    }
+
+    /// A folder as Windows compares it: variables expanded, `/` read as `\`, `.` and
+    /// `..` resolved, no trailing separator, letter case ignored.
+    fn norm_dir(text: &str, lookup: &dyn Fn(&str) -> Option<String>) -> String {
+        let s = expand_vars(text.trim().trim_matches('"'), lookup).replace('/', "\\");
+        // only a full path: a relative PATH entry depends on the folder a program runs in
+        let s = if Path::new(&s).is_absolute() { std::path::absolute(&s).map(|p| p.to_string_lossy().into_owned()).unwrap_or(s) } else { s };
+        s.trim_end_matches('\\').to_lowercase()
+    }
+
+    /// True when the PATH entry, link folder or registry value `a` names the folder `b`,
+    /// however either is spelled (`C:/x/`, `c:\X`, `%LOCALAPPDATA%\x`).
     fn same_dir(a: &str, b: &Path) -> bool {
-        let norm = |s: &str| s.trim().trim_end_matches(['\\', '/']).to_lowercase();
-        norm(a) == norm(&b.to_string_lossy())
+        norm_dir(a, &env_var) == norm_dir(&b.to_string_lossy(), &env_var)
+    }
+
+    /// True when `dir` is the folder `base` or lies inside it.
+    fn inside(dir: &Path, base: &Path) -> bool {
+        let (d, b) = (norm_dir(&dir.to_string_lossy(), &env_var), norm_dir(&base.to_string_lossy(), &env_var));
+        !b.is_empty() && (d == b || d.starts_with(&format!("{b}\\")))
     }
 
     /// Tells Explorer and new consoles that the user environment changed.
@@ -312,9 +425,22 @@ mod imp {
         Some(String::from_utf16_lossy(&buf[..end]))
     }
 
+    /// Text for the inside of double quotes on a cmd command line. cmd expands
+    /// `%NAME%` even inside quotes, so each `%` is put outside them, escaped with a
+    /// caret: `a%b` becomes `a"^%"b`. cmd removes the caret, and with the quotes
+    /// around it the text stays one word.
+    fn cmd_escape(text: &str) -> String {
+        text.replace('%', "\"^%\"")
+    }
+
+    /// `text` as one double-quoted word on a cmd command line, never expanded.
+    fn cmd_quoted(text: &str) -> String {
+        format!("\"{}\"", cmd_escape(text))
+    }
+
     fn prompt_link(folder: &Path, dir: &Path) -> Result<(), String> {
         std::fs::create_dir_all(folder).map_err(|e| format!("cannot create {}: {e}", folder.display()))?;
-        let d = dir.display();
+        let d = cmd_escape(&dir.to_string_lossy());
         // a prompt that finds `qb` even when PATH was left alone
         let arguments = format!("/k \"set \"PATH={d};%PATH%\" && cd /d \"%USERPROFILE%\" && qb --version\"");
         write_link(&folder.join(PROMPT_LINK), "cmd.exe", &arguments, dir, &dir.join(compiler_name()), "A command prompt with the QBNex compiler")
@@ -346,8 +472,10 @@ mod imp {
         let verb = Key::create(BAS_VERB_KEY)?;
         verb.set_str("", "Compile with QBNex", false)?;
         verb.set_str("Icon", &qb.to_string_lossy(), false)?;
-        // the prompt stays open so the compiler's messages can be read
-        Key::create(&format!(r"{BAS_VERB_KEY}\command"))?.set_str("", &format!("cmd.exe /k \"\"{}\" \"%1\" -x\"", qb.display()), false)
+        // qb.exe started in a console of its own keeps it open itself (it shows the
+        // result and waits for a key); through cmd, a `%` in the install folder's
+        // name would be taken for a variable
+        Key::create(&format!(r"{BAS_VERB_KEY}\command"))?.set_str("", &format!("\"{}\" \"%1\"", qb.display()), false)
     }
 
     fn unassociate(dir: &Path) {
@@ -412,6 +540,78 @@ mod imp {
         "Open a new terminal and run: qb --version".into()
     }
 
+    /// True when this process runs with administrator rights (an elevated token).
+    fn elevated() -> bool {
+        // the token of this process: a pseudo handle that needs no closing (GetCurrentProcessToken)
+        let token = -4isize as HANDLE;
+        let mut elevation = TOKEN_ELEVATION { TokenIsElevated: 0 };
+        let mut len = 0u32;
+        let size = std::mem::size_of::<TOKEN_ELEVATION>() as u32;
+        // SAFETY: the buffer is a TOKEN_ELEVATION of the size passed; `len` is a valid out pointer.
+        let ok = unsafe { GetTokenInformation(token, TokenElevation, (&raw mut elevation).cast(), size, &mut len) };
+        ok != 0 && elevation.TokenIsElevated != 0
+    }
+
+    /// Folders only administrators can write to.
+    const SYSTEM_FOLDERS: [&str; 4] = ["ProgramFiles", "ProgramFiles(x86)", "ProgramW6432", "SystemRoot"];
+
+    /// What an install into `dir` from an elevated setup must tell the user: PATH,
+    /// the shortcuts and the uninstall entry go to the account that runs setup, and
+    /// the compiler writes into the install folder as whoever runs it.
+    pub fn caution(dir: &Path) -> Option<Caution> {
+        if sandbox().is_some() || !elevated() {
+            return None;
+        }
+        let profile = std::env::var_os("USERPROFILE").map(PathBuf::from);
+        if profile.as_deref().is_some_and(|p| inside(dir, p)) {
+            return None;
+        }
+        let account = std::env::var("USERNAME").unwrap_or_else(|_| "this account".into());
+        let mut text = format!(
+            "Setup runs as administrator ({account}). PATH, the Start menu shortcuts and the uninstall entry go to the account that runs setup ({account}), not to other accounts. The compiler writes target\\qb-temp and target\\qb-config.ini in {}, so that folder must stay writable for every account that runs qb.",
+            dir.display()
+        );
+        let system = SYSTEM_FOLDERS.iter().filter_map(std::env::var_os).any(|base| inside(dir, Path::new(&base)));
+        if system {
+            text.push_str(" It is in a system folder that only administrators can write to: qb fails there unless it runs as administrator.");
+        }
+        Some(Caution { text, ask: system })
+    }
+
+    /// The folders of the PATH new terminals get: the system PATH, then the user's.
+    fn terminal_path() -> Vec<PathBuf> {
+        let value = |key: Option<Key>| key.and_then(|k| k.get_str("Path").ok().flatten()).map(|(v, _)| v).unwrap_or_default();
+        let system = value(Key::open_machine(r"SYSTEM\CurrentControlSet\Control\Session Manager\Environment"));
+        let user = value(Key::open(ENVIRONMENT_KEY));
+        format!("{system};{user}")
+            .split(';')
+            .map(|p| expand_vars(p.trim().trim_matches('"'), &env_var))
+            .filter(|p| !p.is_empty())
+            .map(PathBuf::from)
+            .collect()
+    }
+
+    /// A warning when typing `qb` in a new terminal runs another program than the
+    /// compiler in `dir`.
+    pub fn shadowing(dir: &Path) -> Option<String> {
+        if sandbox().is_some() {
+            return None;
+        }
+        let extensions = std::env::var("PATHEXT").unwrap_or_else(|_| ".COM;.EXE;.BAT;.CMD".into());
+        let names: Vec<String> = extensions.split(';').filter(|e| !e.is_empty()).map(|e| format!("qb{}", e.to_ascii_lowercase())).collect();
+        let found = first_on_path(&terminal_path(), &names)?;
+        let folder = found.parent()?;
+        if same_dir(&folder.to_string_lossy(), dir) {
+            return None;
+        }
+        Some(format!(
+            "another qb runs first in new terminals: {} (the system PATH comes before the user PATH, and an earlier entry before a later one). Remove it, or move {} before {} in PATH.",
+            found.display(),
+            dir.display(),
+            folder.display()
+        ))
+    }
+
     /// Shows `path` (a file or a folder) with the program the system uses for it.
     pub fn open(path: &Path) {
         let null = std::process::Stdio::null;
@@ -426,7 +626,11 @@ mod imp {
         // the same folder however it is spelled (--dir ., another letter case)
         let inside = me.as_ref().and_then(|m| m.parent()).is_some_and(|p| p == dir || (p.canonicalize().ok().is_some() && p.canonicalize().ok() == dir.canonicalize().ok()));
         if let (true, Some(me)) = (inside, me) {
-            let cmd = format!("/c ping 127.0.0.1 -n 3 >nul & del /f /q \"{}\" & rmdir \"{}\"", me.display(), dir.display());
+            let cmd = format!(
+                "/c ping 127.0.0.1 -n 3 >nul & del /f /q {} & rmdir {}",
+                cmd_quoted(&me.to_string_lossy()),
+                cmd_quoted(&dir.to_string_lossy())
+            );
             // the setup window has no console: the helper must not inherit its handles
             let null = std::process::Stdio::null;
             let _ = std::process::Command::new("cmd").raw_arg(cmd).creation_flags(CREATE_NO_WINDOW).stdin(null()).stdout(null()).stderr(null()).spawn();
@@ -459,6 +663,36 @@ mod imp {
             assert_eq!(expand_profile(r"%USERPROFILE%\OneDrive\Desktop", r"C:\Users\me"), r"C:\Users\me\OneDrive\Desktop");
             assert_eq!(expand_profile(r"D:\Desk", r"C:\Users\me"), r"D:\Desk");
         }
+
+        #[test]
+        fn a_percent_sign_on_a_cmd_line_is_put_outside_the_quotes() {
+            assert_eq!(cmd_quoted(r"C:\Apps\QBNex"), r#""C:\Apps\QBNex""#);
+            assert_eq!(cmd_quoted(r"C:\100%\%PATH%"), r#""C:\100"^%"\"^%"PATH"^%"""#);
+            assert_eq!(cmd_escape("a%b"), r#"a"^%"b"#);
+            assert_eq!(cmd_escape(""), "");
+        }
+
+        #[test]
+        fn variables_are_expanded_and_unknown_ones_stay() {
+            let lookup = |name: &str| (name == "LOCALAPPDATA").then(|| r"C:\Users\me\AppData\Local".to_string());
+            assert_eq!(expand_vars(r"%LOCALAPPDATA%\Programs\QBNex", &lookup), r"C:\Users\me\AppData\Local\Programs\QBNex");
+            assert_eq!(expand_vars(r"C:\%NOPE%\x", &lookup), r"C:\%NOPE%\x");
+            assert_eq!(expand_vars("100%", &lookup), "100%");
+            assert_eq!(expand_vars("%%LOCALAPPDATA%", &lookup), r"%C:\Users\me\AppData\Local");
+        }
+
+        #[test]
+        fn a_folder_matches_however_it_is_spelled() {
+            let dir = Path::new(r"C:\Users\x\QBNex");
+            for spelled in [r"C:\Users\x\QBNex", r"c:\users\x\qbnex\", "C:/Users/x/QBNex", "C:/Users/x/QBNex/", r#""C:\Users\x\QBNex""#, r"C:\Users\x\.\QBNex", r"C:\Users\y\..\x\QBNex"] {
+                assert!(same_dir(spelled, dir), "{spelled}");
+            }
+            assert!(!same_dir(r"C:\Users\x\QBNex2", dir));
+            assert!(!same_dir("QBNex", dir), "a relative PATH entry is not the folder");
+            assert!(inside(Path::new(r"C:\Users\x\QBNex\sub"), Path::new("c:/users/x")));
+            assert!(inside(Path::new(r"C:\Users\x"), Path::new(r"C:\Users\x\")));
+            assert!(!inside(Path::new(r"C:\Users\xy"), Path::new(r"C:\Users\x")));
+        }
     }
 }
 
@@ -466,7 +700,7 @@ mod imp {
 mod imp {
     use std::path::{Path, PathBuf};
 
-    use super::{Options, existing_ancestor, sandbox};
+    use super::{Caution, Options, existing_ancestor, first_on_path, sandbox};
 
     /// Commands linked into `~/.local/bin`.
     const COMMANDS: [&str; 2] = ["qb", "qbnex"];
@@ -606,17 +840,61 @@ mod imp {
         format!("'{}'", text.replace('\'', "'\\''"))
     }
 
-    /// A value of a desktop entry's `Exec` key that runs `script` with `sh -c`: the
-    /// entry's own quoting needs `"`, `` ` ``, `$` and `\` escaped inside double quotes.
+    /// `text` as the value of a desktop entry key of type string: a backslash, and
+    /// the line breaks and tabs that would end or bend the line, take a backslash.
+    fn desktop_string(text: &str) -> String {
+        let mut out = String::new();
+        for c in text.chars() {
+            match c {
+                '\\' => out.push_str("\\\\"),
+                '\n' => out.push_str("\\n"),
+                '\t' => out.push_str("\\t"),
+                '\r' => out.push_str("\\r"),
+                c => out.push(c),
+            }
+        }
+        out
+    }
+
+    /// The text of a string value written by [`desktop_string`].
+    fn desktop_unescape(value: &str) -> String {
+        let mut out = String::new();
+        let mut chars = value.chars();
+        while let Some(c) = chars.next() {
+            if c != '\\' {
+                out.push(c);
+                continue;
+            }
+            match chars.next() {
+                Some('n') => out.push('\n'),
+                Some('t') => out.push('\t'),
+                Some('r') => out.push('\r'),
+                Some('s') => out.push(' '),
+                Some(other) => out.push(other),
+                None => out.push('\\'),
+            }
+        }
+        out
+    }
+
+    /// A value of a desktop entry's `Exec` key that runs `script` with `sh -c`. The
+    /// layers of the desktop entry rules, inside out: in a double-quoted argument `"`,
+    /// `` ` ``, `$` and `\` take a backslash; a literal `%` is written `%%` (one `%`
+    /// starts a field code such as `%f`); then the whole value is a string, where every
+    /// backslash is doubled again (a literal `$` ends up as `\\$`, a backslash as `\\\\`).
+    /// `arguments` is put after the script as it is (field codes such as ` %f`).
     fn exec_sh(script: &str, arguments: &str) -> String {
-        let mut escaped = String::new();
+        let mut quoted = String::new();
         for c in script.chars() {
             if matches!(c, '"' | '`' | '$' | '\\') {
-                escaped.push('\\');
+                quoted.push('\\');
             }
-            escaped.push(c);
+            if c == '%' {
+                quoted.push('%');
+            }
+            quoted.push(c);
         }
-        format!("sh -c \"{escaped}\" sh{arguments}")
+        desktop_string(&format!("sh -c \"{quoted}\" sh{arguments}"))
     }
 
     /// A shell line that puts the install folder first on PATH.
@@ -642,8 +920,8 @@ mod imp {
         format!(
             "[Desktop Entry]\nType=Application\nName={TERMINAL_NAME}\nComment=A terminal with the QBNex BASIC compiler\nExec={}\nIcon={}\nTerminal=true\nCategories=Development;\nX-QBNex-Dir={}\n",
             exec_sh(&script, ""),
-            dir.join(ICON).display(),
-            dir.display()
+            desktop_string(&dir.join(ICON).to_string_lossy()),
+            desktop_string(&dir.to_string_lossy())
         )
     }
 
@@ -654,21 +932,62 @@ mod imp {
         format!(
             "[Desktop Entry]\nType=Application\nName=Compile with QBNex\nExec={}\nIcon={}\nTerminal=true\nNoDisplay=true\nMimeType=text/x-basic;\nX-QBNex-Dir={}\n",
             exec_sh(&script, " %f"),
-            dir.join(ICON).display(),
-            dir.display()
+            desktop_string(&dir.join(ICON).to_string_lossy()),
+            desktop_string(&dir.to_string_lossy())
         )
     }
 
     const MIME_XML: &str = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<mime-info xmlns=\"http://www.freedesktop.org/standards/shared-mime-info\">\n  <mime-type type=\"text/x-basic\">\n    <comment>BASIC source</comment>\n    <sub-class-of type=\"text/plain\"/>\n    <glob pattern=\"*.bas\"/>\n    <glob pattern=\"*.BAS\"/>\n  </mime-type>\n</mime-info>\n";
 
+    /// The folder named by `key` in the text of `user-dirs.dirs`: a line such as
+    /// `XDG_DESKTOP_DIR="$HOME/Desktop"` or `XDG_DESKTOP_DIR="/data/desk"`, its
+    /// value in double quotes with the shell's backslash escapes. None when the key
+    /// is not set or its value is neither form.
+    fn user_dir(text: &str, key: &str, home: &Path) -> Option<PathBuf> {
+        // the last line that sets it wins, as when the shell reads the file
+        let value = text.lines().filter_map(|l| l.trim().strip_prefix(key)?.trim_start().strip_prefix('=')).next_back()?;
+        let quoted = value.trim().strip_prefix('"')?.strip_suffix('"')?;
+        let mut v = String::new();
+        let mut chars = quoted.chars();
+        while let Some(c) = chars.next() {
+            v.push(if c == '\\' { chars.next().unwrap_or('\\') } else { c });
+        }
+        if v == "$HOME" {
+            Some(home.to_path_buf())
+        } else if let Some(rest) = v.strip_prefix("$HOME/") {
+            Some(home.join(rest))
+        } else if v.starts_with('/') {
+            Some(PathBuf::from(v))
+        } else {
+            None
+        }
+    }
+
+    /// The desktop folder: the one `user-dirs.dirs` names (it is often translated,
+    /// `~/Schreibtisch`), else `~/Desktop`.
+    fn desktop_dir(home: &Path) -> PathBuf {
+        if cfg!(target_os = "macos") {
+            return home.join("Desktop");
+        }
+        let config = match std::env::var_os("XDG_CONFIG_HOME") {
+            Some(d) if !d.is_empty() && sandbox().is_none() => PathBuf::from(d),
+            _ => home.join(".config"),
+        };
+        std::fs::read_to_string(config.join("user-dirs.dirs"))
+            .ok()
+            .and_then(|text| user_dir(&text, "XDG_DESKTOP_DIR", home))
+            .unwrap_or_else(|| home.join("Desktop"))
+    }
+
     /// Where the terminal entry goes in the applications menu and on the desktop.
     fn entry_paths() -> Result<(PathBuf, PathBuf), String> {
         let home = home()?;
+        let desktop = desktop_dir(&home);
         if cfg!(target_os = "macos") {
             let name = format!("{TERMINAL_NAME}.command");
-            Ok((home.join("Applications").join(&name), home.join("Desktop").join(name)))
+            Ok((home.join("Applications").join(&name), desktop.join(name)))
         } else {
-            Ok((data_home()?.join("applications").join(MENU_ENTRY), home.join("Desktop").join(MENU_ENTRY)))
+            Ok((data_home()?.join("applications").join(MENU_ENTRY), desktop.join(MENU_ENTRY)))
         }
     }
 
@@ -694,7 +1013,14 @@ mod imp {
             write_executable(&menu, &terminal_entry(dir))?;
         }
         if o.desktop {
-            write_executable(&desktop, &terminal_entry(dir))?;
+            // A desktop that does not exist, or is the home folder itself (how
+            // user-dirs.dirs turns the desktop off), gets no shortcut: making the
+            // folder would only leave a stray Desktop in the home folder.
+            let home = home()?;
+            match desktop.parent() {
+                Some(folder) if folder.is_dir() && folder != home.as_path() => write_executable(&desktop, &terminal_entry(dir))?,
+                folder => eprintln!("note: no desktop folder ({}); no desktop shortcut was made", folder.unwrap_or(Path::new("?")).display()),
+            }
         }
         if o.associate && can_associate() {
             let data = data_home()?;
@@ -716,9 +1042,13 @@ mod imp {
         };
         let d = dir.display().to_string();
         let want = canon(dir);
-        text.lines()
-            .filter_map(|l| l.strip_prefix("X-QBNex-Dir=").or(l.strip_prefix("# QBNex ")))
-            .any(|v| v == d || canon(Path::new(v)) == want)
+        // the desktop entry holds the folder as a string value (escaped); the macOS
+        // script, and entries of earlier setups, hold it as it is
+        let mut values = text.lines().flat_map(|l| match l.strip_prefix("X-QBNex-Dir=") {
+            Some(v) => vec![v.to_string(), desktop_unescape(v)],
+            None => l.strip_prefix("# QBNex ").map(str::to_string).into_iter().collect(),
+        });
+        values.any(|v| v == d || canon(Path::new(&v)) == want)
     }
 
     /// Undoes [`register`] for the install in `dir`; what belongs to another install stays.
@@ -767,6 +1097,63 @@ mod imp {
         }
     }
 
+    /// What an install into `dir` as root must tell the user: the links and menu
+    /// entries go to root's own home, and the compiler writes into the install
+    /// folder as whoever runs it. Asked for under /opt and /usr, where that is a
+    /// system-wide folder other users cannot write to.
+    pub fn caution(dir: &Path) -> Option<Caution> {
+        // SAFETY: no arguments; reads the effective user id of this process.
+        if sandbox().is_some() || unsafe { libc::geteuid() } != 0 {
+            return None;
+        }
+        if !["/opt", "/usr"].iter().any(|base| dir.starts_with(base)) {
+            return None;
+        }
+        let bin = bin_dir().map(|b| b.display().to_string()).unwrap_or_else(|_| "~/.local/bin".into());
+        Some(Caution {
+            text: format!(
+                "Setup runs as root. The qb and qbnex links go to root's {bin} and the menu entries to root's account, not to other users. The compiler writes target/qb-temp and target/qb-config.ini in {}, so that folder must stay writable for every user who runs qb. Run setup as your own user to install QBNex for yourself.",
+                dir.display()
+            ),
+            ask: true,
+        })
+    }
+
+    /// A warning when typing `qb` in a terminal runs another program than the
+    /// compiler in `dir`.
+    pub fn shadowing(dir: &Path) -> Option<String> {
+        if sandbox().is_some() {
+            return None;
+        }
+        let path = std::env::var_os("PATH")?;
+        let dirs: Vec<PathBuf> = std::env::split_paths(&path).filter(|d| !d.as_os_str().is_empty()).collect();
+        let found = first_on_path(&dirs, &["qb".to_string()])?;
+        if canon(&found) == canon(&dir.join(compiler_name())) {
+            return None;
+        }
+        let bin = bin_dir().ok()?;
+        let folder = found.parent()?;
+        if folder == bin.as_path() {
+            return Some(format!("{} is not QBNex's and was left as it is, so typing qb runs it. Remove it and run setup again.", found.display()));
+        }
+        if !dirs.contains(&bin) {
+            return Some(format!(
+                "typing qb runs {}: {}, which holds the qb link, is not on PATH. Put {} before {} in PATH.",
+                found.display(),
+                bin.display(),
+                bin.display(),
+                folder.display()
+            ));
+        }
+        Some(format!(
+            "another qb runs first: {} (its folder comes before {} in PATH). Remove it, or put {} before {} in PATH.",
+            found.display(),
+            bin.display(),
+            bin.display(),
+            folder.display()
+        ))
+    }
+
     /// Shows `path` (a file or a folder) with the program the system uses for it.
     pub fn open(path: &Path) {
         let tool = if cfg!(target_os = "macos") { "open" } else { "xdg-open" };
@@ -791,11 +1178,102 @@ mod imp {
             let dir = Path::new("/opt/my qb's");
             let entry = terminal_entry(dir);
             if cfg!(not(target_os = "macos")) {
-                assert!(entry.contains("Exec=sh -c \"PATH='/opt/my qb'\\\\''s':\\\"\\$PATH\\\"; export PATH;"), "{entry}");
-                assert!(compile_entry(dir).contains("\\\"\\$1\\\" -x; printf"), "{}", compile_entry(dir));
+                assert!(entry.contains(r#"Exec=sh -c "PATH='/opt/my qb'\\\\''s':\\"\\$PATH\\"; export PATH;"#), "{entry}");
+                assert!(compile_entry(dir).contains(r#"\\"\\$1\\" -x; printf"#), "{}", compile_entry(dir));
                 assert!(compile_entry(dir).ends_with("X-QBNex-Dir=/opt/my qb's\n"));
             }
             assert_eq!(quoted("a'b"), "'a'\\''b'");
+        }
+
+        /// Reads an `Exec` value the way a desktop does: the string escapes first,
+        /// then field codes and the quoting of arguments. Panics on anything the
+        /// desktop entry rules do not allow.
+        fn decode_exec(value: &str) -> Vec<String> {
+            let mut text = String::new();
+            let mut chars = value.chars();
+            while let Some(c) = chars.next() {
+                if c != '\\' {
+                    text.push(c);
+                    continue;
+                }
+                match chars.next() {
+                    Some('\\') => text.push('\\'),
+                    Some('n') => text.push('\n'),
+                    Some('t') => text.push('\t'),
+                    Some('r') => text.push('\r'),
+                    Some('s') => text.push(' '),
+                    other => panic!("invalid string escape \\{other:?} in {value}"),
+                }
+            }
+            let (mut args, mut arg, mut quoted, mut started) = (Vec::new(), String::new(), false, false);
+            let mut chars = text.chars();
+            while let Some(c) = chars.next() {
+                match c {
+                    '%' => match chars.next() {
+                        Some('%') => arg.push('%'),
+                        Some(code) => {
+                            assert!(!quoted, "field code %{code} inside quotes: {value}");
+                            arg.push('%');
+                            arg.push(code);
+                        }
+                        None => panic!("a lone % ends {value}"),
+                    },
+                    '"' => quoted = !quoted,
+                    '\\' if quoted => {
+                        let next = chars.next().unwrap();
+                        assert!(matches!(next, '"' | '`' | '$' | '\\'), "\\{next} inside quotes: {value}");
+                        arg.push(next);
+                    }
+                    ' ' if !quoted => {
+                        if started {
+                            args.push(std::mem::take(&mut arg));
+                        }
+                        started = false;
+                        continue;
+                    }
+                    c => {
+                        assert!(!quoted || !matches!(c, '`' | '$'), "unescaped {c} inside quotes: {value}");
+                        arg.push(c);
+                    }
+                }
+                started = true;
+            }
+            assert!(!quoted, "unclosed quote: {value}");
+            if started {
+                args.push(arg);
+            }
+            args
+        }
+
+        #[test]
+        fn the_exec_value_follows_the_desktop_entry_rules() {
+            let dir = Path::new("/tmp/a %b $c \"d \\e f");
+            let script = format!("{}; echo", with_path(dir));
+            let exec = exec_sh(&script, " %f");
+            assert_eq!(decode_exec(&exec), ["sh", "-c", script.as_str(), "sh", "%f"]);
+            // the forms the rules give: %% for a percent sign, \\$ for a dollar sign,
+            // four backslashes for one
+            assert!(exec.contains(r#"'/tmp/a %%b \\$c \\"d \\\\e f'"#), "{exec}");
+            if cfg!(not(target_os = "macos")) {
+                let entry = compile_entry(dir);
+                let line = |key: &str| entry.lines().find_map(|l| l.strip_prefix(key)).unwrap().to_string();
+                let args = decode_exec(&line("Exec="));
+                assert!(args[2].starts_with(&quoted(&dir.join(compiler_name()).to_string_lossy())), "{args:?}");
+                assert_eq!(desktop_unescape(&line("X-QBNex-Dir=")), dir.to_string_lossy());
+                assert_eq!(desktop_unescape(&line("Icon=")), dir.join(ICON).to_string_lossy());
+            }
+        }
+
+        #[test]
+        fn the_desktop_folder_comes_from_user_dirs() {
+            let home = Path::new("/home/me");
+            let text = "# XDG_DESKTOP_DIR=\"$HOME/Wrong\"\nXDG_DOWNLOAD_DIR=\"$HOME/Downloads\"\nXDG_DESKTOP_DIR=\"$HOME/Schreibtisch\"\n";
+            assert_eq!(user_dir(text, "XDG_DESKTOP_DIR", home), Some(home.join("Schreibtisch")));
+            assert_eq!(user_dir("XDG_DESKTOP_DIR=\"/data/my \\\"desk\\\"\"", "XDG_DESKTOP_DIR", home), Some(PathBuf::from("/data/my \"desk\"")));
+            assert_eq!(user_dir("XDG_DESKTOP_DIR=\"$HOME\"", "XDG_DESKTOP_DIR", home), Some(home.to_path_buf()));
+            assert_eq!(user_dir("XDG_DESKTOP_DIRS=\"$HOME/x\"", "XDG_DESKTOP_DIR", home), None);
+            assert_eq!(user_dir("XDG_DESKTOP_DIR=Desktop", "XDG_DESKTOP_DIR", home), None);
+            assert_eq!(user_dir("", "XDG_DESKTOP_DIR", home), None);
         }
 
         #[test]

@@ -86,27 +86,51 @@ pub fn run(cmd: &[u8], mode: Mode) -> i64 {
     const SEE_MASK_NOCLOSEPROCESS: u32 = 0x40;
     const SEE_MASK_FLAG_NO_UI: u32 = 0x400;
     let show = if mode.show { 5 } else { 0 }; // SW_SHOW / SW_HIDE
+    let mask = if mode.wait { SEE_MASK_NOCLOSEPROCESS | SEE_MASK_FLAG_NO_UI } else { SEE_MASK_FLAG_NO_UI };
     let exec = |file: &[u8], params: Option<&[u8]>| -> Option<i64> {
-        let f = cstr(file);
-        let p = params.map(cstr);
         // SAFETY: zeroed POD, NUL-terminated strings that outlive the call.
+        let process = unsafe {
+            // UTF-8 text (a Thai file name or argument) through ShellExecuteExW: the "A"
+            // function reads it in the ANSI code page; other bytes keep the "A" function
+            let wide_params = match params {
+                None => Some(None),
+                Some(p) => utf16z(p).map(Some),
+            };
+            if let Some((f, p)) = utf16z(file).zip(wide_params) {
+                let mut shi: SHELLEXECUTEINFOW = std::mem::zeroed();
+                shi.cbSize = std::mem::size_of::<SHELLEXECUTEINFOW>() as u32;
+                shi.lpFile = f.as_ptr();
+                shi.lpParameters = p.as_ref().map_or(null(), |p| p.as_ptr());
+                shi.fMask = mask;
+                shi.nShow = show;
+                if ShellExecuteExW(&mut shi) == 0 {
+                    return None;
+                }
+                shi.hProcess
+            } else {
+                let f = cstr(file);
+                let p = params.map(cstr);
+                let mut shi: SHELLEXECUTEINFOA = std::mem::zeroed();
+                shi.cbSize = std::mem::size_of::<SHELLEXECUTEINFOA>() as u32;
+                shi.lpFile = f.as_ptr();
+                shi.lpParameters = p.as_ref().map_or(null(), |p| p.as_ptr());
+                shi.fMask = mask;
+                shi.nShow = show;
+                if ShellExecuteExA(&mut shi) == 0 {
+                    return None;
+                }
+                shi.hProcess
+            }
+        };
+        if !mode.wait {
+            return Some(0);
+        }
+        // SAFETY: the process handle SEE_MASK_NOCLOSEPROCESS asked for.
         unsafe {
-            let mut shi: SHELLEXECUTEINFOA = std::mem::zeroed();
-            shi.cbSize = std::mem::size_of::<SHELLEXECUTEINFOA>() as u32;
-            shi.lpFile = f.as_ptr();
-            shi.lpParameters = p.as_ref().map_or(null(), |p| p.as_ptr());
-            shi.fMask = if mode.wait { SEE_MASK_NOCLOSEPROCESS | SEE_MASK_FLAG_NO_UI } else { SEE_MASK_FLAG_NO_UI };
-            shi.nShow = show;
-            if ShellExecuteExA(&mut shi) == 0 {
-                return None;
-            }
-            if !mode.wait {
-                return Some(0);
-            }
-            WaitForSingleObject(shi.hProcess, INFINITE);
+            WaitForSingleObject(process, INFINITE);
             let mut code: DWORD = 0;
-            GetExitCodeProcess(shi.hProcess, &mut code);
-            CloseHandle(shi.hProcess);
+            GetExitCodeProcess(process, &mut code);
+            CloseHandle(process);
             Some(i64::from(code))
         }
     };
@@ -254,6 +278,20 @@ mod tests {
         let console = Mode { show: true, wait: true, use_console: true };
         assert_eq!(run(b"exit 5", console), 5);
         assert_eq!(run(b"exit 0", Mode { show: false, wait: false, use_console: false }), 0);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn runs_a_program_in_a_thai_folder() {
+        // SHELL _HIDE started it through ShellExecuteExA, which read the UTF-8 name
+        // in the ANSI code page and did not find the program
+        let d = std::env::temp_dir().join(format!("qb_test_{}_shell_โฟลเดอร์", std::process::id()));
+        std::fs::create_dir_all(&d).unwrap();
+        let f = d.join("ทดสอบ.cmd");
+        std::fs::write(&f, b"@exit /b 6\r\n").unwrap();
+        let cmd = format!("\"{}\"", f.display());
+        assert_eq!(run(cmd.as_bytes(), Mode { show: false, wait: true, use_console: false }), 6);
+        let _ = std::fs::remove_dir_all(&d);
     }
 
     #[cfg(unix)]

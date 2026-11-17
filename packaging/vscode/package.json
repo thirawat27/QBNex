@@ -105,6 +105,17 @@
                 "type": "string",
                 "description": "Working directory of the program (default: the program's folder)."
               },
+              "args": {
+                "type": [
+                  "array",
+                  "string"
+                ],
+                "items": {
+                  "type": "string"
+                },
+                "description": "Arguments the program gets (COMMAND$): a list of strings, or one string that is one argument.",
+                "default": []
+              },
               "stopOnEntry": {
                 "type": "boolean",
                 "description": "Stop at the first statement.",
@@ -194,7 +205,7 @@
           "type": "string",
           "scope": "machine-overridable",
           "default": "qb",
-          "description": "The QBNex compiler command (`qb` or `qbnex`, or a full path)."
+          "description": "The QBNex compiler command (`qb` or `qbnex`, or a full path; `~` and the compileArgs variables are expanded). On Windows a `qb.cmd` / `qbnex.cmd` is replaced by the `qb.exe` next to it; otherwise point this at `qb.exe`."
         },
         "qbnex.compileArgs": {
           "type": "array",
@@ -206,19 +217,19 @@
             "-o",
             "${fileDirname}/${fileBasenameNoExtension}${exeExtension}"
           ],
-          "description": "Arguments for QBNex: Compile. Variables: ${file}, ${fileDirname}, ${fileBasenameNoExtension}, ${exeExtension}, ${workspaceFolder}."
+          "description": "Arguments for QBNex: Compile and QBNex: Run (Run starts the -o / --output file, else the executable next to the source). Variables: ${file}, ${fileDirname}, ${fileBasename}, ${fileBasenameNoExtension}, ${fileExtname}, ${exeExtension}, ${workspaceFolder}, ${userHome}, ${env:NAME}."
         },
         "qbnex.lsp.path": {
           "type": "string",
           "scope": "machine-overridable",
           "default": "",
-          "description": "Path of the qb-lsp language server. Empty: the copy bundled in the extension's server folder, else `qb-lsp` on PATH."
+          "description": "Path of the qb-lsp language server (`~` is the home folder). Empty or missing: the copy bundled in the extension's server folder, else `qb-lsp` on PATH, else the one in the compiler's folder, else `qb lsp`."
         },
         "qbnex.dap.path": {
           "type": "string",
           "scope": "machine-overridable",
           "default": "",
-          "description": "Path of the qb-dap debug adapter. Empty: the copy bundled in the extension's server folder, else `qb-dap` on PATH."
+          "description": "Path of the qb-dap debug adapter (`~` is the home folder). Empty or missing: the copy bundled in the extension's server folder, else `qb-dap` on PATH, else the one in the compiler's folder, else `qb dap`."
         },
         "qbnex.lsp.enabled": {
           "type": "boolean",

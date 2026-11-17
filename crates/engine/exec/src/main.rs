@@ -228,7 +228,7 @@ fn main() {
         None => match args.first() {
             Some(path) => {
                 // `qb-exec prog.qir a b`: the program sees [prog.qir, a, b]
-                qb_exec::set_program_args(args.iter().map(|a| a.to_string_lossy().into_owned()).collect());
+                qb_exec::set_program_args(args.clone());
                 // DECLARE DYNAMIC LIBRARY "name" looks next to prog.qir, not next to qb-exec
                 qb_ffi::set_program_dir(std::path::Path::new(path).parent());
                 let text = read(path);
@@ -241,6 +241,7 @@ fn main() {
         },
     };
     drop(exe);
+    qb_exec::print_to_stdout();
     if qb_exec::wants_window(&src) {
         // GUI program (no $CONSOLE): the window layer needs the main thread,
         // the program runs on its own thread and ends the process

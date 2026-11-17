@@ -416,8 +416,8 @@ fn bload(vm: &mut dyn Host<'_>, file: &[u8], offset: i64, passed: bool) -> R<()>
         }
         offset &= 0xFFFF;
     }
-    let path = String::from_utf8_lossy(file).into_owned();
-    let data = std::fs::read(&path).or_else(|_| e(53))?;
+    // as OPEN reads a name: "data\pic.bin" on Linux and macOS too
+    let data = std::fs::read(qb_runtime::gfs::user_path(file)).or_else(|_| e(53))?;
     if data.len() < 7 || data[0] != 253 {
         return e(54);
     }
@@ -457,8 +457,7 @@ fn bsave(vm: &mut dyn Host<'_>, file: &[u8], offset: i64, size: i64) -> R<()> {
     b.extend_from_slice(&(if size > 65535 { 0 } else { size as u16 }).to_le_bytes());
     let end = (at + size).min(rt.cmem.len());
     b.extend_from_slice(&rt.cmem[at..end]);
-    let path = String::from_utf8_lossy(file).into_owned();
-    std::fs::write(&path, b).or_else(|_| e(64))
+    std::fs::write(qb_runtime::gfs::user_path(file), b).or_else(|_| e(64))
 }
 
 /// What this program holds that the next one may need, released before
@@ -525,11 +524,8 @@ fn run_program(vm: &mut dyn Host<'_>, cmd: &str, exe: &str) -> R<()> {
     if !found {
         return e(53);
     }
-    // cmd /c drops the first and the last quote of a line that starts with one unless
-    // the line is a single quoted name: "C:\Program Files (x86)\next.exe" "a b" then
-    // lost its quotes. A pair around the whole line is the one cmd takes away.
-    let wrapped = if cfg!(windows) { format!("\"{cmd}\"") } else { cmd.to_string() };
-    let mut c = super::builtins::shell_command(&wrapped);
+    // shell_command keeps the quotes of "C:\Program Files (x86)\next.exe" "a b" itself
+    let mut c = super::builtins::shell_command(cmd.as_bytes());
     let common = std::mem::take(&mut vm.rt().dos.chain_out);
     let file = if common.is_empty() {
         None
@@ -587,9 +583,36 @@ fn chain_command(f: &str) -> (String, String) {
             return (format!("{}{}", quoted_program(&exe), &f[p + 4..]), exe);
         }
     }
-    let (name, args) = f.split_once(' ').map_or((f, ""), |(a, b)| (a, b));
+    let (name, args) = split_program(f);
     let exe = format!("{name}{}", if cfg!(windows) { ".exe" } else { "" });
     (program_command(&exe, args), exe)
+}
+
+/// RUN / CHAIN text as (program, arguments): the program is a quoted name, else the
+/// longest part up to a space that names an existing program (`C:\My Games\next.exe -x`;
+/// the first space made `C:\My` the program, and quotes made `"C:\My` it), else the
+/// first word.
+fn split_program(f: &str) -> (&str, &str) {
+    let f = f.trim_start();
+    if let Some(rest) = f.strip_prefix('"')
+        && let Some(end) = rest.find('"')
+    {
+        return (&rest[..end], rest[end + 1..].trim_start());
+    }
+    let is_program = |p: &str| {
+        let p = qb_runtime::gfs::user_path(p.as_bytes());
+        p.is_file() || (cfg!(windows) && std::path::Path::new(&format!("{}.exe", p.display())).is_file())
+    };
+    if is_program(f) {
+        return (f, "");
+    }
+    let spaces: Vec<usize> = f.match_indices(' ').map(|(i, _)| i).collect();
+    for &i in spaces.iter().rev() {
+        if is_program(&f[..i]) {
+            return (&f[..i], f[i + 1..].trim_start());
+        }
+    }
+    f.split_once(' ').map_or((f, ""), |(a, b)| (a, b))
 }
 
 /// The command line of program `exe` with its arguments.
@@ -741,7 +764,7 @@ pub(crate) fn call(vm: &mut dyn Host<'_>, name: &str, a: &[V]) -> Option<R<Optio
         "RUNFILE" => {
             let f = String::from_utf8_lossy(a[0].s()).into_owned();
             // as CHAIN: a name without a directory is the program in the current directory
-            let (exe, args) = f.split_once(' ').map_or((f.as_str(), ""), |(x, y)| (x, y));
+            let (exe, args) = split_program(&f);
             let exe = exe.to_string();
             let cmd = program_command(&exe, args);
             // RUN passes no COMMON variables
@@ -858,5 +881,23 @@ mod tests {
         assert_eq!(chain_command("v1.2/next.bas").1, format!("v1.2/next{x}"));
         assert_eq!(chain_command("C:\\john.smith\\next.bas").1, format!("C:\\john.smith\\next{x}"));
         assert_eq!(chain_command("next.v2.bas").1, format!("next.v2{x}"));
+    }
+
+    #[test]
+    fn a_program_path_with_spaces_is_one_name() {
+        use super::split_program;
+        let d = std::env::temp_dir().join(format!("qb_test_{}_run My Games", std::process::id()));
+        std::fs::create_dir_all(&d).unwrap();
+        let exe = d.join(if cfg!(windows) { "next.exe" } else { "next" });
+        std::fs::write(&exe, b"").unwrap();
+        let p = exe.display().to_string();
+        assert_eq!(split_program(&p), (p.as_str(), ""));
+        let with_args = format!("{p} -x \"a b\"");
+        assert_eq!(split_program(&with_args), (p.as_str(), "-x \"a b\""));
+        let quoted = format!("\"{p}\" -x");
+        assert_eq!(split_program(&quoted), (p.as_str(), "-x"));
+        // a name that does not exist: its first word, as before
+        assert_eq!(split_program("menu a b"), ("menu", "a b"));
+        let _ = std::fs::remove_dir_all(&d);
     }
 }

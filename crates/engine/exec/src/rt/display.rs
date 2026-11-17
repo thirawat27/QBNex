@@ -375,13 +375,16 @@ impl Display {
         if size > 2048 || file.is_empty() {
             return -1;
         }
-        let path = String::from_utf8_lossy(file).into_owned();
+        // as OPEN reads a name ("fonts\my.ttf" on Linux and macOS too)
+        let path = qb_runtime::gfs::user_path(file);
         let content = match std::fs::read(&path) {
             Ok(c) => c,
             Err(_) => {
                 #[cfg(windows)]
                 {
-                    match std::fs::read(format!("C:/Windows/Fonts/{path}")) {
+                    // the system's font folder, wherever Windows is installed (not always C:)
+                    let windir = std::env::var_os("WINDIR").map_or_else(|| std::path::PathBuf::from("C:\\Windows"), std::path::PathBuf::from);
+                    match std::fs::read(windir.join("Fonts").join(&path)) {
                         Ok(c) => c,
                         Err(_) => return -1,
                     }
@@ -460,7 +463,8 @@ impl Display {
         if file.is_empty() {
             return -1;
         }
-        let Ok(content) = std::fs::read(String::from_utf8_lossy(file).as_ref()) else { return -1 };
+        // as OPEN reads a name ("assets\hero.png" on Linux and macOS too)
+        let Ok(content) = std::fs::read(qb_runtime::gfs::user_path(file)) else { return -1 };
         let Some(img) = qb_runtime::image::decode(&content) else { return -1 };
         let (w, h) = (img.w as usize, img.h as usize);
         if bpp == 256 {

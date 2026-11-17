@@ -95,6 +95,28 @@ impl WIN32_FIND_DATAA {
     }
 }
 
+/// `WIN32_FIND_DATAA` with UTF-16 names.
+#[repr(C)]
+pub struct WIN32_FIND_DATAW {
+    pub dwFileAttributes: DWORD,
+    pub ftCreationTime: FILETIME,
+    pub ftLastAccessTime: FILETIME,
+    pub ftLastWriteTime: FILETIME,
+    pub nFileSizeHigh: DWORD,
+    pub nFileSizeLow: DWORD,
+    pub dwReserved0: DWORD,
+    pub dwReserved1: DWORD,
+    pub cFileName: [u16; MAX_PATH],
+    pub cAlternateFileName: [u16; 14],
+}
+
+impl WIN32_FIND_DATAW {
+    pub fn zeroed() -> Self {
+        // SAFETY: plain-old-data struct; all-zero is a valid value.
+        unsafe { std::mem::zeroed() }
+    }
+}
+
 #[repr(C)]
 pub struct STARTUPINFOA {
     pub cb: DWORD,
@@ -144,10 +166,39 @@ pub struct SHELLEXECUTEINFOA {
     pub hProcess: HANDLE,
 }
 
+/// `SHELLEXECUTEINFOA` with UTF-16 strings.
+#[repr(C)]
+pub struct SHELLEXECUTEINFOW {
+    pub cbSize: DWORD,
+    pub fMask: u32,
+    pub hwnd: HANDLE,
+    pub lpVerb: *const u16,
+    pub lpFile: *const u16,
+    pub lpParameters: *const u16,
+    pub lpDirectory: *const u16,
+    pub nShow: i32,
+    pub hInstApp: HANDLE,
+    pub lpIDList: *mut c_void,
+    pub lpClass: *const u16,
+    pub hkeyClass: HANDLE,
+    pub dwHotKey: DWORD,
+    pub hIconOrMonitor: HANDLE,
+    pub hProcess: HANDLE,
+}
+
 #[link(name = "kernel32")]
 unsafe extern "system" {
     pub fn CreateFileA(
         name: *const u8,
+        access: DWORD,
+        share: DWORD,
+        sa: *mut c_void,
+        disposition: DWORD,
+        flags: DWORD,
+        template: HANDLE,
+    ) -> HANDLE;
+    pub fn CreateFileW(
+        name: *const u16,
         access: DWORD,
         share: DWORD,
         sa: *mut c_void,
@@ -175,6 +226,12 @@ unsafe extern "system" {
     pub fn GetCurrentDirectoryA(n: DWORD, buf: *mut u8) -> DWORD;
     pub fn GetShortPathNameA(long: *const u8, short: *mut u8, n: DWORD) -> DWORD;
     pub fn GetDiskFreeSpaceExA(dir: *const u8, avail: *mut u64, total: *mut u64, free: *mut u64) -> BOOL;
+    pub fn FindFirstFileW(name: *const u16, data: *mut WIN32_FIND_DATAW) -> HANDLE;
+    pub fn FindNextFileW(h: HANDLE, data: *mut WIN32_FIND_DATAW) -> BOOL;
+    pub fn GetCurrentDirectoryW(n: DWORD, buf: *mut u16) -> DWORD;
+    pub fn GetShortPathNameW(long: *const u16, short: *mut u16, n: DWORD) -> DWORD;
+    pub fn GetDiskFreeSpaceExW(dir: *const u16, avail: *mut u64, total: *mut u64, free: *mut u64) -> BOOL;
+    pub fn MultiByteToWideChar(page: u32, flags: DWORD, text: *const u8, n: i32, wide: *mut u16, wide_n: i32) -> i32;
     pub fn CreateProcessA(
         app: *const u8,
         cmd: *mut u8,
@@ -194,8 +251,45 @@ unsafe extern "system" {
 #[link(name = "shell32")]
 unsafe extern "system" {
     pub fn ShellExecuteExA(info: *mut SHELLEXECUTEINFOA) -> BOOL;
+    pub fn ShellExecuteExW(info: *mut SHELLEXECUTEINFOW) -> BOOL;
     /// `path` must hold MAX_PATH bytes; a negative result is a failure.
     pub fn SHGetFolderPathA(owner: HANDLE, csidl: i32, token: HANDLE, flags: DWORD, path: *mut u8) -> i32;
+    /// `path` must hold MAX_PATH UTF-16 units; a negative result is a failure.
+    pub fn SHGetFolderPathW(owner: HANDLE, csidl: i32, token: HANDLE, flags: DWORD, path: *mut u16) -> i32;
+}
+
+/// `bytes` (up to a NUL) as a UTF-16 name with a NUL for the "W" functions: UTF-8 as
+/// the runtime reads names, other bytes in the ANSI code page, as an "A" function
+/// would read them.
+pub fn wide_name(bytes: &[u8]) -> Vec<u16> {
+    if let Some(w) = utf16z(bytes) {
+        return w;
+    }
+    const CP_ACP: u32 = 0;
+    let n = bytes.iter().position(|&c| c == 0).map_or(bytes, |p| &bytes[..p]);
+    let len = i32::try_from(n.len()).unwrap_or(i32::MAX);
+    let mut w = vec![0u16; n.len() + 1];
+    // SAFETY: at most n.len() units are written into a buffer one longer.
+    let got = unsafe { MultiByteToWideChar(CP_ACP, 0, n.as_ptr(), len, w.as_mut_ptr(), len) };
+    w.truncate(usize::try_from(got).unwrap_or(0));
+    w.push(0);
+    w
+}
+
+/// A UTF-16 name from a "W" function (up to its NUL) as the runtime's UTF-8 bytes.
+pub fn utf8_name(wide: &[u16]) -> Vec<u8> {
+    let n = wide.iter().position(|&c| c == 0).unwrap_or(wide.len());
+    String::from_utf16_lossy(&wide[..n]).into_bytes()
+}
+
+/// A name for the "W" functions: `bytes` (up to a NUL) as UTF-16 with a NUL, when they
+/// are UTF-8, which is how the rest of the runtime reads names (`gfs::os_path`). The "A"
+/// functions read them in the ANSI code page, so ไทย.bas was not found. Other bytes (a
+/// name an old program wrote in its code page) give `None`: those go to the "A" function.
+pub fn utf16z(bytes: &[u8]) -> Option<Vec<u16>> {
+    let n = bytes.iter().position(|&c| c == 0).map_or(bytes, |p| &bytes[..p]);
+    let s = std::str::from_utf8(n).ok()?;
+    Some(s.encode_utf16().chain(std::iter::once(0)).collect())
 }
 
 /// Copies `bytes` and appends a NUL terminator.

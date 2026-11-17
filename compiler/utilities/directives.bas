@@ -634,8 +634,6 @@ FUNCTION HandleExeIconDirective% (upperLine AS STRING, rawLine AS STRING)
     DIM secondDelimiter AS LONG
     DIM exeIconFile AS STRING
     DIM iconPath AS STRING
-    DIM exeIconFileOnly AS STRING
-    DIM currentdir$
     HandleExeIconDirective% = 0
     IF LEFT$(upperLine, 8) <> "$EXEICON" THEN EXIT FUNCTION
 
@@ -669,40 +667,19 @@ FUNCTION HandleExeIconDirective% (upperLine AS STRING, rawLine AS STRING)
     layout$ = SCase$("$ExeIcon:'") + exeIconFile + "'" + MID$(rawLine, secondDelimiter + 1)
 
     IF INSTR(_OS$, "WIN") THEN
-        iconPath = ""
-        IF LEFT$(exeIconFile, 2) = "./" OR LEFT$(exeIconFile, 2) = ".\" THEN
-            iconPath = path.source$
-            IF LEN(iconPath) > 0 AND RIGHT$(iconPath, 1) <> pathsep$ THEN iconPath = iconPath + pathsep$
-            exeIconFile = iconPath + MID$(exeIconFile, 3)
-        ELSEIF INSTR(exeIconFile, "/") OR INSTR(exeIconFile, "\") THEN
-            FOR i = LEN(exeIconFile) TO 1 STEP -1
-                IF MID$(exeIconFile, i, 1) = "/" OR MID$(exeIconFile, i, 1) = "\" THEN
-                    iconPath = LEFT$(exeIconFile, i)
-                    exeIconFileOnly = MID$(exeIconFile, i + 1)
-
-                    IF _DIREXISTS(iconPath) = 0 THEN
-                        ModuleError$ = "File '" + exeIconFileOnly + "' not found"
-                        HandleExeIconDirective% = 2
-                        EXIT FUNCTION
-                    END IF
-
-                    currentdir$ = _CWD$
-                    CHDIR iconPath
-                    iconPath = _CWD$
-                    CHDIR currentdir$
-
-                    exeIconFile = iconPath + pathsep$ + exeIconFileOnly
-                    EXIT FOR
-                END IF
-            NEXT
+        'a relative name (app.ico, icons\app.ico, .\app.ico) is next to the source file,
+        'not in the QBNex folder the compiler works in
+        IF IsAbsolutePath%(exeIconFile) = 0 THEN
+            iconPath = exeIconFile
+            DO WHILE LEFT$(iconPath, 2) = "./" OR LEFT$(iconPath, 2) = ".\"
+                iconPath = MID$(iconPath, 3)
+            LOOP
+            IF LEN(path.source$) THEN iconPath = JoinPath$(path.source$, iconPath) ELSE iconPath = JoinPath$(_STARTDIR$, iconPath)
+            exeIconFile = iconPath
         END IF
 
         IF _FILEEXISTS(exeIconFile) = 0 THEN
-            IF LEN(iconPath) THEN
-                ModuleError$ = "File '" + MID$(exeIconFile, LEN(iconPath) + 1) + "' not found"
-            ELSE
-                ModuleError$ = "File '" + exeIconFile + "' not found"
-            END IF
+            ModuleError$ = "File '" + exeIconFile + "' not found"
             HandleExeIconDirective% = 2
             EXIT FUNCTION
         END IF

@@ -363,13 +363,43 @@ PRINT boxes(2).\n";
     assert!(wait(&mut c.child));
 }
 
+/// A body that is not a message is answered with an error and the session
+/// goes on; `exit` without `shutdown` ends the server with exit code 1.
+#[test]
+fn malformed_messages_and_exit_without_shutdown() {
+    let mut c = Client::start();
+    c.request("initialize", json!({"processId": null, "rootUri": null, "capabilities": {}}));
+    c.notify("initialized", json!({}));
+    let raw = b"{not json";
+    write!(c.stdin, "Content-Length: {}\r\n\r\n", raw.len()).unwrap();
+    c.stdin.write_all(raw).unwrap();
+    c.stdin.flush().unwrap();
+    let r = c.read();
+    assert_eq!(r["error"]["code"], -32700, "{r}");
+    assert!(r["id"].is_null(), "{r}");
+    c.send(json!({"jsonrpc": "2.0", "id": 5, "method": 7}));
+    let r = c.read();
+    assert_eq!(r["error"]["code"], -32600, "{r}");
+    assert_eq!(r["id"], 5, "{r}");
+    // still serving
+    let syms = c.request("textDocument/documentSymbol", json!({"textDocument": {"uri": "untitled:none"}}));
+    assert_eq!(syms, json!([]));
+    c.notify("exit", Value::Null);
+    assert_eq!(wait_code(&mut c.child), Some(1));
+}
+
 fn wait(child: &mut Child) -> bool {
+    wait_code(child) == Some(0)
+}
+
+/// Exit code of the server once it ends (`None`: it did not end in time).
+fn wait_code(child: &mut Child) -> Option<i32> {
     for _ in 0..100 {
         if let Some(s) = child.try_wait().unwrap() {
-            return s.success();
+            return s.code();
         }
         std::thread::sleep(Duration::from_millis(50));
     }
     let _ = child.kill();
-    false
+    None
 }

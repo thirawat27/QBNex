@@ -56,17 +56,30 @@ impl From<debug::VarValue> for Var {
     }
 }
 
+/// Which source file a line is in: [`MAIN_FILE`] is the program's own file,
+/// `k + 1` is the QIR's `srcfile k` (an `$INCLUDE` file).
+pub type FileTag = u32;
+
+/// The program's own source file.
+pub const MAIN_FILE: FileTag = 0;
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Frame {
     pub func: String,
+    /// line in `file`
     pub line: u32,
+    #[serde(default)]
+    pub file: FileTag,
     pub locals: Vec<Var>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Snapshot {
     pub reason: String,
+    /// line in `file`
     pub line: u32,
+    #[serde(default)]
+    pub file: FileTag,
     /// innermost first
     pub frames: Vec<Frame>,
     pub globals: Vec<Var>,

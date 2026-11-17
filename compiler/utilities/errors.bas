@@ -168,6 +168,15 @@ SUB HandleFrontendErrorAndExit (errMessage$)
         IF RTRIM$(incname$(inclevel)) <> "" THEN reportFile = incname$(inclevel)
         IF inclinenumber(inclevel) > 0 THEN reportLineNumber = inclinenumber(inclevel)
         locationNote = "Triggered while compiling an included module."
+        'target\qb-temp\imports_head.bas or imports_body.bas: not a file of the program
+        IF StdLib_IsGeneratedFile%(reportFile) THEN
+            locationNote = DefFn_OriginOf$(reportFile, reportLineNumber)
+            IF LEN(locationNote) THEN
+                locationNote = "Triggered in the FUNCTION that QBNex made from " + locationNote + "."
+            ELSE
+                locationNote = "Triggered in QBNex's generated file for the program's $IMPORT, TRY and DEF FN lines."
+            END IF
+        END IF
     END IF
 
     frontendErrorKey = UCASE$(NormalizeDiagnosticMessage$(errMessage$)) + "|" + UCASE$(RTRIM$(reportFile)) + "|" + LTRIM$(STR$(reportLineNumber))

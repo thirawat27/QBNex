@@ -99,6 +99,41 @@ SUB ShowDoubleClickHelp
     PRINT
 END SUB
 
+'qb was started with a source file in a console window of its own (Explorer's "Compile with
+'QBNex" runs qb.exe "file.bas"), which closes when qb ends: the build runs as a child in
+'this window, then the window waits for a key and qb ends with the child's exit code. The
+'child shares this console, so the runner does not mark it as owning one; the variable is
+'cleared too, so the child builds instead of doing this again.
+SUB RunInOwnConsoleWindow
+    DIM c$, k AS LONG, rc AS LONG
+    c$ = ShellArg$(COMMAND$(0))
+    FOR k = 1 TO _COMMANDCOUNT
+        c$ = c$ + " " + ShellArg$(COMMAND$(k))
+    NEXT
+    ENVIRON "QBNEX_OWN_CONSOLE="
+    'the build folder (#26) is free for the child, and relative names are resolved where
+    'qb was started
+    FOR k = 1 TO 255: CLOSE k: NEXT
+    CHDIR _STARTDIR$
+    'cmd /c takes away the first and the last quote of a line with several quoted names
+    IF os$ = "WIN" THEN c$ = CHR$(34) + c$ + CHR$(34)
+    rc = SHELL(c$)
+    _DEST _CONSOLE
+    PRINT
+    TuiDefault: PRINT "Press any key to close this window . . .";
+    SLEEP
+    PRINT
+    SYSTEM rc
+END SUB
+
+'target/qb-temp in the QBNex folder cannot be made or written (installed in a folder the
+'user cannot write to): say which folder, not an internal error or a wait for ever
+SUB ReportNoBuildFolder
+    PRINT "Unable to create a build folder in 'target': " + QBNexRoot$ + "target" + pathsep$ + " cannot be written"
+    PRINT "QBNex builds in its own folder: install it where you can write, or make that folder writable."
+    SYSTEM 1
+END SUB
+
 SUB InfoRow (label$, value$)
     TuiColor 248: PRINT label$;
     TuiDefault: PRINT value$
@@ -323,7 +358,7 @@ SUB RunToolSubcommand (sc$)
         END SELECT
         IF _FILEEXISTS(d$ + tool$) THEN exe$ = QBNexRoot$ + d$ + tool$: EXIT FOR
     NEXT
-    IF LEN(exe$) THEN c$ = ShellArg$(exe$) ELSE c$ = "qb-" + sc$
+    IF LEN(exe$) THEN c$ = ShellArg$(exe$) ELSE c$ = ShellArg$("qb-" + sc$)
     FOR k = 2 TO _COMMANDCOUNT
         c$ = c$ + " " + ShellArg$(COMMAND$(k))
     NEXT
@@ -332,7 +367,8 @@ SUB RunToolSubcommand (sc$)
     ENVIRON "QBNEX_SUBCOMMAND="
     'the tool reads and writes files relative to the folder qb was started in
     CHDIR _STARTDIR$
-    'cmd /c takes away the first and the last quote of a line with several quoted names
+    'cmd /c takes away the first and the last quote of a line with several quoted names:
+    'a line that starts with two quotes is one the runtime passes as it is
     IF os$ = "WIN" THEN c$ = CHR$(34) + c$ + CHR$(34)
     rc = SHELL(c$)
     IF LEN(exe$) = 0 AND ((os$ = "WIN" AND rc = 9009) OR (os$ <> "WIN" AND rc = 127)) THEN
@@ -396,19 +432,29 @@ SUB ReportUnknownSwitch (raw$)
 END SUB
 
 'the source file is not there: say so, and name the .bas file that was probably meant,
-'or the ones that are in that folder
-SUB ReportMissingSource (f$)
+'or the ones that are in that folder. isFolder: f$ is a folder (qb sub), so its own
+'.bas files are listed.
+SUB ReportMissingSource (f$, isFolder AS LONG)
     DIM typed$, dir$, nm$, lst$, c$, listing$, e$, best$, names$, fh AS LONG, p AS LONG, q AS LONG, n AS LONG, rc AS LONG
+    DIM d AS LONG, bestd AS LONG, allowed AS LONG
     _DEST _CONSOLE
-    PRINT "Cannot find the source file: " + f$
-    typed$ = getfilepath$(f$)
-    nm$ = MID$(f$, LEN(typed$) + 1)
-    dir$ = typed$
-    IF dir$ = "" THEN
-        dir$ = _STARTDIR$ + pathsep$
-    ELSEIF LEFT$(dir$, 1) <> "/" AND LEFT$(dir$, 1) <> "\" AND MID$(dir$, 2, 1) <> ":" THEN
-        dir$ = _STARTDIR$ + pathsep$ + dir$
+    IF isFolder THEN
+        PRINT f$ + " is a folder, not a source file"
+        typed$ = f$
+        IF RIGHT$(typed$, 1) <> "/" AND RIGHT$(typed$, 1) <> "\" THEN typed$ = typed$ + pathsep$
+        nm$ = ""
+    ELSE
+        PRINT "Cannot find the source file: " + f$
+        typed$ = getfilepath$(f$)
+        nm$ = MID$(f$, LEN(typed$) + 1)
     END IF
+    'a short name is close only one edit away: sub was taken for gui.bas
+    allowed = 2
+    IF LEN(RemoveFileExtension$(nm$)) <= 4 THEN allowed = 1
+    bestd = allowed + 1
+    dir$ = typed$
+    IF IsAbsolutePath%(dir$) = 0 THEN dir$ = JoinPath$(_STARTDIR$, dir$)
+    IF RIGHT$(dir$, 1) <> "/" AND RIGHT$(dir$, 1) <> "\" THEN dir$ = dir$ + pathsep$
     IF _DIREXISTS(dir$) = 0 THEN
         PRINT "The folder does not exist: " + typed$
         SYSTEM 1
@@ -416,7 +462,9 @@ SUB ReportMissingSource (f$)
     'the shell lists the folder's .bas files (the runtime has no function that does)
     lst$ = tmpdir$ + "basfiles.txt"
     IF os$ = "WIN" THEN
-        c$ = CHR$(34) + "dir /b /a-d " + QuotedFilename$(dir$ + "*.bas") + " > " + QuotedFilename$(lst$) + " 2> nul" + CHR$(34)
+        'SHELL keeps the quotes of the line as written (the runtime adds the pair cmd /c
+        'takes away); ShellArg$ keeps a % in a folder name from being expanded
+        c$ = "dir /b /a-d " + ShellArg$(dir$ + "*.bas") + " > " + ShellArg$(lst$) + " 2> nul"
     ELSE
         c$ = "(cd -- " + QuotedFilename$(dir$) + " 2>/dev/null && for f in *.bas *.BAS *.Bas; do [ -f " + CHR$(34) + "$f" + CHR$(34) + " ] && printf '%s\n' " + CHR$(34) + "$f" + CHR$(34) + "; done) > " + QuotedFilename$(lst$) + " 2>/dev/null"
     END IF
@@ -439,16 +487,18 @@ SUB ReportMissingSource (f$)
             n = n + 1
             IF n <= 6 THEN names$ = names$ + "  " + typed$ + e$ + CHR$(10)
             IF n = 7 THEN names$ = names$ + "  ..." + CHR$(10)
-            'the name, or the name without .bas when that was typed (qb helo)
-            IF EditDistance&(nm$, e$) <= 2 OR EditDistance&(RemoveFileExtension$(nm$), RemoveFileExtension$(e$)) <= 2 THEN
-                IF best$ = "" THEN best$ = e$
+            'the closest name, with or without .bas (qb helo)
+            IF LEN(nm$) THEN
+                d = EditDistance&(nm$, e$)
+                IF EditDistance&(RemoveFileExtension$(nm$), RemoveFileExtension$(e$)) < d THEN d = EditDistance&(RemoveFileExtension$(nm$), RemoveFileExtension$(e$))
+                IF d < bestd THEN bestd = d: best$ = e$
             END IF
         END IF
     LOOP
     IF LEN(best$) THEN
         PRINT "Did you mean "; typed$ + best$; "?"
     ELSEIF n THEN
-        PRINT "Source files in that folder:"
+        IF isFolder THEN PRINT "Source files in it:" ELSE PRINT "Source files in that folder:"
         PRINT names$;
     ELSE
         PRINT "There is no .bas file in that folder."
@@ -557,6 +607,13 @@ FUNCTION ParseCMDLineArgs$ ()
             IF LEN(COMMAND$(i + 1)) = 0 THEN
                 PRINT "Missing file name after -o"
                 PRINT "Run 'qb --help' for usage."
+                SYSTEM 1
+            END IF
+            'qb x.bas -o -q wrote -q.exe and dropped -q; a name that starts with - is
+            'written .\-name (./-name)
+            IF LEFT$(COMMAND$(i + 1), 1) = "-" THEN
+                PRINT "Missing file name after -o: " + COMMAND$(i + 1) + " is a switch"
+                PRINT "For a file whose name starts with -, write ." + pathsep$ + COMMAND$(i + 1)
                 SYSTEM 1
             END IF
             outputfile_cmd$ = COMMAND$(i + 1): i = i + 1

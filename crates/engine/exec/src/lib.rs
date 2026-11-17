@@ -31,8 +31,13 @@ mod vm;
 pub use vm::{EventHandle, Vm};
 
 /// Sets the program's argv as BASIC sees it (COMMAND$, _COMMANDCOUNT): [program, args...].
-pub fn set_program_args(args: Vec<String>) {
+pub fn set_program_args(args: Vec<std::ffi::OsString>) {
     rt::builtins::set_program_args(args)
+}
+/// The writer given to the run functions is the process stdout: on a terminal PRINT text
+/// then goes out as UTF-8, with bytes that are not UTF-8 taken as code page 437 (box drawing).
+pub fn print_to_stdout() {
+    rt::builtins::STDOUT_TEXT.store(true, std::sync::atomic::Ordering::Relaxed);
 }
 /// Debugger hook (feature `debug`), used by `qb-dap`.
 #[cfg(feature = "debug")]

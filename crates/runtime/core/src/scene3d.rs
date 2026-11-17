@@ -225,8 +225,8 @@ pub fn qb_3d_available() -> i32 {
 /// buffers). -1 when it cannot be read or is not glTF.
 ///
 pub fn qb_3d_load_model(path: &[u8]) -> i32 {
-    let Ok(p) = std::str::from_utf8(path) else { return -1 };
-    let Ok(bytes) = std::fs::read(p) else { return -1 };
+    // as OPEN reads a name: "models\ship.glb" on Linux and macOS, any bytes on Unix
+    let Ok(bytes) = std::fs::read(crate::gfs::user_path(path)) else { return -1 };
     let is_glb = bytes.starts_with(b"glTF");
     let is_json = bytes.iter().find(|b| !b.is_ascii_whitespace()) == Some(&b'{');
     if !is_glb && !is_json {

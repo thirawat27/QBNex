@@ -4,6 +4,7 @@
 use std::path::{Path, PathBuf};
 
 use crate::engine::{CANCELLED, Options};
+use crate::platform::Caution;
 use crate::text::{Key, fill};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -37,6 +38,9 @@ pub trait Machine {
     fn has_content(&self, dir: &Path) -> bool;
     /// Tries to write where `dir` is or will be created.
     fn can_write(&self, dir: &Path) -> Result<(), String>;
+    /// What the user must know about installing into `dir` as the account setup
+    /// runs as (an administrator, root).
+    fn caution(&self, dir: &Path) -> Option<Caution>;
 }
 
 /// Why Next did not move on.
@@ -97,7 +101,10 @@ impl Wizard {
     }
 
     pub fn options(&self) -> Options {
-        Options { dir: self.folder(), add_path: self.add_path, menu: self.menu, desktop: self.desktop, associate: self.associate && self.can_associate }
+        // as Windows spells the folder (`C:/x` is `C:\x`): PATH, the shortcuts and the
+        // uninstall entry store it, and an uninstall compares with it
+        let dir = std::path::absolute(self.folder()).unwrap_or_else(|_| self.folder());
+        Options { dir, add_path: self.add_path, menu: self.menu, desktop: self.desktop, associate: self.associate && self.can_associate }
     }
 
     pub fn can_back(&self) -> bool {
@@ -194,9 +201,19 @@ impl Wizard {
         if machine.free_space(&dir).is_some_and(|free| free < self.required) {
             return Err(problem(Key::FolderNoSpace));
         }
+        // the questions about one folder are asked together, and one yes answers them
+        let mut questions = Vec::new();
+        if let Some(Caution { text, ask: true }) = machine.caution(&dir) {
+            questions.push(text);
+        }
         let upgrade = machine.installed_version(&dir).is_some();
-        if !upgrade && machine.has_content(&dir) && self.agreed_dir.as_deref() != Some(typed) {
-            return Err(Stop::Question(self.text(Key::FolderInUse).to_string()));
+        if !upgrade && machine.has_content(&dir) {
+            questions.push(self.text(Key::FolderInUse).to_string());
+        } else if !questions.is_empty() {
+            questions.push(self.text(Key::InstallAnyway).to_string());
+        }
+        if !questions.is_empty() && self.agreed_dir.as_deref() != Some(typed) {
+            return Err(Stop::Question(questions.join("\n\n")));
         }
         Ok(())
     }
@@ -216,6 +233,9 @@ impl Wizard {
             Some(v) if v.is_empty() => notes.push(self.text(Key::UpgradeUnknown).to_string()),
             Some(v) => notes.push(fill(self.text(Key::Upgrade), &v)),
             None => {}
+        }
+        if let Some(caution) = machine.caution(&dir) {
+            notes.push(caution.text);
         }
         notes
     }
@@ -262,6 +282,10 @@ impl Machine for ThisMachine {
         let _ = std::fs::remove_file(probe);
         Ok(())
     }
+
+    fn caution(&self, dir: &Path) -> Option<Caution> {
+        crate::platform::caution(dir)
+    }
 }
 
 #[cfg(test)]
@@ -274,11 +298,12 @@ mod tests {
         file: bool,
         content: bool,
         write: Result<(), String>,
+        caution: Option<Caution>,
     }
 
     impl Default for Fake {
         fn default() -> Fake {
-            Fake { free: Some(500 * MB), installed: None, file: false, content: false, write: Ok(()) }
+            Fake { free: Some(500 * MB), installed: None, file: false, content: false, write: Ok(()), caution: None }
         }
     }
 
@@ -297,6 +322,9 @@ mod tests {
         }
         fn can_write(&self, _: &Path) -> Result<(), String> {
             self.write.clone()
+        }
+        fn caution(&self, _: &Path) -> Option<Caution> {
+            self.caution.clone()
         }
     }
 
@@ -383,6 +411,29 @@ mod tests {
 
         let mut w = at_folder();
         w.next(&Fake { content: true, installed: Some("1.0.0"), ..Fake::default() }).unwrap();
+        assert_eq!(w.page, Page::Tasks);
+    }
+
+    #[test]
+    fn a_caution_is_shown_and_asked_about_when_it_must_be() {
+        let note = Fake { caution: Some(Caution { text: "runs as administrator".into(), ask: false }), ..Fake::default() };
+        let mut w = at_folder();
+        assert_eq!(w.folder_notes(&note).last().map(String::as_str), Some("runs as administrator"));
+        w.next(&note).unwrap();
+        assert_eq!(w.page, Page::Tasks, "a note only");
+
+        let ask = |content| Fake { content, caution: Some(Caution { text: "runs as root".into(), ask: true }), ..Fake::default() };
+        let mut w = at_folder();
+        match w.next(&ask(false)) {
+            Err(Stop::Question(q)) => assert_eq!(q, format!("runs as root\n\n{}", Key::InstallAnyway.text())),
+            other => panic!("{other:?}"),
+        }
+        match w.next(&ask(true)) {
+            Err(Stop::Question(q)) => assert_eq!(q, format!("runs as root\n\n{}", Key::FolderInUse.text()), "one question for both"),
+            other => panic!("{other:?}"),
+        }
+        w.confirm();
+        w.next(&ask(true)).unwrap();
         assert_eq!(w.page, Page::Tasks);
     }
 

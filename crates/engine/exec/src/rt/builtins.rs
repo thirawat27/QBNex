@@ -77,6 +77,13 @@ pub(crate) struct RtState<'a> {
     out_tty: bool,
     /// `out` may hold text not yet flushed.
     out_dirty: bool,
+    /// When `out` was last flushed (ms), so that redirected output reaches its file while
+    /// the program runs and is not lost when it is stopped with Ctrl+C.
+    out_flushed_at: i64,
+    /// `out` is the process stdout on a terminal: text goes out as UTF-8 (see
+    /// [`qb_runtime::console::keys::terminal_text`]); `tty_carry` holds a character's first bytes.
+    tty_text: bool,
+    tty_carry: Vec<u8>,
     col: usize,
     pub(crate) rnd: qb_runtime::rnd::RndState,
     using: Option<Using>,
@@ -164,7 +171,8 @@ impl<'a> RtState<'a> {
         let out_tty = std::io::IsTerminal::is_terminal(&std::io::stdout());
         #[cfg(target_arch = "wasm32")]
         let out_tty = false;
-        RtState { out, out_tty, out_dirty: false, col: 1, rnd: Default::default(), using: None, stdin: Reader::default(),
+        let tty_text = out_tty && STDOUT_TEXT.load(std::sync::atomic::Ordering::Relaxed);
+        RtState { out, out_tty, out_dirty: false, out_flushed_at: 0, tty_text, tty_carry: Vec::new(), col: 1, rnd: Default::default(), using: None, stdin: Reader::default(),
             input_line: None,
             input_prompt: Vec::new(),
             input_types: None,
@@ -213,9 +221,15 @@ impl<'a> RtState<'a> {
     /// starts another program (SHELL, RUN, CHAIN), reports an error on stderr,
     /// and at the end, so that stdout keeps its order with them.
     pub(crate) fn flush(&mut self) {
+        if !self.tty_carry.is_empty() {
+            let t = qb_runtime::console::keys::terminal_text_end(&mut self.tty_carry);
+            let _ = self.out.write_all(&t);
+            self.out_dirty = true;
+        }
         if self.out_dirty {
             let _ = self.out.flush();
             self.out_dirty = false;
+            self.out_flushed_at = qb_runtime::systime::ticks();
         }
         // console text in the system runtime's stdio buffer (`_DEST _CONSOLE` of a window program) is newer
         qb_runtime::console::stdio::flush_pending();
@@ -234,11 +248,21 @@ impl<'a> RtState<'a> {
         if qb_runtime::console::stdio::pending() {
             self.flush();
         }
-        let _ = self.out.write_all(b);
+        if self.tty_text {
+            let t = qb_runtime::console::keys::terminal_text(&mut self.tty_carry, b);
+            let _ = self.out.write_all(&t);
+        } else {
+            let _ = self.out.write_all(b);
+        }
         if self.out_tty {
             let _ = self.out.flush();
         } else {
             self.out_dirty = true;
+            // into a file or pipe: in blocks, and at least every quarter second
+            let now = qb_runtime::systime::ticks();
+            if now - self.out_flushed_at >= 250 {
+                self.flush();
+            }
         }
         for c in b {
             // CR returns to column 1 like LF (a line redrawn in place)
@@ -1187,6 +1211,31 @@ fn call_main<'a>(vm: &mut dyn Host<'a>, name: &'static str, a: &[V]) -> R<Option
                 got.truncate(n);
                 return ok(V::S(got));
             }
+            // a console or terminal: the keys as they are typed, without Enter and without echo
+            #[cfg(not(target_arch = "wasm32"))]
+            if rt.stdin.rpos >= rt.stdin.rbuf.len() && stdin_is_terminal() && console_key_source(rt) {
+                rt.flush();
+                let mut got = Vec::new();
+                let mut console = true;
+                while got.len() < n {
+                    match qb_runtime::console::keys::read_key(true) {
+                        // keys without a character (arrows, F1) are no part of INPUT$
+                        Some(k) if k.first() != Some(&0) => got.extend_from_slice(&k),
+                        Some(_) => {}
+                        None => {
+                            console = false;
+                            break;
+                        }
+                    }
+                }
+                if console {
+                    // the rest of a character longer than one byte comes with the next read
+                    let rest = got.split_off(n);
+                    rt.stdin.rbuf.extend_from_slice(&rest);
+                    return ok(V::S(got));
+                }
+                rt.stdin.rbuf.extend_from_slice(&got);
+            }
             fill(rt, Some(n));
             let s = &mut rt.stdin;
             let end = (s.rpos + n).min(s.rbuf.len());
@@ -1353,20 +1402,26 @@ fn call_main<'a>(vm: &mut dyn Host<'a>, name: &'static str, a: &[V]) -> R<Option
             t[p as usize - 1] = i(2) as u8;
             return ok(V::S(t));
         }
-        "COMMAND$" => return ok(V::S(program_args()[1..].join(" ").into_bytes())),
+        "COMMAND$" => return ok(V::S(program_args()[1..].join(&b' '))),
         "COMMAND$.n" => {
             // COMMAND$(n): argument n (0 = the program), "" out of range
             let a = program_args();
             let n = i(0);
-            return ok(V::S(if n >= 0 && (n as usize) < a.len() { a[n as usize].clone().into_bytes() } else { vec![] }));
+            return ok(V::S(if n >= 0 && (n as usize) < a.len() { a[n as usize].clone() } else { vec![] }));
         }
         "ENVIRON$" => {
-            return ok(V::S(std::env::var_os(String::from_utf8_lossy(s(0)).as_ref()).map(|v| v.to_string_lossy().into_owned().into_bytes()).unwrap_or_default()))
+            use qb_runtime::osstr::{bytes_of, os_string};
+            return ok(V::S(std::env::var_os(os_string(s(0))).map(|v| bytes_of(&v)).unwrap_or_default()));
         }
         "ENVIRON$.n" => {
             let k = i(0);
             // vars() panics on a variable that is not Unicode
-            let v = std::env::vars_os().nth((k - 1).max(0) as usize).map(|(a, b)| format!("{}={}", a.to_string_lossy(), b.to_string_lossy()).into_bytes());
+            let v = std::env::vars_os().nth((k - 1).max(0) as usize).map(|(a, b)| {
+                let mut t = qb_runtime::osstr::bytes_of(&a);
+                t.push(b'=');
+                t.extend_from_slice(&qb_runtime::osstr::bytes_of(&b));
+                t
+            });
             return ok(V::S(v.unwrap_or_default()));
         }
         "ENVIRON" => {
@@ -1380,19 +1435,20 @@ fn call_main<'a>(vm: &mut dyn Host<'a>, name: &'static str, a: &[V]) -> R<Option
                 if k.is_empty() || k.contains(['=', '\0']) || v.contains('\0') {
                     return e(5);
                 }
+                // the program's bytes as the system's string, as ENVIRON$ reads them back
+                let (k, v) = (qb_runtime::osstr::os_string(k.as_bytes()), qb_runtime::osstr::os_string(v.as_bytes()));
                 if v.is_empty() {
                     // SAFETY: the program thread is the only one touching the environment.
                     unsafe { std::env::remove_var(&k) };
                 } else {
                     // SAFETY: as above.
-                    unsafe { std::env::set_var(&k, v) };
+                    unsafe { std::env::set_var(&k, &v) };
                 }
             }
         }
         "SHELL" => {
             rt.flush();
-            let cmd = String::from_utf8_lossy(s(0)).into_owned();
-            let st = shell_command(&cmd).status();
+            let st = shell_command(s(0)).status();
             return ok(V::I(st.ok().and_then(|s| s.code()).unwrap_or(-1).into()));
         }
         "DATE$" => return ok(V::S(qb_runtime::systime::date_string().into_bytes())),
@@ -1439,10 +1495,11 @@ fn call_main<'a>(vm: &mut dyn Host<'a>, name: &'static str, a: &[V]) -> R<Option
         }
         "_STRCMP" | "_STRICMP" => return ok(V::I(str_compare(s(0), s(1), name == "_STRICMP"))),
         "_CWD$" => {
-            let d = std::env::current_dir().map(|p| p.to_string_lossy().into_owned()).unwrap_or_default();
-            return ok(V::S(d.into_bytes()));
+            // the system's bytes: CHDIR _CWD$ works in a folder whose name is not UTF-8
+            let d = std::env::current_dir().map(|p| qb_runtime::osstr::bytes_of(p.as_os_str())).unwrap_or_default();
+            return ok(V::S(d));
         }
-        "_STARTDIR$" => return ok(V::S(start_dir().as_bytes().to_vec())),
+        "_STARTDIR$" => return ok(V::S(start_dir().to_vec())),
         _ => return e(73),
     }
     Ok(None)
@@ -1457,33 +1514,71 @@ fn os_path(b: &[u8]) -> std::path::PathBuf {
     qb_runtime::gfs::os_path(&v)
 }
 
-/// Files matching a DOS pattern (`*`, `?` in the last component).
+/// Files matching a DOS pattern (`*`, `?` in the last component), as Windows and DOS
+/// match them: `?` is one letter (a Thai letter is one, not three bytes), `*.*` and
+/// `name.*` also take a name without an extension, and letter case counts where the
+/// file system tells cases apart (Linux): there `KILL "notes.*"` also deleted NOTES.TXT.
 fn glob_files(spec: &std::path::Path) -> Vec<std::path::PathBuf> {
     if !spec.as_os_str().as_encoded_bytes().iter().any(|c| matches!(c, b'*' | b'?')) {
         return if spec.is_file() { vec![spec.to_path_buf()] } else { vec![] };
     }
+    let fold = |s: &str| -> Vec<char> { if cfg!(any(windows, target_os = "macos")) { s.to_lowercase().chars().collect() } else { s.chars().collect() } };
     let path = spec;
     let dir = path.parent().filter(|d| !d.as_os_str().is_empty()).unwrap_or(std::path::Path::new("."));
-    let pat: Vec<u8> = path.file_name().map(|n| n.to_string_lossy().to_ascii_lowercase().into_bytes()).unwrap_or_default();
-    fn m(p: &[u8], t: &[u8]) -> bool {
-        match (p.first(), t.first()) {
-            (None, None) => true,
-            (Some(b'*'), _) => m(&p[1..], t) || (!t.is_empty() && m(p, &t[1..])),
-            (Some(b'?'), Some(_)) => m(&p[1..], &t[1..]),
-            (Some(a), Some(b)) if a == b => m(&p[1..], &t[1..]),
-            _ => false,
-        }
-    }
+    let pat = fold(&path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default());
+    // "name.*": the name alone too
+    let bare = pat.strip_suffix(&['.', '*']).map(<[char]>::to_vec);
     let mut out = Vec::new();
     if let Ok(rd) = std::fs::read_dir(dir) {
         for e in rd.flatten() {
-            let name = e.file_name().to_string_lossy().to_ascii_lowercase();
-            if e.path().is_file() && m(&pat, name.as_bytes()) {
+            let name = fold(&e.file_name().to_string_lossy());
+            let hit = dos_match(&pat, &name) || bare.as_ref().is_some_and(|b| !name.contains(&'.') && dos_match(b, &name));
+            if hit && e.path().is_file() {
                 out.push(e.path());
             }
         }
     }
     out
+}
+
+/// `*` any run of letters, `?` one letter, anything else itself.
+fn dos_match(p: &[char], t: &[char]) -> bool {
+    match (p.first(), t.first()) {
+        (None, None) => true,
+        (Some('*'), _) => dos_match(&p[1..], t) || (!t.is_empty() && dos_match(p, &t[1..])),
+        (Some('?'), Some(_)) => dos_match(&p[1..], &t[1..]),
+        (Some(a), Some(b)) if a == b => dos_match(&p[1..], &t[1..]),
+        _ => false,
+    }
+}
+
+#[cfg(test)]
+mod glob_tests {
+    #[test]
+    fn dos_patterns() {
+        let d = std::env::temp_dir().join(format!("qb_test_{}_glob", std::process::id()));
+        let _ = std::fs::remove_dir_all(&d);
+        std::fs::create_dir_all(&d).unwrap();
+        for f in ["README", "notes.txt", "ก.txt", "ab.txt"] {
+            std::fs::write(d.join(f), b"").unwrap();
+        }
+        let names = |pat: &str| {
+            let mut v: Vec<String> = super::glob_files(&d.join(pat)).iter().map(|p| p.file_name().unwrap().to_string_lossy().into_owned()).collect();
+            v.sort();
+            v
+        };
+        // *.* takes a name without an extension too
+        assert_eq!(names("*.*").len(), 4);
+        assert_eq!(names("README.*"), ["README"]);
+        // ? is one letter, also a Thai one
+        assert_eq!(names("?.txt"), ["ก.txt"]);
+        assert_eq!(names("??.txt"), ["ab.txt"]);
+        if cfg!(target_os = "linux") {
+            std::fs::write(d.join("NOTES.TXT"), b"").unwrap();
+            assert_eq!(names("notes.*"), ["notes.txt"]);
+        }
+        let _ = std::fs::remove_dir_all(&d);
+    }
 }
 
 /// Browser runner: draws the stdin bytes INPUT consumed since `start` on the
@@ -1607,6 +1702,23 @@ fn typed_key_ok(line: &[u8], c: u8, types: &[Vec<u8>]) -> bool {
     }
 }
 
+/// Keys come from the console the program runs in: there is no window to type into
+/// (`$CONSOLE:ONLY`) and no input script drives the keys.
+#[cfg(not(target_arch = "wasm32"))]
+fn console_key_source(rt: &RtState<'_>) -> bool {
+    static SCRIPTED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    !rt.window && !*SCRIPTED.get_or_init(|| std::env::var_os("QBNEX_INPUT_SCRIPT").is_some_and(|s| !s.is_empty()))
+}
+
+/// A key typed on the console of a program without a window, as INKEY$ gives it.
+#[cfg(not(target_arch = "wasm32"))]
+fn console_key(rt: &RtState<'_>, wait: bool) -> Option<Vec<u8>> {
+    if !console_key_source(rt) {
+        return None;
+    }
+    qb_runtime::console::keys::read_key(wait)
+}
+
 /// INPUT reads keys typed live (the page delivers them, or the window).
 fn typed_input(rt: &RtState<'_>) -> bool {
     #[cfg(target_arch = "wasm32")]
@@ -1662,6 +1774,10 @@ fn fill(rt: &mut RtState<'_>, bytes: Option<usize>) {
         return;
     }
     let tty = stdin_is_terminal();
+    if tty {
+        // a line is typed with echo and editing again (INKEY$ read keys one at a time)
+        qb_runtime::console::keys::key_mode_off();
+    }
     let rd = &mut rt.stdin;
     // the lines read before are not needed again
     if rd.rpos >= 1 << 16 && rd.rpos * 2 >= rd.rbuf.len() {
@@ -1690,7 +1806,15 @@ fn fill(rt: &mut RtState<'_>, bytes: Option<usize>) {
                 rd.eof = true;
                 return;
             }
-            Ok(n) => rd.rbuf.extend_from_slice(&chunk[..n]),
+            Ok(n) => {
+                let first = !STDIN_STARTED.swap(true, std::sync::atomic::Ordering::Relaxed);
+                let at = rd.rbuf.len();
+                rd.rbuf.extend_from_slice(&chunk[..n]);
+                // a file saved as "UTF-8 with BOM" sent to stdin: the mark is no part of the first line
+                if first && rd.rbuf[at..].starts_with(b"\xEF\xBB\xBF") {
+                    rd.rbuf.drain(at..at + 3);
+                }
+            }
             Err(e) if e.kind() == std::io::ErrorKind::Interrupted => {}
             Err(_) => {
                 rd.eof = true;
@@ -1699,6 +1823,9 @@ fn fill(rt: &mut RtState<'_>, bytes: Option<usize>) {
         }
     }
 }
+
+/// The first bytes of stdin were read (see [`fill`]).
+static STDIN_STARTED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 /// stdin is a terminal (or console): its lines are typed while the program waits.
 fn stdin_is_terminal() -> bool {
@@ -2284,7 +2411,14 @@ fn input_call<'a>(vm: &mut dyn Host<'a>, name: &str, a: &[V]) -> Option<R<Option
                 rt.out_dirty = false;
             }
             let cm = &mut rt.cmem[..];
-            V::S(rt.input.inkey(cm))
+            let k = rt.input.inkey(cm);
+            #[cfg(not(target_arch = "wasm32"))]
+            if k.is_empty()
+                && let Some(c) = console_key(rt, false)
+            {
+                return Some(Ok(Some(V::S(c))));
+            }
+            V::S(k)
         }
         "func__keyhit" => {
             rt.input.pump(cm);
@@ -2438,6 +2572,9 @@ fn input_call<'a>(vm: &mut dyn Host<'a>, name: &str, a: &[V]) -> Option<R<Option
                     None => now,
                 };
                 if due > now {
+                    // what was printed goes out before the wait (into a file, a loop that only
+                    // waits lost it all when stopped with Ctrl+C)
+                    rt.flush();
                     qb_runtime::systime::sleep_ms((due - now) as u64);
                 }
                 rt.limit_last = Some(due);
@@ -2542,28 +2679,37 @@ fn str_compare(p: &[u8], q: &[u8], nocase: bool) -> i64 {
     o as i64
 }
 
-static PROGRAM_ARGS: std::sync::OnceLock<Vec<String>> = std::sync::OnceLock::new();
+static PROGRAM_ARGS: std::sync::OnceLock<Vec<Vec<u8>>> = std::sync::OnceLock::new();
 
 /// The program's argv as BASIC sees it: [program, args...]. `qb-exec prog.qir a b`
 /// sets it to [prog.qir, a, b] (`set_program_args`); a packaged program uses its own argv.
-pub(crate) fn program_args() -> &'static [String] {
+/// The system's own bytes (`osstr`): `std::env::args` panicked on an argument that is
+/// not Unicode (a Latin-1 file name on Linux).
+pub(crate) fn program_args() -> &'static [Vec<u8>] {
     PROGRAM_ARGS.get_or_init(|| {
-        let mut a: Vec<String> = std::env::args().collect();
+        let mut a: Vec<Vec<u8>> = std::env::args_os().map(|s| qb_runtime::osstr::bytes_of(&s)).collect();
         // COMMAND$(0) is the executable's full path (as QB64's GetModuleFileName), also
-        // when the program was started through PATH by its bare name
-        if let (Some(first), Ok(exe)) = (a.first_mut(), std::env::current_exe()) {
-            *first = exe.to_string_lossy().into_owned();
+        // when the program was started through PATH by its bare name, or with no argv
+        if let Ok(exe) = std::env::current_exe() {
+            let exe = qb_runtime::osstr::bytes_of(exe.as_os_str());
+            match a.first_mut() {
+                Some(first) => *first = exe,
+                None => a.push(exe),
+            }
+        }
+        if a.is_empty() {
+            a.push(Vec::new());
         }
         a
     })
 }
 
-static START_DIR: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+static START_DIR: std::sync::OnceLock<Vec<u8>> = std::sync::OnceLock::new();
 
 /// `_STARTDIR$`: the current directory when the program started (a later CHDIR
 /// does not change it). The VM records it when it is created.
-pub(crate) fn start_dir() -> &'static str {
-    START_DIR.get_or_init(|| std::env::current_dir().map(|p| p.to_string_lossy().into_owned()).unwrap_or_default())
+pub(crate) fn start_dir() -> &'static [u8] {
+    START_DIR.get_or_init(|| std::env::current_dir().map(|p| qb_runtime::osstr::bytes_of(p.as_os_str())).unwrap_or_default())
 }
 
 /// TIMER's reference, taken at the first TIMER call: the millisecond tick count and the
@@ -2582,9 +2728,12 @@ fn timer_origin() -> (u32, u32) {
     (first, day)
 }
 
-/// Sets the program's argv (first call wins).
-pub fn set_program_args(args: Vec<String>) {
-    let _ = PROGRAM_ARGS.set(args);
+/// The writer the program prints to is the process stdout (see [`crate::print_to_stdout`]).
+pub(crate) static STDOUT_TEXT: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Sets the program's argv (first call wins), as the system gave it.
+pub fn set_program_args(args: Vec<std::ffi::OsString>) {
+    let _ = PROGRAM_ARGS.set(args.iter().map(|a| qb_runtime::osstr::bytes_of(a)).collect());
 }
 
 /// `qb_func_instr` (qbs.rs) on slices.
@@ -2675,21 +2824,38 @@ mod int33_tests {
     }
 }
 
-/// The shell running command line `cmd` (SHELL, CHAIN, RUN): `cmd /c <cmd>`
-/// with the line passed as written, as the system `system()` call does (std's argument
-/// quoting would escape the quotes in it), or `sh -c <cmd>`.
-pub(crate) fn shell_command(cmd: &str) -> std::process::Command {
+/// The shell running command line `cmd` (SHELL, CHAIN, RUN): `cmd /s /c "<cmd>"` with
+/// the line passed as written (std's argument quoting would escape the quotes in it),
+/// or `sh -c <cmd>` with the program's bytes.
+///
+/// cmd /c takes away the first and the last quote of a line that starts with one, so
+/// `"C:\Program Files\7-Zip\7z.exe" x "my file.zip"` lost its quotes; /s with one more
+/// pair around the line makes that pair the one cmd takes away. A line that already
+/// starts with two quotes was wrapped by the program itself (as QB64 programs had to
+/// do): it gets no second pair.
+pub(crate) fn shell_command(cmd: &[u8]) -> std::process::Command {
+    // the other program gets the terminal in line mode, with echo
+    qb_runtime::console::keys::key_mode_off();
+    let text = qb_runtime::osstr::os_string(cmd);
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
+        let mut line = std::ffi::OsString::from("/s /c ");
+        if cmd.starts_with(b"\"\"") {
+            line.push(&text);
+        } else {
+            line.push("\"");
+            line.push(&text);
+            line.push("\"");
+        }
         let mut c = std::process::Command::new("cmd");
-        c.raw_arg(format!("/c {cmd}"));
+        c.raw_arg(line);
         c
     }
     #[cfg(not(windows))]
     {
         let mut c = std::process::Command::new("sh");
-        c.args(["-c", cmd]);
+        c.arg("-c").arg(text);
         c
     }
 }
@@ -2698,8 +2864,25 @@ pub(crate) fn shell_command(cmd: &str) -> std::process::Command {
 mod shell_tests {
     #[test]
     fn quotes_in_a_shell_command_reach_cmd_as_written() {
-        let o = super::shell_command("echo \"x y\"").output().unwrap();
+        let o = super::shell_command(b"echo \"x y\"").output().unwrap();
         assert_eq!(String::from_utf8_lossy(&o.stdout).trim_end(), "\"x y\"");
+    }
+
+    #[test]
+    fn a_quoted_program_path_with_quoted_arguments_runs() {
+        // "C:\Program Files\..." "a b" lost its first and last quote to cmd /c
+        let d = std::env::temp_dir().join(format!("qb_test_{}_shell ใน โฟลเดอร์", std::process::id()));
+        std::fs::create_dir_all(&d).unwrap();
+        let f = d.join("show args.cmd");
+        std::fs::write(&f, b"@echo [%~1][%~2]\r\n").unwrap();
+        let quoted = format!("\"{}\" \"p q\" r", f.display());
+        let o = super::shell_command(quoted.as_bytes()).output().unwrap();
+        assert_eq!(String::from_utf8_lossy(&o.stdout).trim_end(), "[p q][r]");
+        // a line the program wrapped in one more pair itself, as QB64 programs had to
+        let wrapped = format!("\"{quoted}\"");
+        let o = super::shell_command(wrapped.as_bytes()).output().unwrap();
+        assert_eq!(String::from_utf8_lossy(&o.stdout).trim_end(), "[p q][r]");
+        let _ = std::fs::remove_dir_all(&d);
     }
 }
 

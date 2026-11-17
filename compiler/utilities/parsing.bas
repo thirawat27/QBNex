@@ -1858,6 +1858,10 @@ DO
         memmode = 1
     ELSEIF MID$(c$, x, 8) = "$DYNAMIC" THEN
         memmode = 2
+    ELSEIF MID$(c$, x, 12) = "$INCLUDEONCE" THEN
+        '(QB64-PE) the file this line is in is included the first time only: the include
+        'managers skip it later (IncludeOnce_Seen%); in the main source it does nothing
+        IF inclevel > 0 THEN IncludeOnce_Mark incname$(inclevel)
     ELSEIF MID$(c$, x, 8) = "$INCLUDE" THEN
         'note: INCLUDE adds the file AFTER the line it is on has been processed
         'skip spaces until :

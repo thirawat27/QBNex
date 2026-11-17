@@ -228,15 +228,27 @@ fn install(args: &Args, interactive: bool) -> Result<(), String> {
     let dir = &options.dir;
     println!("QBNex {VERSION} setup");
     println!("Install folder: {}", dir.display());
-    if interactive && !ask("Install QBNex here?") {
+    let caution = platform::caution(dir);
+    if let Some(c) = &caution {
+        println!("Warning: {}", c.text);
+    }
+    // an install the compiler would not work in for the user goes ahead only on a yes
+    let must_ask = caution.as_ref().is_some_and(|c| c.ask);
+    if must_ask && !args.yes && !interactive {
+        return Err("not installed (see the warning above); pass --yes to install anyway".into());
+    }
+    if interactive && !ask(if must_ask { "Install QBNex here anyway?" } else { "Install QBNex here?" }) {
         return Err("cancelled".into());
     }
-    engine::install(&options, &bundle, &mut Quiet)?;
+    let report = engine::install(&options, &bundle, &mut Quiet)?;
     println!("QBNex {VERSION} is installed in {}.", dir.display());
     if args.no_path {
         println!("PATH was not changed; run {} directly.", dir.join(platform::compiler_name()).display());
     } else {
         println!("{}", platform::path_hint(dir));
+    }
+    for line in report.lines() {
+        println!("{line}");
     }
     Ok(())
 }

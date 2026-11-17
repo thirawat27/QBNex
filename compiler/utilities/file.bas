@@ -26,6 +26,21 @@ FUNCTION GetFilePath$ (f$)
     GetFilePath$ = resultPath
 END FUNCTION
 
+''' Checks if p$ names a file from a root: /x, \x, \\server\share\x, or C:\x on Windows.
+''' Returns: True for such a path; a relative one is relative to some folder.
+FUNCTION IsAbsolutePath% (p$)
+    IF LEFT$(p$, 1) = "/" OR LEFT$(p$, 1) = "\" THEN IsAbsolutePath% = -1: EXIT FUNCTION
+    IF os$ = "WIN" AND MID$(p$, 2, 1) = ":" THEN IsAbsolutePath% = -1
+END FUNCTION
+
+''' Joins a folder and a name with the system's separator: D:\x\y.bas, not D:\x/y.bas,
+''' and D:\y.bas for the drive's root folder D:\.
+''' Returns: folder$ + name$ with one separator between them.
+FUNCTION JoinPath$ (folder$, name$)
+    IF LEN(folder$) = 0 THEN JoinPath$ = name$: EXIT FUNCTION
+    IF RIGHT$(folder$, 1) = "/" OR RIGHT$(folder$, 1) = "\" THEN JoinPath$ = folder$ + name$ ELSE JoinPath$ = folder$ + pathsep$ + name$
+END FUNCTION
+
 ''' Checks if a filename has an extension on the end.
 ''' Returns: True if provided filename has an extension.
 FUNCTION FileHasExtension (f$)

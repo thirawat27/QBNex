@@ -28,10 +28,15 @@ mod platform {
     use windows_sys::Win32::Graphics::Gdi::*;
     use windows_sys::Win32::System::DataExchange::*;
     use windows_sys::Win32::System::Memory::*;
-    use windows_sys::Win32::System::Ole::{CF_BITMAP, CF_TEXT};
+    use windows_sys::Win32::System::Ole::{CF_BITMAP, CF_TEXT, CF_UNICODETEXT};
 
-    /// Puts `text` on the clipboard as `CF_TEXT` (legacy `sub__clipboard`).
+    /// Puts `text` on the clipboard (legacy `sub__clipboard`): UTF-8 text with
+    /// letters outside ASCII as `CF_UNICODETEXT`, as the rest of the runtime reads
+    /// text (as `CF_TEXT` it was read in the ANSI code page, so สวัสดี pasted as
+    /// mojibake); other bytes as `CF_TEXT`, byte for byte as before.
     pub fn set_text(text: &[u8]) {
+        let text = &text[..text.iter().position(|&c| c == 0).unwrap_or(text.len())];
+        let wide: Option<Vec<u16>> = (!text.is_ascii()).then(|| std::str::from_utf8(text).ok()).flatten().map(|s| s.encode_utf16().chain([0]).collect());
         // SAFETY: the global block is allocated with room for the text and a
         // NUL, filled while locked and handed to the clipboard.
         unsafe {
@@ -39,30 +44,66 @@ mod platform {
                 return;
             }
             EmptyClipboard();
-            let h = GlobalAlloc(GMEM_MOVEABLE, text.len() + 1);
+            let (bytes, format) = match &wide {
+                Some(w) => (std::slice::from_raw_parts(w.as_ptr().cast::<u8>(), w.len() * 2), CF_UNICODETEXT),
+                None => (text, CF_TEXT),
+            };
+            let nul = if wide.is_some() { 0 } else { 1 };
+            let h = GlobalAlloc(GMEM_MOVEABLE, bytes.len() + nul);
             if !h.is_null() {
                 let p = GlobalLock(h).cast::<u8>();
                 if !p.is_null() {
-                    std::ptr::copy_nonoverlapping(text.as_ptr(), p, text.len());
-                    *p.add(text.len()) = 0;
+                    std::ptr::copy_nonoverlapping(bytes.as_ptr(), p, bytes.len());
+                    if nul == 1 {
+                        *p.add(bytes.len()) = 0;
+                    }
                     GlobalUnlock(h);
-                    SetClipboardData(u32::from(CF_TEXT), h);
+                    SetClipboardData(u32::from(format), h);
                 }
             }
             CloseClipboard();
         }
     }
 
-    /// `CF_TEXT` up to the first NUL (legacy `func__clipboard`).
+    /// The clipboard text up to the first NUL (legacy `func__clipboard`): as UTF-8
+    /// when the program that put it there gave Unicode text first (Explorer, Notepad,
+    /// a browser: a copied Thai path became ?), else the `CF_TEXT` bytes as before.
     pub fn get_text() -> Vec<u8> {
         let mut out = Vec::new();
         // SAFETY: the clipboard block is only read while locked; CF_TEXT data
-        // is NUL-terminated.
+        // is NUL-terminated, CF_UNICODETEXT data NUL-terminated in u16 units.
         unsafe {
             if OpenClipboard(null_mut()) == 0 {
                 return out;
             }
-            if IsClipboardFormatAvailable(u32::from(CF_TEXT)) != 0 {
+            // formats come in the order they were put; the ones Windows makes from
+            // them come after
+            let mut f = 0;
+            let mut first_text = 0u32;
+            loop {
+                f = EnumClipboardFormats(f);
+                if f == 0 {
+                    break;
+                }
+                if f == u32::from(CF_TEXT) || f == u32::from(CF_UNICODETEXT) {
+                    first_text = f;
+                    break;
+                }
+            }
+            if first_text == u32::from(CF_UNICODETEXT) {
+                let h = GetClipboardData(u32::from(CF_UNICODETEXT));
+                if !h.is_null() {
+                    let p = GlobalLock(h).cast::<u16>();
+                    if !p.is_null() {
+                        let mut n = 0;
+                        while *p.add(n) != 0 {
+                            n += 1;
+                        }
+                        out = String::from_utf16_lossy(std::slice::from_raw_parts(p, n)).into_bytes();
+                        GlobalUnlock(h);
+                    }
+                }
+            } else if IsClipboardFormatAvailable(u32::from(CF_TEXT)) != 0 {
                 let h = GetClipboardData(u32::from(CF_TEXT));
                 if !h.is_null() {
                     let p = GlobalLock(h).cast::<std::ffi::c_char>();
@@ -299,6 +340,9 @@ mod tests {
             set_text(b"caf\xe9 \xa9");
             assert_eq!(get_text(), b"caf\xe9 \xa9", "CF_TEXT keeps bytes");
         }
+        // UTF-8 text goes both ways unchanged (CF_UNICODETEXT on Windows)
+        set_text("สวัสดี D:\\งาน\\a.txt".as_bytes());
+        assert_eq!(get_text(), "สวัสดี D:\\งาน\\a.txt".as_bytes());
 
         let pixels: Vec<u32> = (0..12u32).map(|i| 0xFF00_0000 | (i * 0x0010_2030)).collect();
         let img = Image { width: 4, height: 3, pixels };

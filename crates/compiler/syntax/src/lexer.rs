@@ -1,6 +1,8 @@
 //! Lossless lexer. Every byte of the input belongs to exactly one token, in
 //! order, so concatenating the token texts gives the input back.
 
+use std::cell::Cell;
+
 use crate::keywords;
 
 /// Token kinds.
@@ -147,12 +149,17 @@ struct Lexer<'a> {
     line_start: bool,
     /// At the start of a statement (metacommands, `#` comments).
     stmt_start: bool,
+    /// The last line end found: (offset it was looked for from, the end).
+    /// Every offset between the two has the same line end, so a line with
+    /// many string literals (each asks for it) is scanned once, not once per
+    /// literal.
+    eol: Cell<(usize, usize)>,
 }
 
 /// Splits `src` into tokens. Never fails: unknown input becomes
 /// [`TokenKind::Error`] tokens.
 pub fn lex(src: &str) -> Vec<Token> {
-    let mut lx = Lexer { src, pos: 0, tokens: Vec::new(), line_start: true, stmt_start: true };
+    let mut lx = Lexer { src, pos: 0, tokens: Vec::new(), line_start: true, stmt_start: true, eol: Cell::new((usize::MAX, 0)) };
     while lx.pos < src.len() {
         lx.step();
     }
@@ -176,7 +183,18 @@ impl<'a> Lexer<'a> {
     }
     /// End (byte offset) of the current line, excluding the newline.
     fn line_end(&self) -> usize {
-        self.rest().find(['\r', '\n']).map_or(self.src.len(), |i| self.pos + i)
+        self.line_end_from(self.pos)
+    }
+    /// End (byte offset) of the line `at` is on, excluding the newline.
+    fn line_end_from(&self, at: usize) -> usize {
+        let (from, end) = self.eol.get();
+        // no newline lies between `from` and `end`, so none between `at` and `end`
+        if from <= at && at <= end {
+            return end;
+        }
+        let end = self.src[at..].find(['\r', '\n']).map_or(self.src.len(), |i| at + i);
+        self.eol.set((at, end));
+        end
     }
     /// `end` moved back over trailing horizontal whitespace, but not before `min`.
     fn trim_back(&self, min: usize, end: usize) -> usize {
@@ -293,8 +311,8 @@ impl<'a> Lexer<'a> {
     /// compiler, also when it is glued to what precedes it: `1_` and `price_` at the
     /// end of a line are `1` and `price`, continued ([`Self::word`] leaves the `_`).
     fn is_continuation(&self, at: usize) -> bool {
-        let after = &self.src[at + 1..];
-        let rest_line = after.split(['\r', '\n']).next().unwrap_or("");
+        // (`at` holds the `_`, so the line goes on at least to `at + 1`)
+        let rest_line = &self.src[at + 1..self.line_end_from(at)];
         rest_line.chars().all(is_hspace)
     }
 
@@ -510,6 +528,49 @@ mod tests {
         assert_eq!(kinds("PRINT $\"{a + \"b")[2], (UnterminatedString, "\"{a + \"b"));
         // the `$` of a name is its suffix: `a$"open{"` is a plain string
         assert_eq!(kinds("a$\"open{\"s\"}\"")[1], (String, "\"open{\""));
+    }
+
+    /// A long line of string literals (and of `_` names) takes time in
+    /// proportion to its length: the line end is not looked for again for
+    /// every literal.
+    #[test]
+    fn long_lines_of_literals() {
+        use TokenKind::*;
+        let n = 200_000;
+        let src = format!("PRINT {}\nx = 1\n", "\"ab\" + ".repeat(n));
+        let toks = lex(&src);
+        assert_eq!(toks.iter().filter(|t| t.kind == String).count(), n);
+        assert_eq!(toks.iter().filter(|t| t.kind == Operator).count(), n + 1);
+        let s: std::string::String = toks.iter().map(|t| t.text(&src)).collect();
+        assert_eq!(s, src);
+        let src = format!("{}\"open\n", "_a ".repeat(n));
+        let toks = lex(&src);
+        assert_eq!(toks.iter().filter(|t| t.kind == Ident).count(), n);
+        assert_eq!(toks.iter().filter(|t| t.kind == UnterminatedString).count(), 1);
+    }
+
+    /// The remembered line end gives what a fresh search gives, from any
+    /// offset, across `\n`, `\r\n` and lone `\r`.
+    #[test]
+    fn line_end_matches_a_fresh_search() {
+        let src = "a \"x\" _\r\n\"y\" 'c\rb_ \"z\n\n_";
+        let lx = Lexer { src, pos: 0, tokens: Vec::new(), line_start: true, stmt_start: true, eol: Cell::new((usize::MAX, 0)) };
+        // forwards, backwards and again: the cache never gives a stale end
+        let order: Vec<usize> = (0..=src.len()).chain((0..=src.len()).rev()).chain(0..=src.len()).collect();
+        for at in order {
+            let fresh = src[at..].find(['\r', '\n']).map_or(src.len(), |i| at + i);
+            assert_eq!(lx.line_end_from(at), fresh, "at {at}");
+        }
+    }
+
+    #[test]
+    fn continuations_and_strings_unchanged() {
+        use TokenKind::*;
+        assert_eq!(kinds("a = \"x\" _  \n + \"y\"")[3], (LineContinuation, "_"));
+        assert_eq!(kinds("price_\r\n+ 1")[..2], [(Ident, "price"), (LineContinuation, "_")]);
+        assert_eq!(kinds("x = _y")[2], (Ident, "_y"));
+        assert_eq!(kinds("PRINT \"a\"; \"b")[1..4], [(String, "\"a\""), (Semicolon, ";"), (UnterminatedString, "\"b")]);
+        assert_eq!(kinds("PRINT \"a\r\"b\"")[1..4], [(UnterminatedString, "\"a"), (Newline, "\r"), (String, "\"b\"")]);
     }
 
     #[test]

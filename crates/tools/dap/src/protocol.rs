@@ -9,6 +9,16 @@ pub const MAX_MESSAGE: usize = 64 * 1024 * 1024;
 
 /// Reads one message; `Ok(None)` at end of input.
 pub fn read_message(r: &mut impl BufRead) -> io::Result<Option<Value>> {
+    match read_frame(r)? {
+        Some(body) => serde_json::from_slice(&body).map(Some).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e)),
+        None => Ok(None),
+    }
+}
+
+/// Reads the body of one message without parsing it; `Ok(None)` at end of
+/// input. An error here means the framing itself is broken (the next message
+/// cannot be found); a body that is not JSON is the caller's to report.
+pub fn read_frame(r: &mut impl BufRead) -> io::Result<Option<Vec<u8>>> {
     let mut len: Option<usize> = None;
     loop {
         let mut line = String::new();
@@ -35,7 +45,7 @@ pub fn read_message(r: &mut impl BufRead) -> io::Result<Option<Value>> {
     }
     let mut buf = vec![0; len];
     r.read_exact(&mut buf)?;
-    serde_json::from_slice(&buf).map(Some).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))
+    Ok(Some(buf))
 }
 
 /// Writes one message.
@@ -67,5 +77,18 @@ mod tests {
         let mut r = io::BufReader::new(&b"Content-Length: 1000000000000\r\n\r\n{}"[..]);
         let e = read_message(&mut r).unwrap_err();
         assert_eq!(e.kind(), io::ErrorKind::InvalidData);
+    }
+
+    /// A body that is not JSON is still one whole frame: the next message is
+    /// read normally after it.
+    #[test]
+    fn bad_body_keeps_the_framing() {
+        let mut buf = b"Content-Length: 5\r\n\r\n{nope".to_vec();
+        write_message(&mut buf, &serde_json::json!({"a": 2})).unwrap();
+        let mut r = io::BufReader::new(&buf[..]);
+        let body = read_frame(&mut r).unwrap().unwrap();
+        assert!(serde_json::from_slice::<Value>(&body).is_err());
+        assert_eq!(read_message(&mut r).unwrap().unwrap()["a"], 2);
+        assert!(read_frame(&mut r).unwrap().is_none());
     }
 }

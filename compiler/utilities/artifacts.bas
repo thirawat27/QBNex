@@ -102,14 +102,12 @@ SUB PreparePendingOutputBinary (sourceBaseName AS STRING)
 
     IF LEN(outputfile_cmd$) = 0 THEN EXIT SUB
 
-    pathOut = getfilepath$(outputfile_cmd$)
-    outputName = MID$(outputfile_cmd$, LEN(pathOut) + 1)
-    IF outputName = "" THEN outputName = outputfile_cmd$
-    outputName = RemoveFileExtension$(outputName)
-
-    IF LEN(pathOut) THEN pathOut = ResolveAbsoluteDirectory$(pathOut)
-
-    pendingOutputBinary$ = pathOut + outputName + extension$
+    'the file IrFinish writes for -o: relative to the folder qb was started in, with the
+    'name as given (app.v2 is app.v2.exe on Windows, not app.exe)
+    outputName = outputfile_cmd$
+    IF IsAbsolutePath%(outputName) = 0 THEN outputName = JoinPath$(_STARTDIR$, outputName)
+    IF os$ = "WIN" AND UCASE$(RIGHT$(outputName, 4)) <> ".EXE" AND LCASE$(RIGHT$(outputName, 4)) <> ".qir" THEN outputName = outputName + ".exe"
+    pendingOutputBinary$ = outputName
 END SUB
 
 SUB WarnIfStaleOutputBinary

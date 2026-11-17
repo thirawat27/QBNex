@@ -6,7 +6,9 @@
 //! stdin/stdout are the program's, running the VM with qb-exec's `debug`
 //! hook and reporting stops over a loopback TCP connection.
 //!
-//! Supported: line breakpoints in the launched file, pause, continue, step
+//! Supported: line breakpoints in the launched file and its `$INCLUDE`
+//! files (set before or after the launch), program arguments (`args`,
+//! COMMAND$), the program's own exit code, pause, continue, step
 //! in/over/out (statement granularity), call stack of SUB/FUNCTION frames,
 //! variables (scalars, strings, arrays, TYPEs) per frame plus globals,
 //! evaluate/hover for `name`, `name.field`, `name(i, j)`.

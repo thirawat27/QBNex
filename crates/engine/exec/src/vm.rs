@@ -1937,12 +1937,13 @@ impl<'m, 'o> Vm<'m, 'o> {
             // unhandled error: with QBNEX_NO_ERROR_DIALOG or redirected output the
             // dialog becomes one stderr line and the program ends with exit code 1; otherwise
             // (headless, nobody answers the dialog) a non-critical error continues after the statement
-            let cmd0 = std::env::args().next().unwrap_or_default();
+            // COMMAND$(0): std::env::args() panicked on a program path that is not Unicode
+            let cmd0 = crate::rt::builtins::program_args().first().cloned().unwrap_or_default();
             let (incl, file) = match self.incl_of(at) {
                 Some((l, f)) => (l, self.m.srcfiles.get(f as usize).map(Vec::as_slice)),
                 None => (0, None),
             };
-            let d = qb_runtime::error::error_dialog(code as u32, self.line_of(at), incl, file, cmd0.as_bytes());
+            let d = qb_runtime::error::error_dialog(code as u32, self.line_of(at), incl, file, &cmd0);
             let nd = qb_runtime::error::no_dialog_now();
             // what the program printed comes before the report on stderr
             self.rt.flush();

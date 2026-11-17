@@ -25,6 +25,7 @@ END FUNCTION
 SUB ResetPrepassManagers
     addmetainclude$ = ""
     importedModules$ = "@"
+    includeOnceFiles$ = "" 'files with $INCLUDEONCE are read again in each pass
     ClassSyntax_Reset
     classSyntaxDeferredQueue$ = ""
     topLevelRuntimeLines = ""
@@ -45,6 +46,7 @@ END SUB
 
 SUB ResetPostPrepassState
     inclevel = 0
+    includeOnceFiles$ = ""
     subfuncn = 0
     lastLineReturn = 0
     lastLine = 0

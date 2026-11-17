@@ -57,7 +57,8 @@ texts! {
     FolderIsFile: "A file with this name exists. Choose another folder.";
     FolderNoWrite: "Setup cannot write to this folder: {}";
     FolderNoSpace: "There is not enough free space on this drive.";
-    FolderInUse: "The folder already exists and holds other files. Install into it anyway?";
+    FolderInUse: "The folder already exists and holds other files. A file of yours with the name of a QBNex file is kept under a new name (README.md becomes README.md.before-qbnex). Install into it anyway?";
+    InstallAnyway: "Install here anyway?";
 
     TasksTitle: "Select Additional Tasks";
     TasksSub: "Which additional tasks should be performed?";

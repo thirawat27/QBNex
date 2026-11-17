@@ -36,6 +36,7 @@ pub mod mem;
 pub mod net;
 pub mod numfmt;
 pub mod numparse;
+pub mod osstr;
 pub mod printer;
 pub mod rnd;
 pub mod round;

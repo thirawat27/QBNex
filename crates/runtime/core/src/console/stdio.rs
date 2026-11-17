@@ -305,16 +305,11 @@ pub fn write_utf8(text: &[u8], finish_on_new_line: bool) {
             // spaces of a PRINT , zone written through the system runtime come first
             flush_pending();
             if !text.is_empty() {
-                let wide = win::to_wide(text, windows_sys::Win32::Globalization::CP_UTF8, win::utf8_strict())
-                    .or_else(|| {
-                        let st = &*core::ptr::addr_of!(win::STATE);
-                        let cp = if st.original_output_cp != 0 {
-                            st.original_output_cp
-                        } else {
-                            windows_sys::Win32::Globalization::GetACP()
-                        };
-                        win::to_wide(text, cp, 0)
-                    })
+                // not UTF-8: code page 437, as on a window page (the console's own code page
+                // turned box drawing into Thai letters on a code page 874 console)
+                let utf8 = windows_sys::Win32::Globalization::CP_UTF8;
+                let wide = win::to_wide(text, utf8, win::utf8_strict())
+                    .or_else(|| win::to_wide(&super::keys::cp437_text(text), utf8, 0))
                     .unwrap_or_default();
                 if !wide.is_empty() {
                     let mut written = 0;
@@ -615,9 +610,12 @@ pub fn flush_input() {
 pub fn console_title(title: &[u8]) {
     #[cfg(windows)]
     {
-        let z = crate::win32::cstr(title);
-        // SAFETY: NUL-terminated string.
-        unsafe { win::SetConsoleTitleA(z.as_ptr()) };
+        // UTF-8 as the runtime reads text (the "A" call read it in the console's code
+        // page, which is UTF-8 only when stdin is a console): _CONSOLETITLE "ทดสอบ"
+        // showed mojibake with input from a file
+        let w = crate::win32::wide_name(title);
+        // SAFETY: NUL-terminated UTF-16 string.
+        unsafe { win::SetConsoleTitleW(w.as_ptr()) };
     }
     #[cfg(not(windows))]
     let _ = title;
@@ -763,6 +761,7 @@ pub fn wait_key(timeout_ms: Option<u64>) -> bool {
     {
         use crossterm::event::{self, Event, KeyEventKind};
         use std::io::IsTerminal;
+        super::keys::key_mode_off();
         if !std::io::stdin().is_terminal() || crossterm::terminal::enable_raw_mode().is_err() {
             return sleep_out();
         }

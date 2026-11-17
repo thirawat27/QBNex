@@ -74,7 +74,8 @@ static OUTCOME: Mutex<Option<Result<(), String>>> = Mutex::new(None);
 /// What the working thread tells the window.
 enum Work {
     Event(Event),
-    Done(Result<(), String>),
+    /// The end, with what an install that worked has to tell the user.
+    Done(Result<Vec<String>, String>),
 }
 
 /// A question shown over the page.
@@ -120,6 +121,8 @@ struct App {
     fraction: f32,
     cancel: Arc<AtomicBool>,
     work: Option<Receiver<Work>>,
+    /// What the finished install reports: files kept under a new name, warnings.
+    notes: Vec<String>,
     open_readme: bool,
     open_folder: bool,
     logo: Option<egui::TextureHandle>,
@@ -318,6 +321,7 @@ impl App {
             fraction: 0.0,
             cancel: Arc::new(AtomicBool::new(false)),
             work: None,
+            notes: Vec::new(),
             open_readme: false,
             open_folder: false,
             logo,
@@ -342,9 +346,9 @@ impl App {
         let ctx = ctx.clone();
         std::thread::spawn(move || {
             let result = match (mode, bundle) {
-                (Mode::Install, Some(bundle)) => engine::install(&options, &bundle, &mut channel),
+                (Mode::Install, Some(bundle)) => engine::install(&options, &bundle, &mut channel).map(|report| report.lines()),
                 (Mode::Install, None) => Err("nothing to install".into()),
-                (Mode::Uninstall, _) => engine::uninstall(&options.dir, &mut channel),
+                (Mode::Uninstall, _) => engine::uninstall(&options.dir, &mut channel).map(|()| Vec::new()),
             };
             let _ = sender.send(Work::Done(result));
             ctx.request_repaint();
@@ -379,6 +383,7 @@ impl App {
                     self.fraction = if total == 0 { 0.0 } else { done as f32 / total as f32 };
                 }
                 Work::Done(result) => {
+                    let result = result.map(|notes| self.notes = notes);
                     self.asking = None;
                     self.problem = result.as_ref().err().filter(|e| e.as_str() != engine::CANCELLED).cloned();
                     self.wizard.finish(result);
@@ -766,6 +771,15 @@ impl App {
                     ui.set_width(ui.available_width());
                     ui.label(RichText::new(reach).monospace());
                 });
+                if !self.notes.is_empty() {
+                    // files kept under a new name, another qb first on PATH
+                    ui.add_space(6.0);
+                    egui::ScrollArea::vertical().max_height(96.0).show(ui, |ui| {
+                        for line in &self.notes {
+                            ui.label(RichText::new(line).size(12.0).color(MUTED));
+                        }
+                    });
+                }
                 ui.add_space(8.0);
                 ui.checkbox(&mut self.open_readme, Key::OpenReadme.text());
                 ui.checkbox(&mut self.open_folder, Key::OpenFolder.text());
@@ -832,12 +846,21 @@ impl App {
             Asking::Exit => Key::ConfirmCancel.text().to_string(),
             Asking::Folder(text) => text.clone(),
         };
-        let dialog = Rect::from_center_size(whole.center() - vec2(0.0, 12.0), vec2(420.0, 164.0));
+        // A long question (what a setup run as administrator or root means, and a
+        // folder that holds files) gets a wider, taller dialog and smaller type; it
+        // scrolls should it still not fit.
+        let long = sentence.len() > 160;
+        let (width, size, per_line) = if long { (560.0, 13.0, 76.0) } else { (420.0, 15.0, 46.0) };
+        let lines: f32 = sentence.split('\n').map(|l| (l.len() as f32 / per_line).ceil().max(1.0)).sum();
+        let height = (96.0 + lines * size * 1.45).clamp(164.0, (whole.height() - 40.0).max(164.0));
+        let dialog = Rect::from_center_size(whole.center() - vec2(0.0, 12.0), vec2(width, height));
         let soft = Shadow { offset: [0, 12], blur: 44, spread: 0, color: Color32::from_black_alpha(46) };
         ui.painter().add(soft.as_shape(dialog, CornerRadius::same(18)));
         ui.painter().rect_filled(dialog, 18, PAPER);
         area(ui, Rect::from_min_max(dialog.min + vec2(28.0, 28.0), dialog.max - vec2(28.0, 68.0)), |ui| {
-            ui.label(RichText::new(sentence).size(15.0));
+            egui::ScrollArea::vertical().show(ui, |ui| {
+                ui.label(RichText::new(sentence).size(size));
+            });
         });
         let no = Rect::from_min_size(dialog.max - vec2(24.0, 22.0) - BUTTON, BUTTON);
         let yes = no.translate(vec2(-(BUTTON.x + 10.0), 0.0));

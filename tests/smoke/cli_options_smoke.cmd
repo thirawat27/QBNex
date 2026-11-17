@@ -86,6 +86,67 @@ call :has typo_file "Did you mean"
 call :has typo_file "clean.bas"
 call :run hint 0 "%T%\clean.bas" -m
 call :has hint "Run it:"
+rem -o takes no switch for a name, and never the source file itself
+call :run o_switch 1 "%T%\clean.bas" -o -q
+call :has o_switch "is a switch"
+call :run o_source 1 "%T%\clean.bas" -o "%T%\clean.bas"
+call :has o_source "it is the source file"
+call :missing "%T%\clean.bas.exe"
+
+rem ---- paths: a relative name is relative to the folder qb was started in, and what a
+rem source names ($INCLUDE, $EXEICON, DECLARE DYNAMIC LIBRARY) is next to it ----
+mkdir "%T%\src\lib" >nul 2>&1
+> "%T%\src\once.bi" echo '$INCLUDEONCE
+>> "%T%\src\once.bi" echo DIM SHARED onceArr(3) AS LONG
+> "%T%\src\once.bas" echo '$INCLUDE:'once.bi'
+>> "%T%\src\once.bas" echo '$INCLUDE:'ONCE.BI'
+>> "%T%\src\once.bas" echo PRINT "ONCE_OK"; UBOUND(onceArr)
+call :run include_once 0 "%T%\src\once.bas" -q -o "%T%\once.exe"
+"%T%\once.exe" < NUL > "%T%\once_run.txt" 2>&1
+call :has once_run "ONCE_OK"
+rem not QBNex's own README.md, from the folder qb works in (started in %T%)
+> "%T%\src\readme.bas" echo '$INCLUDE:'README.md'
+pushd "%T%"
+call :run include_missing 1 "%T%\src\readme.bas" -q -o "%T%\readme.exe"
+popd
+call :has include_missing "File README.md not found (looked in"
+call :hasnot include_missing "Metacommands must start with"
+> "%T%\src\app.ico" echo not an icon: $EXEICON is accepted without effect
+> "%T%\src\icon.bas" echo $EXEICON:'app.ico'
+>> "%T%\src\icon.bas" echo PRINT "ICON_OK"
+call :run exeicon 0 "%T%\src\icon.bas" -q -o "%T%\icon.exe"
+copy /y "%SystemRoot%\System32\version.dll" "%T%\src\lib\mylib.dll" >nul
+> "%T%\src\dynlib.bas" echo DECLARE DYNAMIC LIBRARY "lib\mylib"
+>> "%T%\src\dynlib.bas" echo FUNCTION GetFileVersionInfoSizeA^& (BYVAL f AS _OFFSET, BYVAL h AS _OFFSET)
+>> "%T%\src\dynlib.bas" echo END DECLARE
+>> "%T%\src\dynlib.bas" echo PRINT "LIB_OK"; GetFileVersionInfoSizeA^&(0, 0)
+call :run dynlib 0 "%T%\src\dynlib.bas" -q -o "%T%\dynlib.exe"
+"%T%\dynlib.exe" < NUL > "%T%\dynlib_run.txt" 2>&1
+call :has dynlib_run "LIB_OK"
+> "%T%\src\nolib.bas" echo DECLARE DYNAMIC LIBRARY "lib\nolib"
+>> "%T%\src\nolib.bas" echo FUNCTION NoLibFn^& ()
+>> "%T%\src\nolib.bas" echo END DECLARE
+call :run nolib 1 "%T%\src\nolib.bas" -q -o "%T%\nolib.exe"
+call :has nolib "there is no nolib.dll in"
+rem a relative source path is not looked for in the QBNex folder
+pushd "%T%"
+call :run not_in_qbnex 1 compiler\qbnex.bas -q
+call :has not_in_qbnex "Cannot find the source file"
+popd
+rem the stale-output warning names the file -o writes: app.v2 is app.v2.exe
+call :run stale_ok 0 "%T%\clean.bas" -q -o "%T%\app.v2"
+call :exists "%T%\app.v2.exe"
+call :run stale 1 "%T%\err.bas" -q -o "%T%\app.v2"
+call :has stale "Existing executable may be stale"
+call :has stale "app.v2.exe"
+rem an output that cannot be written is said as such (cmd holds it open while qb runs)
+call :run locked 1 "%T%\clean.bas" -q -o "%T%\app.v2" 9>>"%T%\app.v2.exe"
+call :has locked "Cannot write"
+call :hasnot locked "internal"
+mkdir "%T%\folderout.exe" >nul 2>&1
+> "%T%\folderout.bas" echo PRINT 1
+call :run folderout 1 "%T%\folderout.bas" -q
+call :has folderout "it is a folder"
 
 rem ---- -q: no banner or progress ----
 call :run quiet 0 "%T%\clean.bas" -q -o "%T%\quiet.exe"

@@ -52,6 +52,35 @@ unsafe fn text(p: *const u8, len: i64) -> String {
     String::from_utf8_lossy(unsafe { bytes(p, len) }).into_owned()
 }
 
+/// A file name the program gave, as OPEN reads one (gfs::user_path): this system's
+/// separators ("data\a.zip" was not found on Linux and macOS), and on Unix the bytes
+/// themselves.
+fn user_path(b: &[u8]) -> PathBuf {
+    let mut v = b.to_vec();
+    for c in &mut v {
+        if cfg!(windows) && *c == b'/' {
+            *c = b'\\';
+        } else if !cfg!(windows) && *c == b'\\' {
+            *c = b'/';
+        }
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::ffi::OsStrExt;
+        PathBuf::from(std::ffi::OsStr::from_bytes(&v))
+    }
+    #[cfg(not(unix))]
+    {
+        PathBuf::from(String::from_utf8_lossy(&v).into_owned())
+    }
+}
+
+/// # Safety
+/// `p` readable for `len` bytes when `len > 0`.
+unsafe fn path_arg(p: *const u8, len: i64) -> PathBuf {
+    user_path(unsafe { bytes(p, len) })
+}
+
 fn ok_result(v: Vec<u8>) -> i64 {
     with(|s| {
         s.error.clear();
@@ -264,7 +293,7 @@ pub unsafe extern "C" fn qb_ext_codec(op: i32, d: *const u8, dl: i64) -> i64 {
 /// Pointer/length pair valid.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_ext_zip_list(path: *const u8, pl: i64) -> i32 {
-    match ziparc::list(&PathBuf::from(unsafe { text(path, pl) })) {
+    match ziparc::list(&unsafe { path_arg(path, pl) }) {
         Ok(entries) => ok_parts(entries.into_iter().map(|e| e.name.into_bytes()).collect()),
         Err(e) => fail(e) as i32,
     }
@@ -276,7 +305,7 @@ pub unsafe extern "C" fn qb_ext_zip_list(path: *const u8, pl: i64) -> i32 {
 /// Pointer/length pairs valid.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_ext_zip_read(path: *const u8, pl: i64, name: *const u8, nl: i64) -> i64 {
-    match ziparc::read(&PathBuf::from(unsafe { text(path, pl) }), &unsafe { text(name, nl) }) {
+    match ziparc::read(&unsafe { path_arg(path, pl) }, &unsafe { text(name, nl) }) {
         Ok(v) => ok_result(v),
         Err(e) => fail(e),
     }
@@ -288,7 +317,7 @@ pub unsafe extern "C" fn qb_ext_zip_read(path: *const u8, pl: i64, name: *const 
 /// Pointer/length pairs valid.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_ext_zip_extract(path: *const u8, pl: i64, dest: *const u8, dl: i64) -> i32 {
-    match ziparc::extract(&PathBuf::from(unsafe { text(path, pl) }), &PathBuf::from(unsafe { text(dest, dl) })) {
+    match ziparc::extract(&unsafe { path_arg(path, pl) }, &unsafe { path_arg(dest, dl) }) {
         Ok(n) => {
             with(|s| s.error.clear());
             n as i32
@@ -303,7 +332,7 @@ pub unsafe extern "C" fn qb_ext_zip_extract(path: *const u8, pl: i64, dest: *con
 /// Pointer/length pair valid.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_ext_zip_create(path: *const u8, pl: i64) -> i32 {
-    match ziparc::Builder::create(&PathBuf::from(unsafe { text(path, pl) })) {
+    match ziparc::Builder::create(&unsafe { path_arg(path, pl) }) {
         Ok(b) => with(|s| {
             s.error.clear();
             s.next_zip += 1;
@@ -329,7 +358,7 @@ pub unsafe extern "C" fn qb_ext_zip_add(h: i32, name: *const u8, nl: i64, data: 
         None => Err(format!("no open zip handle {h}")),
         Some(b) => match kind {
             0 => b.add_data(&name, data),
-            1 => b.add_file(&name, &PathBuf::from(String::from_utf8_lossy(data).into_owned())),
+            1 => b.add_file(&name, &user_path(data)),
             2 => b.add_dir(&name),
             _ => Err(format!("unknown member kind {kind}")),
         },

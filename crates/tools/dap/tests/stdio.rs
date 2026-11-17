@@ -143,9 +143,15 @@ impl Dap {
         self.request("configurationDone", json!({}));
     }
 
-    fn finish(mut self) -> String {
+    fn finish(self) -> String {
+        let (code, output) = self.end();
+        assert_eq!(code, 0, "output: {output}");
+        output
+    }
+
+    /// Waits for the program to end: (exit code, output).
+    fn end(mut self) -> (i64, String) {
         let code = self.event("exited")["body"]["exitCode"].as_i64().unwrap();
-        assert_eq!(code, 0, "output: {}", self.output);
         self.event("terminated");
         self.request("disconnect", json!({}));
         let _ = self.stdin.flush();
@@ -158,12 +164,160 @@ impl Dap {
         assert!(self.child.try_wait().unwrap().is_some(), "adapter did not exit");
         // drain the remaining output events
         while let Ok(m) = self.rx.try_recv() {
+            assert_ne!(m["event"], "terminated", "a second terminated event");
             if m["event"] == "output" {
                 self.output.push_str(m["body"]["output"].as_str().unwrap_or(""));
             }
         }
-        self.output
+        (code, self.output)
     }
+}
+
+fn hex(s: &str) -> String {
+    s.bytes().map(|b| format!("{b:02X}")).collect()
+}
+
+fn temp_dir(name: &str) -> PathBuf {
+    let dir = std::env::temp_dir().join(format!("{name}_{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    dir
+}
+
+/// QIR of `PRINT "["; COMMAND$; "]": PRINT _COMMANDCOUNT: SYSTEM code`.
+fn args_program(code: i32) -> String {
+    format!(
+        "QIR 1\nmeta console only\nfunc main\nline 1\nrt %0 COMMAND$\nconst.i32 %1 0\nconst.str %2 x{}\nrt PRINTS %1 %2\nrt PRINTS %1 %0\nconst.str %3 x{}\nrt PRINTS %1 %3\nrt PRINTNL %1\nline 2\nrt %4 _COMMANDCOUNT\ncvt.i64.i32 %5 %4\nrt %6 STR$.i64 %5\nrt PRINTS %1 %6\nrt PRINTNL %1\nline 3\nconst.i32 %7 {code}\ncvt.i64.i32 %8 %7\nsystem %8\nend\nendfunc\n",
+        hex("["),
+        hex("]"),
+    )
+}
+
+/// The program sees the launch's `args` (and not the debuggee's own command
+/// line) and its exit code is reported as it gave it, beyond 0..255 too.
+#[test]
+fn program_arguments_and_exit_code() {
+    let dir = temp_dir("qb_dap_args");
+    let bas = dir.join("args.bas");
+    std::fs::write(&bas, "PRINT \"[\"; COMMAND$; \"]\"\nPRINT _COMMANDCOUNT\nSYSTEM 300\n").unwrap();
+    for (code, no_debug) in [(300i32, false), (-1, true)] {
+        let qir = dir.join(format!("args{}.qir", code.abs()));
+        std::fs::write(&qir, args_program(code)).unwrap();
+        let mut d = Dap::start();
+        d.launch(&bas, &qir, json!({"args": ["a", "b c", "--no-debug"], "noDebug": no_debug}), &[]);
+        let (exit, out) = d.end();
+        assert_eq!(exit, i64::from(code), "{out}");
+        assert!(out.contains("[a b c --no-debug]"), "{out}");
+        assert!(out.contains(" 3"), "{out}");
+        assert!(!out.contains("--debuggee"), "{out}");
+    }
+    // one string is one argument
+    let qir = dir.join("args0.qir");
+    std::fs::write(&qir, args_program(0)).unwrap();
+    let mut d = Dap::start();
+    d.launch(&bas, &qir, json!({"args": "x y"}), &[]);
+    let out = d.finish();
+    assert!(out.contains("[x y]") && out.contains(" 1"), "{out}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A relative `program` (and `qir`) is taken from the launch's `cwd`.
+#[test]
+fn relative_program_from_cwd() {
+    let dir = temp_dir("qb_dap_relative");
+    let bas = dir.join("rel.bas");
+    std::fs::write(&bas, "PRINT \"[\"; COMMAND$; \"]\"\n").unwrap();
+    std::fs::write(dir.join("rel.qir"), args_program(0)).unwrap();
+    let mut d = Dap::start();
+    d.launch(&bas, &dir, json!({"program": "rel.bas", "qir": "rel.qir", "cwd": dir, "stopOnEntry": true}), &[]);
+    assert_eq!(d.stopped(), "entry");
+    let st = d.request("stackTrace", json!({"threadId": 1}));
+    let path = PathBuf::from(st["stackFrames"][0]["source"]["path"].as_str().unwrap());
+    assert!(path.is_absolute(), "{st}");
+    assert_eq!(path.file_name().unwrap(), "rel.bas");
+    assert_eq!(std::fs::canonicalize(&path).unwrap(), std::fs::canonicalize(&bas).unwrap());
+    d.request("continue", json!({"threadId": 1}));
+    d.finish();
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Breakpoints sent before the launch are moved to statements once the
+/// program is known and still stop it; a file that is not the program's
+/// does not take them away.
+#[test]
+fn breakpoints_set_before_launch() {
+    let (bas, qir) = fixture("control/subs_functions.bas", "control_subs_functions.qir");
+    let mut d = Dap::start();
+    d.request("initialize", json!({"adapterID": "qbnex"}));
+    d.event("initialized");
+    let r = d.request("setBreakpoints", json!({"source": {"path": bas}, "breakpoints": [{"line": 16}]}));
+    assert_eq!(r["breakpoints"][0]["verified"], false, "{r}");
+    let other = bas.with_file_name("not_the_program.bas");
+    let r = d.request("setBreakpoints", json!({"source": {"path": other}, "breakpoints": [{"line": 1}]}));
+    assert_eq!(r["breakpoints"][0]["verified"], false, "{r}");
+    d.request("launch", json!({"program": bas, "qir": qir}));
+    let changed = d.event("breakpoint");
+    assert_eq!(changed["body"]["breakpoint"]["verified"], true, "{changed}");
+    assert_eq!(changed["body"]["breakpoint"]["line"], 16, "{changed}");
+    d.request("configurationDone", json!({}));
+    assert_eq!(d.stopped(), "breakpoint");
+    assert_eq!(d.stack()[0], ("Bump".to_string(), 16));
+    d.request("setBreakpoints", json!({"source": {"path": bas}, "breakpoints": []}));
+    d.request("continue", json!({"threadId": 1}));
+    d.finish();
+}
+
+/// A terminate request ends the session with one `terminated` event and no
+/// made-up exit code.
+#[test]
+fn terminate_while_stopped() {
+    let (bas, qir) = fixture("control/subs_functions.bas", "control_subs_functions.qir");
+    let mut d = Dap::start();
+    d.launch(&bas, &qir, json!({}), &[16]);
+    assert_eq!(d.stopped(), "breakpoint");
+    d.request("terminate", json!({}));
+    d.event("terminated");
+    // the killed debuggee is noticed within a few hundred milliseconds
+    std::thread::sleep(Duration::from_millis(600));
+    d.request("threads", json!({}));
+    while let Ok(m) = d.rx.try_recv() {
+        d.pending.push(m);
+    }
+    assert!(!d.pending.iter().any(|m| m["event"] == "terminated" || m["event"] == "exited"), "{:?}", d.pending);
+    d.request("disconnect", json!({}));
+}
+
+/// With the real compiler: a statement of an `$INCLUDE` file is shown in
+/// that file, and a breakpoint there stops the program.
+#[test]
+fn real_compiler_include_files() {
+    let Some(qb) = real_compiler() else {
+        eprintln!("skipped: no qb compiler (set QB_COMPILER or build qb at the repository root)");
+        return;
+    };
+    let dir = temp_dir("qb_dap_include");
+    let bas = dir.join("main.bas");
+    let inc = dir.join("inc.bi");
+    std::fs::write(&bas, "PRINT \"a\"\n'$INCLUDE: 'inc.bi'\nPRINT \"b\"\n").unwrap();
+    std::fs::write(&inc, "x% = 1\nx% = x% + 1\nPRINT x%\n").unwrap();
+    let mut d = Dap::start();
+    d.request("initialize", json!({"adapterID": "qbnex"}));
+    d.event("initialized");
+    d.request("launch", json!({"program": bas, "compiler": qb}));
+    let r = d.request("setBreakpoints", json!({"source": {"path": inc}, "breakpoints": [{"line": 2}]}));
+    assert_eq!(r["breakpoints"][0]["verified"], true, "{r}");
+    d.request("configurationDone", json!({}));
+    assert_eq!(d.stopped(), "breakpoint");
+    let st = d.request("stackTrace", json!({"threadId": 1}));
+    let top = &st["stackFrames"][0];
+    assert_eq!(top["line"], 2, "{st}");
+    assert_eq!(top["source"]["name"], "inc.bi", "{st}");
+    assert_eq!(d.eval("x%"), "1");
+    d.request("setBreakpoints", json!({"source": {"path": inc}, "breakpoints": []}));
+    d.request("continue", json!({"threadId": 1}));
+    let out = d.finish();
+    assert!(out.contains(" 2"), "{out}");
+    let _ = std::fs::remove_dir_all(&dir);
 }
 
 fn find<'a>(vars: &'a [(String, String, u64)], name: &str) -> &'a (String, String, u64) {

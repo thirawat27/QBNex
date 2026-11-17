@@ -81,7 +81,10 @@ the default printer on Windows and through `lp` on Linux and macOS.
   [limitations](limitations.md#declare-library).
 - A statement the QIR back end does not cover yet stops the build with
   `QIR: unsupported: line N: ...`.
-- `$INCLUDE` names are resolved case-insensitively on Linux/macOS when the
+- A relative `$INCLUDE` path is looked for next to the including file, next to
+  the main source file, then in the folder `qb` was started in; `'$INCLUDEONCE`
+  (QB64-PE) in a file includes it once only. `$INCLUDE` names are resolved
+  case-insensitively on Linux/macOS when the
   exact path does not exist (folder by folder; an exact match wins). `$IF` does
   not interact with block structure (QB64 popped the open block at `$END IF`).
 - INPUT with redirected stdin: an answer that does not fit prints "Redo from

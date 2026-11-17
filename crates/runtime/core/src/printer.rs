@@ -85,7 +85,7 @@ pub mod gdi {
     use std::ptr::null;
     use windows_sys::Win32::Graphics::Gdi::*;
     use windows_sys::Win32::Graphics::Gdi as gdi32;
-    use windows_sys::Win32::Graphics::Printing::GetDefaultPrinterA;
+    use windows_sys::Win32::Graphics::Printing::GetDefaultPrinterW;
     use windows_sys::Win32::Storage::Xps::*;
 
     pub struct Gdi {
@@ -93,20 +93,24 @@ pub mod gdi {
     }
 
     impl Device for Gdi {
+        // The printer's name through the Unicode calls, as UTF-8 with a NUL: through the
+        // "A" calls a Thai printer name became ? and CreateDCA found no printer.
         fn default_printer(&mut self) -> Vec<u8> {
-            let mut buf = vec![0u8; 65536];
+            let mut buf = vec![0u16; 32768];
             let mut len = buf.len() as u32;
-            // SAFETY: `buf` holds `len` bytes.
-            if unsafe { GetDefaultPrinterA(buf.as_mut_ptr(), &mut len) } == 0 {
+            // SAFETY: `buf` holds `len` UTF-16 units.
+            if unsafe { GetDefaultPrinterW(buf.as_mut_ptr(), &mut len) } == 0 {
                 return vec![0];
             }
-            let end = buf.iter().position(|&b| b == 0).unwrap_or(0);
-            buf.truncate(end + 1);
-            buf
+            let mut name = crate::win32::utf8_name(&buf);
+            name.push(0);
+            name
         }
         fn create_dc(&mut self, name: &[u8]) -> bool {
+            let wide = crate::win32::wide_name(name);
+            let driver: Vec<u16> = "WINSPOOL\0".encode_utf16().collect();
             // SAFETY: both strings are NUL-terminated.
-            self.dc = unsafe { CreateDCA(c"WINSPOOL".as_ptr().cast(), name.as_ptr(), null(), null()) };
+            self.dc = unsafe { CreateDCW(driver.as_ptr(), wide.as_ptr(), null(), null()) };
             !self.dc.is_null()
         }
         fn start_doc(&mut self) -> i32 {

@@ -17,11 +17,18 @@ FUNCTION Path_Sep$ ()
     IF INSTR(_OS$, "WIN") THEN Path_Sep$ = "\" ELSE Path_Sep$ = "/"
 END FUNCTION
 
-' p with the computer's separator and no doubled separators.
+' p with the computer's separator and no doubled separators. A network path keeps
+' its leading pair: \\server\share (and //server/share on Windows).
 FUNCTION Path_Normalize$ (p AS STRING)
-    DIM i AS LONG, c AS STRING, r AS STRING, sep AS STRING, last AS LONG
+    DIM i AS LONG, c AS STRING, r AS STRING, sep AS STRING, last AS LONG, first AS LONG
     sep = Path_Sep$
-    FOR i = 1 TO LEN(p)
+    first = 1
+    IF LEN(p) >= 2 THEN
+        IF (LEFT$(p, 1) = "\" OR LEFT$(p, 1) = "/") AND (MID$(p, 2, 1) = "\" OR MID$(p, 2, 1) = "/") THEN
+            IF sep = "\" OR LEFT$(p, 2) = "\\" THEN r = sep + sep: first = 3: last = -1
+        END IF
+    END IF
+    FOR i = first TO LEN(p)
         c = MID$(p, i, 1)
         IF c = "\" OR c = "/" THEN
             IF last = 0 THEN r = r + sep

@@ -84,11 +84,11 @@ or linked into the program, so:
   never looked for in the current directory, so a file of that name in
   the folder the program is started from (a download or shared folder)
   cannot be loaded instead. A library in the source folder is named
-  `"./name"`; a path such as `"lib/name"` is relative to the current
-  directory, as in QB64.
+  `"./name"`; a path such as `"lib/name"` is relative to the source folder
+  when the library is there, else to the current directory, as in QB64.
 
-  On Windows the compiler stops with `LIBRARY not found` (`DYNAMIC
-  LIBRARY not found` for `DECLARE DYNAMIC LIBRARY`) when the `.dll`
+  On Windows the compiler stops with `LIBRARY "name" not found` (`DYNAMIC
+  LIBRARY "name" not found` for `DECLARE DYNAMIC LIBRARY`, with the folder it looked in) when the `.dll`
   is in none of the places the runner searches: the written path, the
   folder the program is written to (the folder of `-o`), `System32`, the
   Windows folder and `PATH`. A `.dll` only in the compiler's current

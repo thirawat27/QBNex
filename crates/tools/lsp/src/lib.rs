@@ -82,6 +82,8 @@ pub struct Server {
     /// Files read from disk (includes that are not open), reused while their
     /// modification time and length are unchanged.
     disk: RefCell<HashMap<String, (Stamp, Rc<Doc>)>>,
+    /// Workspace folders: the last place an `$INCLUDE` is looked for.
+    roots: Vec<PathBuf>,
 }
 
 impl Default for Server {
@@ -97,6 +99,17 @@ pub const MAX_MESSAGE: usize = 64 * 1024 * 1024;
 
 /// Reads one message; `Ok(None)` at end of input.
 pub fn read_message(r: &mut impl std::io::BufRead) -> std::io::Result<Option<Message>> {
+    use std::io::{Error, ErrorKind};
+    match read_frame(r)? {
+        Some(body) => serde_json::from_slice(&body).map(Some).map_err(|e| Error::new(ErrorKind::InvalidData, e)),
+        None => Ok(None),
+    }
+}
+
+/// Reads the body of one message without parsing it; `Ok(None)` at end of
+/// input. An error here means the header framing is broken (the next message
+/// cannot be found); a body that is not a message is answered by the caller.
+pub fn read_frame(r: &mut impl std::io::BufRead) -> std::io::Result<Option<Vec<u8>>> {
     use std::io::{Error, ErrorKind};
     let mut len: Option<usize> = None;
     loop {
@@ -123,8 +136,51 @@ pub fn read_message(r: &mut impl std::io::BufRead) -> std::io::Result<Option<Mes
     }
     let mut buf = vec![0; len];
     r.read_exact(&mut buf)?;
-    serde_json::from_slice(&buf).map(Some).map_err(|e| Error::new(ErrorKind::InvalidData, e))
+    Ok(Some(buf))
 }
+
+/// Parses a message body. One that is not a request, notification or
+/// response gives instead the JSON-RPC error response to send back: -32700
+/// (parse error) for text that is not JSON, -32600 (invalid request) for JSON
+/// that is not a message. Its id is the message's when a request was meant
+/// (a `method` and a usable id), else null.
+pub fn parse_body(body: &[u8]) -> Result<Message, serde_json::Value> {
+    use serde_json::Value;
+    let v: Value = match serde_json::from_slice(body) {
+        Ok(v) => v,
+        Err(e) => return Err(error_response(Value::Null, -32700, &format!("parse error: {e}"))),
+    };
+    let id = match &v["id"] {
+        id @ (Value::Number(_) | Value::String(_)) if !v["method"].is_null() => id.clone(),
+        _ => Value::Null,
+    };
+    serde_json::from_value(v).map_err(|e| error_response(id, -32600, &format!("invalid request: {e}")))
+}
+
+fn error_response(id: serde_json::Value, code: i32, message: &str) -> serde_json::Value {
+    serde_json::json!({"jsonrpc": "2.0", "id": id, "error": {"code": code, "message": message}})
+}
+
+/// Writes one message given as JSON.
+fn write_raw(w: &mut impl std::io::Write, msg: &serde_json::Value) -> std::io::Result<()> {
+    let body = serde_json::to_vec(msg)?;
+    write!(w, "Content-Length: {}\r\n\r\n", body.len())?;
+    w.write_all(&body)?;
+    w.flush()
+}
+
+/// `exit` came without a `shutdown` before it: the LSP specification has the
+/// server end with exit code 1 then.
+#[derive(Debug)]
+pub struct ExitWithoutShutdown;
+
+impl std::fmt::Display for ExitWithoutShutdown {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("exit without shutdown")
+    }
+}
+
+impl Error for ExitWithoutShutdown {}
 
 /// Runs the server on stdio until the client exits.
 pub fn run_stdio() -> Result<(), BoxError> {
@@ -133,13 +189,24 @@ pub fn run_stdio() -> Result<(), BoxError> {
     let reader = std::thread::spawn(move || {
         let mut stdin = std::io::stdin().lock();
         loop {
-            match read_message(&mut stdin) {
-                Ok(Some(msg)) => {
-                    let exit = matches!(&msg, Message::Notification(n) if n.method == "exit");
-                    if to_server.send(msg).is_err() || exit {
-                        break;
+            // Only broken header framing or the end of input ends the session:
+            // a body that is not a message is answered and the next one read.
+            match read_frame(&mut stdin) {
+                Ok(Some(body)) => match parse_body(&body) {
+                    Ok(msg) => {
+                        let exit = matches!(&msg, Message::Notification(n) if n.method == "exit");
+                        if to_server.send(msg).is_err() || exit {
+                            break;
+                        }
                     }
-                }
+                    Err(reply) => {
+                        // (the writer takes the lock for each whole message, so the
+                        // two never interleave)
+                        if write_raw(&mut std::io::stdout().lock(), &reply).is_err() {
+                            break;
+                        }
+                    }
+                },
                 Ok(None) => break,
                 Err(e) => {
                     eprintln!("qb-lsp: {e}");
@@ -149,9 +216,9 @@ pub fn run_stdio() -> Result<(), BoxError> {
         }
     });
     let writer = std::thread::spawn(move || {
-        let mut stdout = std::io::stdout().lock();
+        let stdout = std::io::stdout();
         for msg in from_server {
-            if msg.write(&mut stdout).is_err() {
+            if msg.write(&mut stdout.lock()).is_err() {
                 break;
             }
         }
@@ -162,6 +229,24 @@ pub fn run_stdio() -> Result<(), BoxError> {
     // the reader may still wait for input the client never sends: not joined
     drop(reader);
     result
+}
+
+/// Folders of the workspace from the `initialize` parameters: the editor's
+/// stand-in for the folder the compiler was started in.
+fn workspace_roots(params: &serde_json::Value) -> Vec<PathBuf> {
+    let mut roots: Vec<PathBuf> = Vec::new();
+    let uris = params["workspaceFolders"].as_array().into_iter().flatten().map(|f| &f["uri"]).chain([&params["rootUri"]]);
+    for p in uris.filter_map(|u| uri_to_path(u.as_str()?)) {
+        if !roots.contains(&p) {
+            roots.push(p);
+        }
+    }
+    if roots.is_empty()
+        && let Some(p) = params["rootPath"].as_str().filter(|p| !p.is_empty())
+    {
+        roots.push(PathBuf::from(p));
+    }
+    roots
 }
 
 pub fn capabilities() -> lt::ServerCapabilities {
@@ -184,9 +269,10 @@ pub fn run(conn: &Connection) -> Result<(), BoxError> {
         "capabilities": caps,
         "serverInfo": { "name": "qb-lsp", "version": env!("CARGO_PKG_VERSION") },
     });
-    let (id, _params) = conn.initialize_start()?;
+    let (id, params) = conn.initialize_start()?;
     conn.sender.send(Message::Response(Response::new_ok(id, init)))?;
     let mut server = Server::new();
+    server.set_roots(workspace_roots(&params));
     for msg in &conn.receiver {
         match msg {
             Message::Request(req) => {
@@ -196,6 +282,7 @@ pub fn run(conn: &Connection) -> Result<(), BoxError> {
                 let resp = server.request(req);
                 conn.sender.send(Message::Response(resp))?;
             }
+            Message::Notification(n) if n.method == "exit" => return Err(Box::new(ExitWithoutShutdown)),
             Message::Notification(n) => {
                 for out in server.notification(n) {
                     conn.sender.send(Message::Notification(out))?;
@@ -220,7 +307,13 @@ fn is_unc_like(written: &str) -> bool {
 
 impl Server {
     pub fn new() -> Self {
-        Server { docs: HashMap::new(), disk: RefCell::new(HashMap::new()) }
+        Server { docs: HashMap::new(), disk: RefCell::new(HashMap::new()), roots: Vec::new() }
+    }
+
+    /// Sets the workspace folders (searched for `$INCLUDE` files after the
+    /// including file's folder and the main file's folder).
+    pub fn set_roots(&mut self, roots: Vec<PathBuf>) {
+        self.roots = roots;
     }
 
     /// Handles a request and builds its response.
@@ -282,8 +375,17 @@ impl Server {
             "textDocument/didChange" => {
                 let Ok(p) = params::<lt::DidChangeTextDocumentParams>(n.params) else { return vec![] };
                 let uri = p.text_document.uri.as_str().to_string();
-                let Some(change) = p.content_changes.into_iter().last() else { return vec![] };
-                self.docs.insert(uri_key(&uri), Rc::new(Doc::new(uri.clone(), &change.text)));
+                if p.content_changes.is_empty() {
+                    return vec![];
+                }
+                let key = uri_key(&uri);
+                // Changes apply in order, each to the text the one before left.
+                // FULL sync is advertised, but a client may still send ranges.
+                let mut text = self.docs.get(&key).map(|d| d.parse.text.clone()).unwrap_or_default();
+                for c in &p.content_changes {
+                    apply_change(&mut text, c.range, &c.text);
+                }
+                self.docs.insert(key, Rc::new(Doc::new(uri.clone(), &text)));
                 vec![self.publish(&uri, Some(p.text_document.version))]
             }
             "textDocument/didSave" => {
@@ -329,18 +431,55 @@ impl Server {
         Some(doc)
     }
 
-    /// Resolves an include path written in `doc` (relative to its folder).
-    fn resolve_include(doc: &Doc, written: &str) -> Option<String> {
+    /// Resolves an include path written in `doc` as the compiler searches:
+    /// the including file's folder, then the main source file's folder
+    /// (`main`: the folder of the document the file set starts from), then
+    /// the workspace folders (the editor's stand-in for the folder qb was
+    /// started in). An open document is used even before it is saved.
+    fn resolve_include(&self, doc: &Doc, main: Option<&Path>, written: &str) -> Option<String> {
         // UNC and device paths (`\\host\share\x`, `//host/x`, `\\?\`, `\\.\`)
         // are never touched: probing one on Windows opens an SMB connection
         // (leaking the user's NTLM hash to the host named in the source).
         if is_unc_like(written) {
             return None;
         }
-        let dir = doc.path.as_deref()?.parent()?;
+        if Path::new(written).is_absolute() {
+            return self.find_include(Path::new(written));
+        }
         let rel: PathBuf = written.split(['/', '\\']).collect();
-        let p = if Path::new(written).is_absolute() { PathBuf::from(written) } else { dir.join(rel) };
-        p.is_file().then(|| path_to_uri(&p))
+        let dirs = doc.path.as_deref().and_then(Path::parent).into_iter().chain(main).chain(self.roots.iter().map(PathBuf::as_path));
+        let mut tried: Vec<&Path> = Vec::new();
+        for dir in dirs {
+            if tried.contains(&dir) {
+                continue;
+            }
+            tried.push(dir);
+            if let Some(u) = self.find_include(&dir.join(&rel)) {
+                return Some(u);
+            }
+        }
+        None
+    }
+
+    /// URI of the include file at `p`: an open document or a file on disk.
+    /// Where file names tell letter case apart, a name in another case is
+    /// taken when the exact one is missing (as the compiler's ResolvePathCase$).
+    fn find_include(&self, p: &Path) -> Option<String> {
+        let uri = path_to_uri(p);
+        let key = uri_key(&uri);
+        if self.docs.contains_key(&key) || p.is_file() {
+            return Some(uri);
+        }
+        if cfg!(not(windows)) {
+            let lower = key.to_lowercase();
+            if let Some(d) = self.docs.iter().find(|(k, _)| k.to_lowercase() == lower).map(|(_, d)| d.uri.clone()) {
+                return Some(d);
+            }
+            if let Some(found) = resolve_case(p) {
+                return Some(path_to_uri(&found));
+            }
+        }
+        None
     }
 
     /// The document plus every file it includes, transitively (depth <= 100).
@@ -348,13 +487,18 @@ impl Server {
         let mut out = Vec::new();
         let mut seen = HashSet::new();
         let mut stack = vec![(uri.to_string(), 0)];
+        // the folder of the document the set starts from: the main source file's
+        let mut main: Option<PathBuf> = None;
         while let Some((u, depth)) = stack.pop() {
             if depth > 100 || !seen.insert(uri_key(&u)) {
                 continue;
             }
             let Some(doc) = self.load(&u) else { continue };
+            if depth == 0 {
+                main = doc.path.as_deref().and_then(Path::parent).map(Path::to_path_buf);
+            }
             for (inc, _) in doc.analysis.includes.iter().rev() {
-                if let Some(iu) = Self::resolve_include(&doc, inc) {
+                if let Some(iu) = self.resolve_include(&doc, main.as_deref(), inc) {
                     stack.push((iu, depth + 1));
                 }
             }
@@ -378,8 +522,10 @@ impl Server {
                     ..Default::default()
                 });
             }
+            // (this document is the main file of its own set)
+            let main = doc.path.as_deref().and_then(Path::parent);
             for (inc, r) in &doc.analysis.includes {
-                if doc.path.is_some() && Self::resolve_include(doc, inc).is_none() {
+                if doc.path.is_some() && self.resolve_include(doc, main, inc).is_none() {
                     diagnostics.push(lt::Diagnostic {
                         range: doc.range(r),
                         severity: Some(lt::DiagnosticSeverity::WARNING),
@@ -780,6 +926,58 @@ impl Server {
     }
 }
 
+/// Applies one change of a `didChange`: the text between two positions
+/// (lines and UTF-16 columns, clamped to the text) replaced, or the whole
+/// text when the change has no range.
+pub fn apply_change(text: &mut String, range: Option<lt::Range>, new: &str) {
+    let Some(r) = range else {
+        *text = new.to_string();
+        return;
+    };
+    let index = LineIndex::new(text);
+    let start = index.offset(text, r.start.line, r.start.character);
+    let end = index.offset(text, r.end.line, r.end.character).max(start);
+    text.replace_range(start..end, new);
+}
+
+/// `p` with each part that does not exist matched in another letter case
+/// (the compiler's ResolvePathCase$, for file systems that tell case apart);
+/// `None` when a part has no match.
+fn resolve_case(p: &Path) -> Option<PathBuf> {
+    use std::path::Component;
+    if p.is_file() {
+        return Some(p.to_path_buf());
+    }
+    let parts: Vec<Component> = p.components().collect();
+    let mut done = PathBuf::new();
+    for (i, part) in parts.iter().enumerate() {
+        let Component::Normal(name) = part else {
+            done.push(part.as_os_str());
+            continue;
+        };
+        let last = i + 1 == parts.len();
+        let fits = |q: &Path| if last { q.is_file() } else { q.is_dir() };
+        let exact = done.join(name);
+        if fits(exact.as_path()) {
+            done = exact;
+            continue;
+        }
+        let want = name.to_str()?.to_lowercase();
+        let dir = if done.as_os_str().is_empty() { Path::new(".") } else { done.as_path() };
+        let mut found: Vec<PathBuf> = std::fs::read_dir(dir)
+            .ok()?
+            .filter_map(Result::ok)
+            .filter(|e| e.file_name().to_str().is_some_and(|n| n.to_lowercase() == want))
+            .map(|e| done.join(e.file_name()))
+            .filter(|q| fits(q.as_path()))
+            .collect();
+        // (several names can differ only in case: the first in order, every time)
+        found.sort();
+        done = found.into_iter().next()?;
+    }
+    Some(done)
+}
+
 /// Splits a dotted name into segments with their byte ranges.
 fn segments(name: &str, start: usize) -> Vec<(&str, Range<usize>)> {
     let mut v = Vec::new();
@@ -873,12 +1071,136 @@ mod tests {
         let inc = dir.join("a.bi");
         std::fs::write(&inc, "CONST A = 1\n").unwrap();
         let main = Doc::new(path_to_uri(&dir.join("main.bas")), "");
-        assert_eq!(Server::resolve_include(&main, r"\\127.0.0.1\share\a.bi"), None);
-        assert_eq!(Server::resolve_include(&main, "//127.0.0.1/share/a.bi"), None);
+        let server = Server::new();
+        assert_eq!(server.resolve_include(&main, None, r"\\127.0.0.1\share\a.bi"), None);
+        assert_eq!(server.resolve_include(&main, None, "//127.0.0.1/share/a.bi"), None);
         // Relative and plain absolute paths still resolve.
-        assert!(Server::resolve_include(&main, "a.bi").is_some());
-        assert!(Server::resolve_include(&main, inc.to_str().unwrap()).is_some());
+        assert!(server.resolve_include(&main, None, "a.bi").is_some());
+        assert!(server.resolve_include(&main, None, inc.to_str().unwrap()).is_some());
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The compiler's order: the including file's folder, the main file's
+    /// folder, then the workspace folder.
+    #[test]
+    fn include_search_order() {
+        let dir = temp_dir("order");
+        let (lib, root) = (dir.join("lib"), dir.join("root"));
+        std::fs::create_dir_all(&lib).unwrap();
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(dir.join("both.bi"), "").unwrap();
+        std::fs::write(lib.join("both.bi"), "").unwrap();
+        std::fs::write(dir.join("main_only.bi"), "").unwrap();
+        std::fs::write(root.join("root_only.bi"), "").unwrap();
+        let inc = Doc::new(path_to_uri(&lib.join("inc.bi")), "");
+        let mut server = Server::new();
+        let key = |u: Option<String>| u.map(|u| uri_key(&u));
+        // the including file's folder first
+        assert_eq!(key(server.resolve_include(&inc, Some(dir.as_path()), "both.bi")), Some(uri_key(&path_to_uri(&lib.join("both.bi")))));
+        // then the main file's folder
+        assert_eq!(key(server.resolve_include(&inc, Some(dir.as_path()), "main_only.bi")), Some(uri_key(&path_to_uri(&dir.join("main_only.bi")))));
+        // the workspace folder last, and only when the server knows it
+        assert_eq!(server.resolve_include(&inc, Some(dir.as_path()), "root_only.bi"), None);
+        server.set_roots(vec![root.clone()]);
+        assert_eq!(key(server.resolve_include(&inc, Some(dir.as_path()), "root_only.bi")), Some(uri_key(&path_to_uri(&root.join("root_only.bi")))));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// An include that is open and not saved yet is used, also when the
+    /// source names it in another letter case.
+    #[test]
+    fn open_unsaved_include_is_used() {
+        let dir = temp_dir("open");
+        let main_uri = path_to_uri(&dir.join("main.bas"));
+        let inc_uri = path_to_uri(&dir.join("new.bi"));
+        let mut server = Server::new();
+        let open = |server: &mut Server, uri: &str, text: &str| {
+            let n = Notification::new("textDocument/didOpen".into(), serde_json::json!({"textDocument": {"uri": uri, "languageId": "qbasic", "version": 1, "text": text}}));
+            server.notification(n)
+        };
+        open(&mut server, &inc_uri, "SUB Fresh\nEND SUB\n");
+        let out = open(&mut server, &main_uri, "'$INCLUDE: 'NEW.BI'\nFresh\n");
+        let diags = &out[0].params["diagnostics"];
+        assert!(diags.as_array().unwrap().is_empty(), "{diags}");
+        let def = server.definition(&main_uri, lt::Position { line: 1, character: 1 });
+        assert_eq!(def.len(), 1, "{def:?}");
+        assert_eq!(uri_key(def[0].uri.as_str()), uri_key(&inc_uri));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Off Windows a name in another letter case is found on disk.
+    #[test]
+    fn include_in_another_letter_case() {
+        let dir = temp_dir("case");
+        std::fs::create_dir_all(dir.join("Lib")).unwrap();
+        std::fs::write(dir.join("Lib").join("Inc.BI"), "").unwrap();
+        let found = resolve_case(&dir.join("lib").join("inc.bi")).expect("found in another case");
+        assert!(found.is_file());
+        if cfg!(target_os = "linux") {
+            assert!(found.ends_with(Path::new("Lib").join("Inc.BI")), "{}", found.display());
+        }
+        assert_eq!(resolve_case(&dir.join("lib").join("missing.bi")), None);
+        let main = Doc::new(path_to_uri(&dir.join("main.bas")), "");
+        assert!(Server::new().resolve_include(&main, None, "LIB/inc.bi").is_some());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn ranged_changes_use_utf16_positions() {
+        let pos = |line, character| lt::Position { line, character };
+        let range = |a, b| Some(lt::Range { start: a, end: b });
+        // "😀" is two UTF-16 units, "ก" one (three bytes in UTF-8)
+        let mut t = "a😀b\r\nกข\nend".to_string();
+        apply_change(&mut t, range(pos(0, 3), pos(0, 4)), "B");
+        assert_eq!(t, "a😀B\r\nกข\nend");
+        apply_change(&mut t, range(pos(1, 1), pos(1, 2)), "ค");
+        assert_eq!(t, "a😀B\r\nกค\nend");
+        // insertion, a range over a line break, and a column past the line end
+        apply_change(&mut t, range(pos(2, 0), pos(2, 0)), ">");
+        assert_eq!(t, "a😀B\r\nกค\n>end");
+        apply_change(&mut t, range(pos(0, 99), pos(1, 0)), " ");
+        assert_eq!(t, "a😀B กค\n>end");
+        // past the last line: the end of the text
+        apply_change(&mut t, range(pos(9, 0), pos(9, 0)), "!");
+        assert_eq!(t, "a😀B กค\n>end!");
+        apply_change(&mut t, None, "new");
+        assert_eq!(t, "new");
+    }
+
+    #[test]
+    fn incremental_did_change() {
+        let mut server = Server::new();
+        let uri = "untitled:inc";
+        server.notification(Notification::new("textDocument/didOpen".into(), serde_json::json!({"textDocument": {"uri": uri, "languageId": "qbasic", "version": 1, "text": "PRINT 1\nEND IF\n"}})));
+        let change = serde_json::json!({"textDocument": {"uri": uri, "version": 2}, "contentChanges": [
+            {"range": {"start": {"line": 1, "character": 0}, "end": {"line": 2, "character": 0}}, "text": ""},
+            {"range": {"start": {"line": 0, "character": 6}, "end": {"line": 0, "character": 7}}, "text": "42"},
+        ]});
+        let out = server.notification(Notification::new("textDocument/didChange".into(), change));
+        assert_eq!(server.docs[&uri_key(uri)].parse.text, "PRINT 42\n");
+        assert!(out[0].params["diagnostics"].as_array().unwrap().is_empty(), "{:?}", out[0].params);
+    }
+
+    #[test]
+    fn bodies_that_are_not_messages_get_an_error_reply() {
+        let e = parse_body(b"{nope").unwrap_err();
+        assert_eq!((e["id"].clone(), e["error"]["code"].clone()), (serde_json::Value::Null, serde_json::json!(-32700)));
+        let e = parse_body(b"[1, 2]").unwrap_err();
+        assert_eq!((e["id"].clone(), e["error"]["code"].clone()), (serde_json::Value::Null, serde_json::json!(-32600)));
+        // a request with a usable id but a bad shape is answered under its id
+        let e = parse_body(br#"{"jsonrpc": "2.0", "id": 7, "method": 5}"#).unwrap_err();
+        assert_eq!((e["id"].clone(), e["error"]["code"].clone()), (serde_json::json!(7), serde_json::json!(-32600)));
+        assert!(parse_body(br#"{"jsonrpc": "2.0", "id": 1, "method": "shutdown"}"#).is_ok());
+        assert!(parse_body(br#"{"jsonrpc": "2.0", "method": "initialized", "params": {}}"#).is_ok());
+    }
+
+    #[test]
+    fn workspace_folders_from_initialize() {
+        let (a, b) = (path_to_uri(&std::env::temp_dir().join("ws-a")), path_to_uri(&std::env::temp_dir().join("ws-b")));
+        let roots = workspace_roots(&serde_json::json!({"rootUri": a, "workspaceFolders": [{"uri": b, "name": "b"}, {"uri": a, "name": "a"}]}));
+        assert_eq!(roots, vec![uri_to_path(&b).unwrap(), uri_to_path(&a).unwrap()]);
+        assert!(workspace_roots(&serde_json::json!({"rootUri": null})).is_empty());
+        assert_eq!(workspace_roots(&serde_json::json!({"rootPath": "/x"})), vec![PathBuf::from("/x")]);
     }
 
     #[test]

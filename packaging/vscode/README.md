@@ -26,9 +26,11 @@ Language support for QBasic, QB64 and QBNex source files (`.bas`, `.bi`, `.bm`).
   off with `"[qbasic]": { "editor.formatOnSave": false }`.
 - **Commands**:
   - `QBNex: Run` (Ctrl+F5, or the play button in the editor title): saves, compiles
-    with `qb`, then starts the program in a terminal.
+    with `qb`, then starts the program in a terminal (like `qb run file.bas`
+    on the command line). Running again first closes the last run's terminal.
   - `QBNex: Compile` (Ctrl+Shift+B): saves and runs `qb` with
-    `qbnex.compileArgs`; the compiler output goes to the *QBNex* output panel.
+    `qbnex.compileArgs`; the compiler output goes to the *QBNex* output panel
+    and its errors and warnings to the *Problems* panel.
   - `QBNex: Restart Language Server`.
 
 ## Debugging
@@ -47,19 +49,24 @@ without it INPUT sees end of file). Program output goes to the Debug Console.
 ## Requirements
 
 - The QBNex compiler `qb` (or `qbnex`) on `PATH`, or set `qbnex.compilerPath`.
-- `qb-lsp` and `qb-dap` on `PATH`, bundled in the extension (see below),
-  or set `qbnex.lsp.path` / `qbnex.dap.path`. Build them from the
-  repository with `cargo build --release -p qb-lsp -p qb-dap`.
+  On Windows `qb.cmd` / `qbnex.cmd` are front ends: the extension starts the
+  `qb.exe` next to them, or set `qbnex.compilerPath` to `qb.exe` itself.
+- `qb-lsp` and `qb-dap`: set `qbnex.lsp.path` / `qbnex.dap.path`, or the
+  extension uses the copy bundled in it (see below), then the one on `PATH`,
+  then the one in the compiler's folder (the install folder; on Linux and
+  macOS the installer puts only `qb` and `qbnex` on `PATH`), then `qb lsp` /
+  `qb dap`. Build them from the repository with
+  `cargo build --release -p qb-lsp -p qb-dap`.
 
 ## Settings
 
 | Setting | Default | Meaning |
 | --- | --- | --- |
-| `qbnex.compilerPath` | `qb` | Compiler command or full path. |
-| `qbnex.compileArgs` | `["${file}", "-o", "${fileDirname}/${fileBasenameNoExtension}${exeExtension}"]` | Compiler arguments. Variables: `${file}`, `${fileDirname}`, `${fileBasenameNoExtension}`, `${exeExtension}`, `${workspaceFolder}`. |
-| `qbnex.lsp.path` | (empty) | Path of `qb-lsp`; empty means the bundled copy, then `PATH`. |
+| `qbnex.compilerPath` | `qb` | Compiler command or full path (on Windows a `.cmd` front end is replaced by the `qb.exe` next to it). |
+| `qbnex.compileArgs` | `["${file}", "-o", "${fileDirname}/${fileBasenameNoExtension}${exeExtension}"]` | Compiler arguments; Run starts the `-o` file, else the executable next to the source. Variables: `${file}`, `${fileDirname}`, `${fileBasename}`, `${fileBasenameNoExtension}`, `${fileExtname}`, `${exeExtension}`, `${workspaceFolder}`, `${userHome}`, `${env:NAME}`. |
+| `qbnex.lsp.path` | (empty) | Path of `qb-lsp`; empty means the bundled copy, then `PATH`, then the compiler's folder, then `qb lsp`. |
 | `qbnex.lsp.enabled` | `true` | Start the language server. |
-| `qbnex.dap.path` | (empty) | Path of `qb-dap`; empty means the bundled copy, then `PATH`. |
+| `qbnex.dap.path` | (empty) | Path of `qb-dap`; empty means the bundled copy, then `PATH`, then the compiler's folder, then `qb dap`. |
 
 ## Building the extension
 
@@ -68,21 +75,21 @@ From `packaging/vscode`:
 ```
 npm install
 npm test                 # compiles the TypeScript, tests the grammar and helpers
-npx vsce package         # writes qbnex-<version>.vsix (uses qb-lsp from PATH)
+npx vsce package         # writes qbnex-<version>.vsix (finds qb-lsp as in Requirements)
 ```
 
 To ship the server inside the package (one package per platform):
 
 ```
 cargo build --release -p qb-lsp -p qb-dap   # from the repository root
-npm run bundle-server                       # copies them to server/
-npx vsce package --target win32-x64  # or linux-x64, darwin-arm64, ...
+npm run bundle-server -- --target win32-x64 # copies them to server/ (release builds only)
+npx vsce package --target win32-x64          # or linux-x64, darwin-arm64, ...
 ```
 
-Install a package with `code --install-extension qbnex-2.0.0.vsix`.
+Install a package with `code --install-extension qbnex-<version>.vsix`.
 
-The tools also run from the command line through the launch scripts:
-`qbnex fmt file.bas` (or `qb.cmd fmt` on Windows), `qbnex lsp`, `qbnex dap`.
+The tools also run from the command line through the compiler, on every
+system: `qb fmt file.bas`, `qb lsp`, `qb dap`.
 
 `syntaxes/qbasic.tmLanguage.json` is generated: after the keyword tables in
 `crates/compiler/syntax` change, run `npm run grammar`.

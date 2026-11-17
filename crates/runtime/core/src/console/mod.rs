@@ -16,6 +16,7 @@
 
 pub mod cells;
 pub mod keyboard;
+pub mod keys;
 pub mod stdio;
 pub mod text;
 pub mod utf8;
