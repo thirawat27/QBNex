@@ -46,7 +46,7 @@ qb examples/showcase/raytrace.bas -o raytrace
     <td><img src="assets/showcase/mandelbrot.png" alt="Mandelbrot set zoom"></td>
   </tr>
   <tr>
-    <td><b>Physics in 3D</b> (<a href="examples/showcase/physics3d.bas">physics3d.bas</a>)<br>Five animated scenes on the GPU: a pendulum wave, planets under gravity, 40 colliding balls, wave interference on 1,936 columns and the Lorenz attractor. Drawn with <code>_MESH*</code>, <code>_CAMERA</code>, <code>_LIGHT</code> and <code>_DRAW3D</code>; highlights, glow and soft shadows come from small WGSL shaders (<code>_SHADER</code>). More 3D: <a href="examples/showcase/shapes3d.bas">shapes3d.bas</a>, <a href="examples/showcase/surface3d.bas">surface3d.bas</a>.</td>
+    <td><b>Physics in 3D</b> (<a href="examples/showcase/physics3d.bas">physics3d.bas</a>)<br>Five animated scenes on the GPU: a pendulum wave, planets under gravity, 40 colliding balls, wave interference on 1,936 columns and the Lorenz attractor. Drawn with <code>_MESH*</code>, <code>_CAMERA</code>, <code>_LIGHT</code> and <code>_DRAW3D</code>; highlights, glow and soft shadows come from small WGSL shaders (<code>_SHADER</code>). More 3D: <a href="examples/showcase/shapes3d.bas">shapes3d.bas</a>.</td>
     <td><b>Fractals</b> (<a href="examples/showcase/mandelbrot.bas">mandelbrot.bas</a>)<br>A smooth-coloured zoom into the Mandelbrot set in double precision: 256,000 pixels at up to 600 iterations each.</td>
   </tr>
   <tr>
@@ -56,6 +56,22 @@ qb examples/showcase/raytrace.bas -o raytrace
   <tr>
     <td><b>Generative art and teaching</b> (<a href="examples/showcase/fractal_tree.bas">fractal_tree.bas</a>)<br>A recursive tree with blossoms over a per-pixel sunset gradient. Short enough to read in a lesson, and a good first look at recursion and trigonometry.</td>
     <td><b>Simulations</b> (<a href="examples/showcase/life.bas">life.bas</a>)<br>Conway's Game of Life on a wrapping grid, animated at 30 generations a second. Cells are coloured by age and leave fading trails; Space starts a new world.</td>
+  </tr>
+  <tr>
+    <td><img src="assets/showcase/solarsystem.png" alt="The solar system in 3D: the Sun, the orbits and all eight planets"></td>
+    <td><img src="assets/showcase/torus3d.png" alt="A torus of coloured tiles in 3D"></td>
+  </tr>
+  <tr>
+    <td><b>Solar system</b> (<a href="examples/showcase/solarsystem.bas">solarsystem.bas</a>, by <a href="https://github.com/Gokipp">Gokipp</a>)<br>The Sun and eight planets with procedural textures and real orbital periods, starting near where they are today, six moons, the rings of Saturn and Uranus and a turning star sky. Follow a planet with 1-8 for its facts.</td>
+    <td><b>Classic demos in real 3D</b> (<a href="examples/showcase/torus3d.bas">torus3d.bas</a>, by <a href="https://github.com/Gokipp">Gokipp</a>)<br>The QBasic TORUS demo as a 3D mesh with the same menu. The palette cycling and tile borders are a small WGSL shader (<code>_SHADER</code>, <code>_SHADERPARAM</code>).</td>
+  </tr>
+  <tr>
+    <td><img src="assets/showcase/sort3d.png" alt="Forty 3D bars sorted by Shell sort"></td>
+    <td><img src="assets/showcase/surface3d.png" alt="Shaded 3D surface plot of sin(r)/r"></td>
+  </tr>
+  <tr>
+    <td><b>Sorting algorithms</b> (<a href="examples/showcase/sort3d.bas">sort3d.bas</a>, by <a href="https://github.com/Gokipp">Gokipp</a>)<br>The QuickBASIC SORTDEMO with lit 3D bars on a floor: insertion, bubble, heap, exchange, shell and quick sort, with the original menu, timing and sound.</td>
+    <td><b>Plots</b> (<a href="examples/showcase/surface3d.bas">surface3d.bas</a>)<br>A shaded 3D surface of z = sin(r)/r. More 3D shapes: <a href="examples/showcase/shapes3d.bas">shapes3d.bas</a>.</td>
   </tr>
 </table>
 

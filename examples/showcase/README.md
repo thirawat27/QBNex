@@ -20,5 +20,8 @@ qb examples/showcase/starfighter.bas -o starfighter
 | [`life.bas`](life.bas) | Conway's Game of Life, coloured by cell age | Space = new world, other keys close |
 | [`physics3d.bas`](physics3d.bas) | Five physics scenes on the GPU: pendulum wave, orbits under gravity, colliding balls, wave interference, Lorenz attractor; no text on the picture (the scene name is in the window title) | 1-5/N = scene, A = tour, Esc |
 | [`shapes3d.bas`](shapes3d.bas) | Six spinning 3D shapes (infinity, trefoil and torus knots, Moebius strip, Klein bottle, seashell) on the GPU (`_DRAW3D`) or with `_MAPTRIANGLE` 3D | 1-6/N = shape, M = renderer, A = tour, Esc |
+| [`solarsystem.bas`](solarsystem.bas) | The solar system on the GPU: the Sun, eight planets with procedural textures and real orbital periods, starting near today's positions, six moons, the rings of Saturn and Uranus, a turning star sky. By [Gokipp](https://github.com/Gokipp) | mouse/arrows = camera, wheel/PgUp/PgDn = zoom, 1-8/0 = follow, +/- = speed, H = help, Esc |
+| [`torus3d.bas`](torus3d.bas) | The classic QBasic TORUS demo as a real 3D mesh, with the palette cycling and tile borders done by a WGSL `_SHADER`. By [Gokipp](https://github.com/Gokipp) | menu: arrows, Enter; torus: arrows = tilt, +/- = spin, B = border, Esc |
+| [`sort3d.bas`](sort3d.bas) | The QuickBASIC SORTDEMO (six algorithms, timing and sound) with lit 3D bars on a floor. By [Gokipp](https://github.com/Gokipp) | I B H E S Q = sort, T = sound, < > = speed, Esc |
 
 ไฟล์ `.bas` ทุกไฟล์คอมไพล์และรันได้ทันทีด้วย `qb` ลองแก้ค่าในโค้ด (สี มุมกล้อง จำนวนวัตถุ) แล้วคอมไพล์ใหม่เพื่อดูผลได้เลย
