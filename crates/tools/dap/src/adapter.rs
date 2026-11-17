@@ -895,28 +895,41 @@ impl Adapter {
                 }
             });
         }
-        let tx = self.tx.clone();
-        let exit_file = l.exit_file.clone();
-        std::thread::spawn(move || {
-            loop {
-                let status = child.lock().unwrap().try_wait();
-                match status {
-                    Ok(Some(s)) => {
-                        // let the output threads drain first
-                        std::thread::sleep(Duration::from_millis(50));
-                        // The program's own code (SYSTEM -1, SYSTEM 300) from the exit
-                        // file: the process status keeps only part of it on Unix.
-                        let given = std::fs::read_to_string(&exit_file).ok().and_then(|t| t.trim().parse::<i64>().ok());
-                        let _ = tx.send(In::Exited { code: given.unwrap_or_else(|| status_code(s)), from_program: given.is_some() });
-                        break;
-                    }
-                    Ok(None) => std::thread::sleep(Duration::from_millis(20)),
-                    Err(_) => break,
-                }
-            }
-        });
+        watch_end(child, l.exit_file.clone(), self.tx.clone());
         Ok(())
     }
+}
+
+/// Sends `In::Exited` once the program has ended: when the debuggee wrote the
+/// exit file, even while its process is still going away (that can take long,
+/// and the client waits for `exited`), else when the process is gone. The file
+/// also holds the program's own code (SYSTEM -1, SYSTEM 300), of which the
+/// process status keeps only part on Unix.
+fn watch_end(child: Arc<Mutex<Child>>, exit_file: PathBuf, tx: Sender<In>) {
+    std::thread::spawn(move || {
+        loop {
+            let status = match child.lock().unwrap().try_wait() {
+                Ok(s) => s,
+                Err(_) => break,
+            };
+            // read after the status: a process gone without the file (killed,
+            // crashed) never writes it
+            let given = exit_file_code(&exit_file);
+            let Some(code) = given.or_else(|| status.map(status_code)) else {
+                std::thread::sleep(Duration::from_millis(20));
+                continue;
+            };
+            // let the output threads drain first
+            std::thread::sleep(Duration::from_millis(50));
+            let _ = tx.send(In::Exited { code, from_program: given.is_some() });
+            break;
+        }
+    });
+}
+
+/// The code in the debuggee's exit file, once it is there.
+fn exit_file_code(f: &Path) -> Option<i64> {
+    std::fs::read_to_string(f).ok()?.trim().parse().ok()
 }
 
 #[cfg(test)]
@@ -1199,6 +1212,45 @@ mod tests {
         assert!(program_args(&json!(5)).is_err());
         assert!(program_args(&json!(["x", 1])).is_err());
         a.finish();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Stays for a minute when `exited_while_the_process_lingers` starts it: a
+    /// debuggee whose process is slow to go away after its program ended.
+    #[test]
+    #[ignore = "helper process of exited_while_the_process_lingers"]
+    fn lingering_process() {
+        if std::env::var_os("QB_DAP_TEST_LINGER").is_some() {
+            std::thread::sleep(Duration::from_secs(60));
+        }
+    }
+
+    /// The program's end is told from the exit file while the debuggee's
+    /// process is still there, with the program's own code.
+    #[test]
+    fn exited_while_the_process_lingers() {
+        let dir = work_dir("linger");
+        let exit_file = dir.join("exit-code");
+        let child = Command::new(std::env::current_exe().unwrap())
+            .args(["--ignored", "--exact", "adapter::tests::lingering_process"])
+            .env("QB_DAP_TEST_LINGER", "1")
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .unwrap();
+        let child = Arc::new(Mutex::new(child));
+        let (tx, rx) = channel();
+        watch_end(child.clone(), exit_file.clone(), tx);
+        assert!(rx.recv_timeout(Duration::from_millis(300)).is_err(), "an end told while the program still runs");
+        std::fs::write(&exit_file, "300").unwrap();
+        match rx.recv_timeout(Duration::from_secs(10)) {
+            Ok(In::Exited { code, from_program }) => assert_eq!((code, from_program), (300, true)),
+            _ => panic!("the end was not told while the process was still there"),
+        }
+        assert!(child.lock().unwrap().try_wait().unwrap().is_none(), "the helper process ended early");
+        let _ = child.lock().unwrap().kill();
+        let _ = child.lock().unwrap().wait();
         let _ = std::fs::remove_dir_all(&dir);
     }
 

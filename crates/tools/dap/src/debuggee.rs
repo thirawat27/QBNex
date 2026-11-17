@@ -223,9 +223,10 @@ pub struct Options {
     /// [program, args...]. Without it the program would see the debuggee's
     /// own command line.
     pub program_args: Option<Vec<OsString>>,
-    /// Where the program's exit code is written for the adapter: a process
-    /// exit status cannot carry every value `SYSTEM n` can (on Unix it keeps
-    /// only the low 8 bits).
+    /// Where the program's exit code is written for the adapter, as soon as the
+    /// program has ended: a process exit status cannot carry every value
+    /// `SYSTEM n` can (on Unix it keeps only the low 8 bits), and the process
+    /// can take long to go away after that (see [`ended`]).
     pub exit_file: Option<PathBuf>,
 }
 
@@ -235,9 +236,23 @@ pub fn main(o: &Options) -> i32 {
     if let Some(a) = &o.program_args {
         qb_exec::set_program_args(a.clone());
     }
-    let code = run(o);
+    run(o)
+}
+
+/// The program ended with `code` (its output is flushed): the exit file tells
+/// the adapter now. The adapter takes this, not the end of the process, as the
+/// program's end: tearing the process down afterwards is not the program's and
+/// can take long (on a macOS runner a debuggee whose program had printed all
+/// of its output was still there 30 seconds later). The file is renamed into
+/// place, so the adapter never reads half of it.
+fn ended(o: &Options, code: i32) -> i32 {
     if let Some(f) = &o.exit_file {
-        let _ = std::fs::write(f, code.to_string());
+        let mut part = f.clone().into_os_string();
+        part.push(".part");
+        if std::fs::write(&part, code.to_string()).is_ok() && std::fs::rename(&part, f).is_err() {
+            let _ = std::fs::remove_file(&part);
+            let _ = std::fs::write(f, code.to_string());
+        }
     }
     code
 }
@@ -248,21 +263,21 @@ fn run(o: &Options) -> i32 {
         Ok(s) => s,
         Err(e) => {
             eprintln!("qb-dap: cannot read {}: {e}", o.qir.display());
-            return 2;
+            return ended(o, 2);
         }
     };
     let src = match qb_ir::parse(&qir) {
         Ok(m) => m,
         Err(e) => {
             eprintln!("qb-dap: {e}");
-            return 2;
+            return ended(o, 2);
         }
     };
     let module = match qb_exec::lower(&src) {
         Ok(m) => m,
         Err(e) => {
             eprintln!("qb-dap: {}", e.msg);
-            return 2;
+            return ended(o, 2);
         }
     };
     let mut stdout = std::io::stdout();
@@ -270,11 +285,11 @@ fn run(o: &Options) -> i32 {
     if !no_debug {
         let Ok(mut conn) = TcpStream::connect(("127.0.0.1", port)) else {
             eprintln!("qb-dap: cannot reach the adapter on port {port}");
-            return 2;
+            return ended(o, 2);
         };
         if writeln!(conn, "{token}").is_err() {
             eprintln!("qb-dap: cannot reach the adapter on port {port}");
-            return 2;
+            return ended(o, 2);
         }
         let breakpoints = Arc::new(Mutex::new(HashSet::new()));
         let pause = Arc::new(AtomicBool::new(false));
@@ -315,19 +330,22 @@ fn run(o: &Options) -> i32 {
         let hook = Hook { stepper: Stepper::new(stop_on_entry), breakpoints, pause, resume: rx, out: conn, places, trail: Trail::default() };
         if let Err(e) = vm.attach_debugger(&src, Box::new(hook)) {
             eprintln!("qb-dap: {e}");
-            return 2;
+            return ended(o, 2);
         }
     }
-    let r = vm.run_status();
-    drop(vm);
-    let _ = stdout.flush();
-    match r {
+    let code = match vm.run_status() {
         Ok(code) => code,
         Err(e) => {
             eprintln!("Unhandled error #{} on line {}", e.code, e.line);
             1
         }
-    }
+    };
+    // (the VM still holds `stdout`; this flushes the same buffer)
+    let _ = std::io::stdout().flush();
+    let code = ended(o, code);
+    drop(vm);
+    let _ = stdout.flush();
+    code
 }
 
 /// `{"t":"bp","at":[[file,line],..]}`: the whole set of breakpoint places.
@@ -438,6 +456,8 @@ mod tests {
         let o = Options { qir, no_debug: true, exit_file: Some(exit_file.clone()), ..Options::default() };
         assert_eq!(main(&o), 300);
         assert_eq!(std::fs::read_to_string(&exit_file).unwrap(), "300");
+        // written whole under another name, then renamed into place
+        assert!(!dir.join("exit-code.part").exists());
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
