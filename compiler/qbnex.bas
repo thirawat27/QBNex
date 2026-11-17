@@ -187,6 +187,19 @@ FUNCTION getpid& ()
     thisinstancepid = getpid&
     IF os$ = "LNX" THEN
         'the errors go to qberror_test (E = 1): a read-only QBNex folder is said as such
+        'one compiler at a time reads and writes the folder records: MKDIR of search.lock
+        'fails while another holds it. OPEN ... LOCK is not enforced on macOS, so without it
+        'two compilers started together took the same folder and read each other's output.
+        'A lock left by a stopped compiler is passed after about five seconds.
+        searchlock$ = "./target/qb-temp/search.lock"
+        FOR searchtry = 1 TO 50
+            E = 0
+            MKDIR searchlock$
+            IF E = 0 THEN EXIT FOR
+            'not made and not there: the folder is read-only, reported below
+            IF _DIREXISTS(searchlock$) = 0 THEN EXIT FOR
+            _DELAY 0.1
+        NEXT
         E = 0
         fh = FREEFILE
         OPEN "./target/qb-temp/tempfoldersearch.bin" FOR RANDOM AS #fh LEN = LEN(tempfolderindex)
@@ -223,6 +236,8 @@ FUNCTION getpid& ()
             END IF
         END IF
         CLOSE #fh
+        IF _DIREXISTS(searchlock$) THEN RMDIR searchlock$
+        E = 0
         IF i > 1 THEN
             tmpdir$ = "./target/qb-temp" + str2$(i) + "/"
             IF _DIREXISTS(tmpdir$) = 0 THEN
