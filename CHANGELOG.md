@@ -25,7 +25,7 @@ marked so below and removed code nothing used (about 1,900 lines of the compiler
 Rust crates); `2.0.0-preview.3` adds the items marked "In 2.0.0-preview.3".
 `2.0.0-preview.4` (2026-11-16) adds the items marked "In 2.0.0-preview.4": GPU 3D in
 the standard builds, faster 3D drawing and `qb --help` options that do what they say.
-`2.0.0-preview.5` adds the items marked "In 2.0.0-preview.5": programs about a quarter of
+`2.0.0-preview.5` (2026-11-18) adds the items marked "In 2.0.0-preview.5": programs about a quarter of
 their former size.
 
 ### Changed
