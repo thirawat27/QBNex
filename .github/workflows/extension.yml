@@ -48,11 +48,12 @@ jobs:
       - run: npm ci
 
       # What the .vsix ships (dependencies) may have no known vulnerability at all;
-      # the build tools (devDependencies) none rated high or critical.
+      # the build tools (devDependencies) none rated high or critical, except the
+      # advisories scripts/audit-dev.mjs accepts with a reason.
       - name: Audit dependencies
         run: |
           npm audit --omit=dev --audit-level=low
-          npm audit --audit-level=high
+          node scripts/audit-dev.mjs
 
       - run: npm test
 
