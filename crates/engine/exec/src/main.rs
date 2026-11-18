@@ -1,8 +1,9 @@
 //! `qb-exec` executable.
 //!
-//! - Packaged program: the compiler copies this executable and appends
-//!   `<QIR text><u64 LE length>QBNEXIR0`. At start-up the runner reads its own
-//!   file and runs the payload (VM + JIT).
+//! - Packaged program: the compiler writes the launcher `qb-stub` with this
+//!   runner packed behind it (or a copy of this runner) and appends the QIR
+//!   text as a zlib stream (layout: crate `qb-payload`). At start-up the runner
+//!   reads the program file and runs the payload (VM + JIT).
 //! - Native program: `qb-exec build program.qir -o program.exe` appends
 //!   `<QIR text><native image><u64 QIR length><u64 image length>QBNEXAO1`;
 //!   the machine code was generated at build time, so nothing is compiled
@@ -19,35 +20,7 @@ use std::io::{BufWriter, Write};
 
 // program stdout (CR LF line ends on Windows), shared with qb-native
 use qb_exec::Stdout;
-
-const MAGIC: &[u8; 8] = b"QBNEXIR0";
-const MAGIC_NATIVE: &[u8; 8] = b"QBNEXAO1";
-
-enum Payload<'a> {
-    Ir(&'a [u8]),
-    Native(&'a [u8], &'a [u8]),
-}
-
-fn le(b: &[u8]) -> Option<usize> {
-    Some(u64::from_le_bytes(b.try_into().ok()?) as usize)
-}
-
-fn payload(exe: &[u8]) -> Option<Payload<'_>> {
-    let n = exe.len();
-    if n >= 24 && &exe[n - 8..] == MAGIC_NATIVE {
-        let (ql, il) = (le(&exe[n - 24..n - 16])?, le(&exe[n - 16..n - 8])?);
-        let end = n - 24;
-        let img = exe.get(end.checked_sub(il)?..end)?;
-        let qir = exe.get(end.checked_sub(il)?.checked_sub(ql)?..end - il)?;
-        return Some(Payload::Native(qir, img));
-    }
-    if n < 16 || &exe[n - 8..] != MAGIC {
-        return None;
-    }
-    let len = le(&exe[n - 16..n - 8])?;
-    // a length that does not fit inside the file is not a payload
-    exe.get((n - 16).checked_sub(len)?..n - 16).map(Payload::Ir)
-}
+use qb_exec::payload::Payload;
 
 fn read(path: &std::ffi::OsStr) -> Vec<u8> {
     std::fs::read(path).unwrap_or_else(|e| {
@@ -144,12 +117,8 @@ fn build(args: &[std::ffi::OsString]) -> ! {
         std::process::exit(1)
     });
     let me = std::env::current_exe().map(|p| read(p.as_os_str())).unwrap_or_default();
-    let base = match payload(&me) {
-        // Building from an already packaged runner: strip its payload.
-        Some(Payload::Ir(p)) => &me[..me.len() - 16 - p.len()],
-        Some(Payload::Native(q, i)) => &me[..me.len() - 24 - q.len() - i.len()],
-        None => &me[..],
-    };
+    // Building from an already packaged runner: strip its payload.
+    let base = qb_payload::program(&me).map_or(&me[..], |(_, at)| &me[..at]);
     let mut exe = base.to_vec();
     let text = String::from_utf8_lossy(&qir);
     if qb_exec::wants_window(&text) && !qb_exec::wants_console(&text) {
@@ -159,7 +128,7 @@ fn build(args: &[std::ffi::OsString]) -> ! {
     exe.extend_from_slice(&image);
     exe.extend_from_slice(&(qir.len() as u64).to_le_bytes());
     exe.extend_from_slice(&(image.len() as u64).to_le_bytes());
-    exe.extend_from_slice(MAGIC_NATIVE);
+    exe.extend_from_slice(qb_payload::MAGIC_NATIVE);
     if let Err(e) = std::fs::write(out, exe) {
         eprintln!("qb-exec: cannot write {}: {e}", out.to_string_lossy());
         std::process::exit(2)
@@ -176,24 +145,22 @@ fn build(args: &[std::ffi::OsString]) -> ! {
 /// window next to its own (a program with `$CONSOLE` keeps the console). Other
 /// executable formats are left as they are.
 fn windows_gui_subsystem(exe: &mut [u8]) {
-    const PE_OFFSET_AT: usize = 0x3C;
-    /// From the PE signature: signature (4), file header (20), then the
-    /// subsystem field 68 bytes into the optional header.
-    const SUBSYSTEM_FROM_PE: usize = 4 + 20 + 68;
-    const CONSOLE: u16 = 3;
-    const GUI: u16 = 2;
-    if exe.len() < PE_OFFSET_AT + 4 || &exe[..2] != b"MZ" {
-        return;
-    }
-    let pe = u32::from_le_bytes([exe[PE_OFFSET_AT], exe[PE_OFFSET_AT + 1], exe[PE_OFFSET_AT + 2], exe[PE_OFFSET_AT + 3]]) as usize;
-    let Some(at) = pe.checked_add(SUBSYSTEM_FROM_PE).filter(|&at| at + 2 <= exe.len()) else { return };
-    if exe.get(pe..pe + 4) == Some(b"PE\0\0") && u16::from_le_bytes([exe[at], exe[at + 1]]) == CONSOLE {
-        exe[at..at + 2].copy_from_slice(&GUI.to_le_bytes());
+    if qb_payload::pe_subsystem(exe) == Some(qb_payload::SUBSYSTEM_CONSOLE) {
+        qb_payload::set_pe_subsystem(exe, qb_payload::SUBSYSTEM_GUI);
     }
 }
 
 fn main() {
     let args: Vec<std::ffi::OsString> = std::env::args_os().skip(1).collect();
+    // Started by the launcher qb-stub from its cache folder: the program is the file
+    // it names; COMMAND$(0) and DECLARE DYNAMIC LIBRARY go by that file too.
+    // SAFETY: no other thread exists yet.
+    let packed_exe = unsafe { qb_exec::payload::take_packed_exe() };
+    if let Some(p) = &packed_exe {
+        qb_ffi::set_program_dir(p.parent());
+        qb_exec::set_program_exe(p.clone());
+        qb_runtime::console::stdio::set_started_by_launcher();
+    }
     // QBNEX_OWN_CONSOLE=1 tells the program that its console window was opened for
     // it (started from Explorer, not from a terminal) and closes when it ends; qb
     // uses it to explain itself instead of flashing its help. Set or cleared here,
@@ -219,8 +186,8 @@ fn main() {
             std::env::remove_var("QBNEX_STDERR_TERMINAL");
         }
     }
-    let exe = std::env::current_exe().and_then(std::fs::read).unwrap_or_default();
-    let packaged = payload(&exe);
+    let exe = packed_exe.map_or_else(std::env::current_exe, Ok).and_then(std::fs::read).unwrap_or_default();
+    let packaged = qb_exec::payload::find(&exe).map(|(p, _)| p);
     if packaged.is_none() && args.first().is_some_and(|a| a == "build") {
         build(&args[1..]);
     }
@@ -229,7 +196,7 @@ fn main() {
     }
     // the program text is copied out of the executable once (it can be megabytes)
     let (src, image) = match packaged {
-        Some(Payload::Ir(p)) => (String::from_utf8_lossy(p).into_owned(), None),
+        Some(Payload::Ir(p)) => (String::from_utf8_lossy(&p).into_owned(), None),
         Some(Payload::Native(q, i)) => (String::from_utf8_lossy(q).into_owned(), Some(i.to_vec())),
         None => match args.first() {
             Some(path) => {

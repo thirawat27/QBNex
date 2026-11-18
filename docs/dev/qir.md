@@ -238,7 +238,12 @@ JIT: ฟังก์ชันที่อาจเกิด error ใน handler
 
 ## 8. Packaging
 
-exe = `qb-exec` + ข้อความ QIR + u64 LE ความยาว + `QBNEXIR0`. Executor ดู header `QIR <n>` เพื่อเลือก loader
+exe = ส่วนหน้า + โปรแกรม (layout ทั้งหมดอยู่ใน crate `qb-payload`)
+
+- ส่วนหน้า: launcher `qb-stub` + runner `qb-exec` ที่บีบด้วย brotli (`qb-exec.pack` ที่ setup สร้างด้วย `qb-pack`) หรือสำเนา `qb-exec` ทั้งตัวเมื่อไม่มีไฟล์ pack. Launcher คลาย runner ลง cache ของผู้ใช้ครั้งเดียวต่อ runner build แล้วรันจากที่นั่นโดยส่ง path ของโปรแกรมผ่าน `QBNEX_PACKED_EXE`
+- โปรแกรม: ข้อความ QIR บีบด้วย zlib + u64 LE ความยาว stream + u64 LE ความยาว QIR + `QBNEXIZ0` (`qb` เขียนแบบนี้) หรือข้อความ QIR + u64 LE ความยาว + `QBNEXIR0` (stage-0 compiler)
+
+Executor ดู header `QIR <n>` เพื่อเลือก loader
 
 ## 9. ตัวอย่าง
 

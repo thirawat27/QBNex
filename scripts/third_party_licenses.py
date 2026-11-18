@@ -1,6 +1,7 @@
 """Writes licenses/THIRD_PARTY.TXT: every third-party Rust crate that what QBNex ships
 builds or links, grouped by license: the runtime (qb-runtime, qb-audio), the QIR runner
-(qb-exec), the tools (qb-fmt, qb-lsp, qb-dap) and the installer (qb-setup).
+(qb-exec), the launcher in front of every compiled program (qb-stub), the tools (qb-fmt,
+qb-lsp, qb-dap) and the installer (qb-setup).
 
 Usage (from the repository root): python scripts/third_party_licenses.py
 Needs cargo on PATH; reads Cargo.lock through `cargo metadata --locked`.
@@ -12,7 +13,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-ROOTS = ("qb-runtime", "qb-audio", "qb-exec", "qb-fmt", "qb-lsp", "qb-dap", "qb-setup")
+ROOTS = ("qb-runtime", "qb-audio", "qb-exec", "qb-stub", "qb-fmt", "qb-lsp", "qb-dap", "qb-setup")
 
 
 def main() -> int:

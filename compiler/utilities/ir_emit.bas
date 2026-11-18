@@ -2670,7 +2670,7 @@ END SUB
 '================================================================ packaging
 
 SUB IrFinish (src$, outExe$)
-    DIM fh AS INTEGER, i AS LONG, runner$, outPath$, ir$, r$, q$, l$, top AS LONG
+    DIM fh AS INTEGER, i AS LONG, runner$, runnerDir$, front$, outPath$, ir$, r$, q$, z$, l$, top AS LONG
     IrFlush
     IF IrFailMsg <> "" THEN
         PRINT "QIR: unsupported: " + IrFailMsg
@@ -2827,17 +2827,28 @@ SUB IrFinish (src$, outExe$)
         IF QuietMode = 0 THEN PRINT "QIR: native link failed, writing the runner with the program"
     END IF
 
-    fh = FREEFILE: OPEN runner$ FOR BINARY AS #fh: r$ = SPACE$(LOF(fh)): GET #fh, , r$: CLOSE #fh
     fh = FREEFILE: OPEN ir$ FOR BINARY AS #fh: q$ = SPACE$(LOF(fh)): GET #fh, , q$: CLOSE #fh
+    'The front of the executable: the launcher with the runner packed behind it (setup's
+    'qb-pack; the launcher unpacks it into a cache folder once), else a copy of the runner.
+    'A console-only program that does not use the 3D layer gets the runner built without
+    'the GPU back end: it opens no window, so nothing would be drawn on the GPU.
+    front$ = runner$
+    runnerDir$ = LEFT$(runner$, LEN(runner$) - LEN("qb-exec" + extension$))
+    IF _FILEEXISTS(runnerDir$ + "qb-exec.pack") THEN front$ = runnerDir$ + "qb-exec.pack"
+    IF DEPENDENCY(DEPENDENCY_CONSOLE_ONLY) AND IrUsesGpu%(q$) = 0 AND _FILEEXISTS(runnerDir$ + "qb-exec-lite.pack") THEN front$ = runnerDir$ + "qb-exec-lite.pack"
+    fh = FREEFILE: OPEN front$ FOR BINARY AS #fh: r$ = SPACE$(LOF(fh)): GET #fh, , r$: CLOSE #fh
     'a window program (no $CONSOLE) is a GUI program on Windows, as `qb-exec build` makes
     'it: a console program would open an empty console next to its window
     IF os$ = "WIN" AND DEPENDENCY(DEPENDENCY_CONSOLE_ONLY) = 0 AND Console = 0 THEN IrGuiSubsystem r$
+    'the QIR text goes in as a zlib stream (a fifth of its size); the runner inflates it at
+    'start-up: <zlib><u64 its length><u64 QIR length>QBNEXIZ0
+    z$ = _DEFLATE$(q$)
     IrPrepareOutput outPath$
     fh = FREEFILE
     OPEN outPath$ FOR BINARY AS #fh
     PUT #fh, , r$
-    PUT #fh, , q$
-    l$ = MKL$(LEN(q$)) + MKL$(0) + "QBNEXIR0"
+    PUT #fh, , z$
+    l$ = MKL$(LEN(z$)) + MKL$(0) + MKL$(LEN(q$)) + MKL$(0) + "QBNEXIZ0"
     PUT #fh, , l$
     CLOSE #fh
     IF os$ <> "WIN" THEN SHELL _HIDE "chmod +x " + QuotedFilename$(outPath$)
@@ -2892,6 +2903,24 @@ SUB IrPrepareOutput (path$)
         SYSTEM 1
     END IF
 END SUB
+
+'True when the QIR text calls the 3D layer (the _MESH*, _DRAW3D, _CAMERA*, _LIGHT*, _SHADER*
+'and _LOADMODEL keywords of crates/engine/exec/src/rt/scene3d.rs, _GPU3D, _DEPTHBUFFER and
+'_MAPTRIANGLE): only the runner with the GPU back end draws it. A name is matched by its
+'start, so a new keyword of the same family is found too.
+FUNCTION IrUsesGpu% (q$)
+    DIM l$, n$, p AS LONG, e AS LONG
+    l$ = "mesh draw3d camera ambient light clear3d gpu3d shader loadmodel maptriangle depthbuffer freemesh freelight freeshader "
+    p = 1
+    DO
+        e = INSTR(p, l$, " ")
+        IF e = 0 THEN EXIT DO
+        n$ = MID$(l$, p, e - p)
+        'runtime names are func__<name> / sub__<name>; a program's own names are upper case
+        IF INSTR(q$, "__" + n$) THEN IrUsesGpu% = -1: EXIT FUNCTION
+        p = e + 1
+    LOOP
+END FUNCTION
 
 'Marks the Windows executable exe$ as a GUI program: the PE subsystem field (3 console,
 '2 GUI) is 4 + 20 + 68 bytes after the "PE"+0+0 signature, whose offset is at &H3C.

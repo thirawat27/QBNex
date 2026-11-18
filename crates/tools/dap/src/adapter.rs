@@ -279,20 +279,12 @@ fn fresh_temp_dir(prefix: &str) -> std::io::Result<PathBuf> {
     Err(last)
 }
 
-/// QIR payload appended to an executable by `qb --ir` (see qb-exec's main.rs).
-fn qir_payload(exe: &[u8]) -> Option<&[u8]> {
-    let n = exe.len();
-    let le = |b: &[u8]| Some(u64::from_le_bytes(b.try_into().ok()?) as usize);
-    if n >= 24 && &exe[n - 8..] == b"QBNEXAO1" {
-        let (ql, il) = (le(&exe[n - 24..n - 16])?, le(&exe[n - 16..n - 8])?);
-        let end = n - 24;
-        return exe.get(end.checked_sub(il)?.checked_sub(ql)?..end - il);
+/// QIR text a compiled executable carries (every payload form, see crate qb-payload).
+fn qir_payload(exe: &[u8]) -> Option<std::borrow::Cow<'_, [u8]>> {
+    match qb_exec::payload::find(exe)?.0 {
+        qb_exec::payload::Payload::Ir(q) => Some(q),
+        qb_exec::payload::Payload::Native(q, _) => Some(std::borrow::Cow::Borrowed(q)),
     }
-    if n < 16 || &exe[n - 8..] != b"QBNEXIR0" {
-        return None;
-    }
-    let len = le(&exe[n - 16..n - 8])?;
-    exe.get((n - 16).checked_sub(len)?..n - 16)
 }
 
 /// Environment variable that hands the debuggee the token it must send first.
@@ -800,7 +792,7 @@ impl Adapter {
                 }
                 let bytes = std::fs::read(&exe).map_err(|e| format!("{}: {e}", exe.display()))?;
                 let qir = qir_payload(&bytes).ok_or("the compiler output carries no QIR (needs a qb with --ir)")?;
-                String::from_utf8_lossy(qir).into_owned()
+                String::from_utf8_lossy(&qir).into_owned()
             }
         };
         let lines = line_table(&qir_text);

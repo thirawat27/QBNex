@@ -80,14 +80,15 @@ sh scripts/setup_osx.command
 ### สิ่งที่สคริปต์ setup ทำ
 
 1. build runner `qb-exec` (`cargo build --release -p qb-exec --features gpu`) ไว้ที่
-   `crates/engine/exec/bin/<os>/`
+   `crates/engine/exec/bin/<os>/` แล้วบีบอัดไว้หลัง launcher `qb-stub`
+   (`qb-exec.pack` และ `qb-exec-lite.pack` ที่ไม่มี GPU feature สำหรับโปรแกรม console)
 2. แพ็ก `bootstrap/qbnex.qir` (คอมไพเลอร์ที่แปลเป็น QIR ไว้แล้ว) เข้ากับ
    runner ได้เป็นคอมไพเลอร์ stage-0
 3. ให้ stage 0 คอมไพล์ `compiler/qbnex.bas` ออกมาเป็น `qb` / `qb.exe` ที่
    root ของ repository แล้วรัน smoke test
 
-โปรแกรมที่คอมไพล์แล้วคือสำเนาของ runner ที่ต่อท้ายด้วย QIR ของโปรแกรม
-จึงไม่ต้องใช้ไฟล์อื่นประกอบ
+โปรแกรมที่คอมไพล์แล้วคือ launcher ที่มี runner บีบอัดอยู่ข้างใน ต่อท้ายด้วย QIR ของโปรแกรมที่บีบอัดแล้ว
+จึงไม่ต้องใช้ไฟล์อื่นประกอบ ตอนรันครั้งแรกจะคลาย runner ลงโฟลเดอร์ cache ของผู้ใช้
 
 ตัวแปรของสคริปต์ setup: `QBNEX_QB_EXEC` (ใช้ `qb-exec` ที่ build ไว้แล้ว
 แทนการ build ใหม่), `QBNEX_RUST_TARGET`, `QBNEX_BOOTSTRAP`,

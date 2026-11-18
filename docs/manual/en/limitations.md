@@ -15,8 +15,8 @@ against the code. Intentional changes and fixed QB64 bugs are on
   `QBNEX_QB_EXEC` to a prebuilt `qb-exec` skips that step.
 - **Building BASIC programs needs nothing else.** A built QBNex (or the
   release bundle) compiles programs without Rust installed: the compiler
-  copies the prebuilt runner from `crates/engine/exec/bin/<os>/` and appends
-  the program.
+  copies the prebuilt packed runner (or the runner) from
+  `crates/engine/exec/bin/<os>/` and appends the program.
 - `qb fmt`, `qb lsp` and `qb dap` run the tools `qb-fmt`, `qb-lsp` and
   `qb-dap`. The release bundles include them; when QBNex is built from
   source, build them with `cargo` first.
@@ -33,7 +33,7 @@ against the code. Intentional changes and fixed QB64 bugs are on
 
 | Kind | What it is | Status |
 | --- | --- | --- |
-| Runner + QIR (default) | A copy of `qb-exec` with the program's QIR appended. At start it runs the program on the VM and compiles hot code with Cranelift (JIT). | Available |
+| Runner + QIR (default) | The launcher with `qb-exec` packed behind it and the program's QIR appended (compressed). At start the launcher starts the runner from the user's cache folder, which runs the program on the VM and compiles hot code with Cranelift (JIT). | Available |
 | Native | `qb-exec build` links machine code made ahead of time into an executable with `rust-lld`. The compiler does this only when a native kit exists in `crates/engine/exec/bin/<os>/native/`. | Preview |
 
 Native executables:

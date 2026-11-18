@@ -25,6 +25,7 @@ mod jit;
 include!(concat!(env!("OUT_DIR"), "/ext_symbols.rs"));
 mod lower;
 mod mem;
+pub mod payload;
 mod rt;
 mod vm;
 
@@ -33,6 +34,11 @@ pub use vm::{EventHandle, Vm};
 /// Sets the program's argv as BASIC sees it (COMMAND$, _COMMANDCOUNT): [program, args...].
 pub fn set_program_args(args: Vec<std::ffi::OsString>) {
     rt::builtins::set_program_args(args)
+}
+/// The program file COMMAND$(0) names when it is not this executable (the launcher
+/// started this runner from its cache folder).
+pub fn set_program_exe(path: std::path::PathBuf) {
+    rt::builtins::set_program_exe(path)
 }
 /// The writer given to the run functions is the process stdout: on a terminal PRINT text
 /// then goes out as UTF-8, with bytes that are not UTF-8 taken as code page 437 (box drawing).

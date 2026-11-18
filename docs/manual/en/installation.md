@@ -82,14 +82,16 @@ sh scripts/setup_osx.command
 ### What the setup does
 
 1. Builds the runner `qb-exec` (`cargo build --release -p qb-exec --features gpu`) into
-   `crates/engine/exec/bin/<os>/`.
+   `crates/engine/exec/bin/<os>/`, and packs it behind the launcher `qb-stub`
+   (`qb-exec.pack`, and `qb-exec-lite.pack` without the GPU feature for console programs).
 2. Packs `bootstrap/qbnex.qir` (the compiler, already translated to QIR)
    into that runner, giving a stage-0 compiler.
 3. Lets stage 0 compile `compiler/qbnex.bas` into `qb` / `qb.exe` in the
    repository root, then runs a smoke test.
 
-A compiled program is a copy of the runner with the program's QIR appended,
-so it needs no other files.
+A compiled program is the launcher with the packed runner and the program's
+compressed QIR appended, so it needs no other files. On its first start it
+unpacks the runner into the user's cache folder.
 
 Setup variables: `QBNEX_QB_EXEC` (use a prebuilt `qb-exec` instead of
 building it), `QBNEX_RUST_TARGET`, `QBNEX_BOOTSTRAP`,

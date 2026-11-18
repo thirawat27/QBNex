@@ -59,9 +59,9 @@ exit code 0 แปลว่าคอมไพล์ผ่าน (ถ้าใช
 ## โปรแกรมถูก build อย่างไร
 
 คอมไพเลอร์จะเขียน QIR (ภาษากลางของ QBNex, `docs/dev/qir.md`)
-แล้วต่อท้ายไว้ในสำเนาของ runner ภาษา Rust ที่ build ไว้แล้ว
-(`crates/engine/exec/bin/<os>/qb-exec`) โดยไม่มีการเรียก
-linker เลย runner จะแปลง QIR เป็น bytecode รันบน register VM และคอมไพล์
+แล้วบีบอัดต่อท้าย launcher ที่มี runner ภาษา Rust ซึ่ง build ไว้แล้วบีบอัดอยู่ข้างใน
+(`crates/engine/exec/bin/<os>/qb-exec.pack` หรือสำเนาของ `qb-exec` ถ้า setup ไม่ได้สร้างไฟล์ pack)
+โดยไม่มีการเรียก linker เลย launcher จะคลาย runner ลงโฟลเดอร์ cache ของผู้ใช้ครั้งเดียวแล้วรันจากที่นั่น runner จะแปลง QIR เป็น bytecode รันบน register VM และคอมไพล์
 loop ที่ทำงานบ่อยเป็นโค้ดเครื่องด้วย Cranelift (`QB_JIT=off|eager|<threshold>`)
 ถ้าโปรแกรมใช้คำสั่งที่ QIR back end ยังไม่รองรับ การ build จะหยุดพร้อมข้อความ
 `QIR: unsupported: line N: ...`

@@ -1,14 +1,18 @@
 #!/bin/sh
 # QBNex setup (QIR pipeline). Linux and macOS.
 #
-#   1. builds the QIR runner qb-exec with the Rust toolchain only
+#   1. builds the QIR runner qb-exec with the Rust toolchain only, and packs it with
+#      brotli behind the launcher qb-stub (qb-exec.pack, and qb-exec-lite.pack: the
+#      runner without the GPU feature, for console programs without 3D); qb puts the
+#      packed runner in front of every program it builds
 #   2. turns the bootstrap compiler bootstrap/qbnex.qir into ./qb-stage0
 #      (runner + QIR payload; QBNEX_QIR_PACK=native adds a native image
 #       with `qb-exec build`)
 #   3. stage0 compiles compiler/qbnex.bas into ./qb through QIR
 #
 # Variables: QBNEX_QB_EXEC (prebuilt runner), QBNEX_RUST_TARGET, QBNEX_BOOTSTRAP, QBNEX_QIR_PACK (ir|native),
-# QBNEX_STAGE1_ARGS, QBNEX_SKIP_SELFHOST=1, QBNEX_KEEP_STAGE0=1, QBNEX_GPU=0 (runner without the GPU feature).
+# QBNEX_STAGE1_ARGS, QBNEX_SKIP_SELFHOST=1, QBNEX_KEEP_STAGE0=1, QBNEX_GPU=0 (runner without the GPU feature),
+# QBNEX_PACK=0 (no packed runners: every program carries a copy of qb-exec).
 
 set -eu
 
@@ -27,6 +31,8 @@ PACK="${QBNEX_QIR_PACK:-ir}"
 
 RUNNER="crates/engine/exec/bin/$OSDIR/qb-exec"
 mkdir -p "crates/engine/exec/bin/$OSDIR"
+# packed runners of an earlier build would not match the runner built now
+rm -f "crates/engine/exec/bin/$OSDIR/qb-exec.pack" "crates/engine/exec/bin/$OSDIR/qb-exec-lite.pack"
 if [ -n "${QBNEX_QB_EXEC:-}" ]; then
   cp "$QBNEX_QB_EXEC" "$RUNNER"
 else
@@ -45,6 +51,19 @@ else
     cargo build --release --locked -p qb-exec --features gpu --target "$TARGET" --target-dir target
   fi
   cp "target/$TARGET/release/qb-exec" "$RUNNER"
+  if [ "${QBNEX_PACK:-1}" != "0" ]; then
+    echo "Packing the runner behind the launcher 'qb-stub'"
+    cargo build --release --locked -p qb-stub --target "$TARGET" --target-dir target
+    PACKER="target/$TARGET/release/qb-pack"
+    STUB="target/$TARGET/release/qb-stub"
+    "$PACKER" "$RUNNER" --stub "$STUB" -o "crates/engine/exec/bin/$OSDIR/qb-exec.pack"
+    # with QBNEX_GPU=0 the runner already has no GPU feature
+    if [ "${QBNEX_GPU:-1}" != "0" ]; then
+      echo "Building the runner without the GPU feature for console programs"
+      cargo build --release --locked -p qb-exec --target "$TARGET" --target-dir target
+      "$PACKER" "target/$TARGET/release/qb-exec" --stub "$STUB" -o "crates/engine/exec/bin/$OSDIR/qb-exec-lite.pack"
+    fi
+  fi
 fi
 
 if [ ! -f "$BOOTSTRAP" ]; then

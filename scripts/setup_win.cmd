@@ -1,7 +1,10 @@
 @echo off
 rem QBNex setup (QIR pipeline).
 rem
-rem   1. builds the QIR runner qb-exec with the Rust toolchain only
+rem   1. builds the QIR runner qb-exec with the Rust toolchain only, and packs it with
+rem      brotli behind the launcher qb-stub (qb-exec.pack, and qb-exec-lite.pack: the
+rem      runner without the GPU feature, for console programs without 3D); qb puts the
+rem      packed runner in front of every program it builds
 rem   2. turns the bootstrap compiler bootstrap\qbnex.qir into qb-stage0.exe
 rem      (runner + QIR payload; QBNEX_QIR_PACK=native adds a native image
 rem       with `qb-exec build`)
@@ -11,6 +14,7 @@ rem Variables:
 rem   QBNEX_QB_EXEC       use this prebuilt qb-exec.exe instead of building it
 rem   QBNEX_RUST_TARGET   Rust target for qb-exec (default: rustc's host target)
 rem   QBNEX_GPU           0 = build qb-exec without the GPU feature (no wgpu, no GPU 3D)
+rem   QBNEX_PACK          0 = no packed runners: every program carries a copy of qb-exec
 rem   QBNEX_BOOTSTRAP     bootstrap QIR (default: bootstrap\qbnex.qir)
 rem   QBNEX_QIR_PACK      ir (default) or native
 rem   QBNEX_STAGE1_ARGS   extra arguments for stage0 when building qb.exe
@@ -30,6 +34,12 @@ if not defined QBNEX_QIR_PACK set "QBNEX_QIR_PACK=ir"
 
 if not exist crates\engine\exec\bin\windows mkdir crates\engine\exec\bin\windows
 set "RUNNER=crates\engine\exec\bin\windows\qb-exec.exe"
+rem packed runners of an earlier build would not match the runner built now
+del /f /q crates\engine\exec\bin\windows\*.pack >nul 2>nul
+if exist crates\engine\exec\bin\windows\*.pack (
+    echo Error: an old packed runner in crates\engine\exec\bin\windows cannot be deleted.
+    goto fail
+)
 if defined QBNEX_QB_EXEC (
     copy /y "%QBNEX_QB_EXEC%" %RUNNER% >nul
     if errorlevel 1 (
@@ -67,6 +77,34 @@ if errorlevel 1 (
 copy /y target\%QBNEX_RUST_TARGET%\release\qb-exec.exe %RUNNER% >nul
 if errorlevel 1 (
     echo Error: failed to copy the runner to crates\engine\exec\bin\windows.
+    goto fail
+)
+if "%QBNEX_PACK%"=="0" goto haverunner
+
+echo Packing the runner behind the launcher 'qb-stub'
+cargo build --release --locked -p qb-stub --target %QBNEX_RUST_TARGET% --target-dir target
+if errorlevel 1 (
+    echo Error: failed to build qb-stub.
+    goto fail
+)
+set "PACKER=target\%QBNEX_RUST_TARGET%\release\qb-pack.exe"
+set "STUB=target\%QBNEX_RUST_TARGET%\release\qb-stub.exe"
+%PACKER% %RUNNER% --stub %STUB% -o crates\engine\exec\bin\windows\qb-exec.pack
+if errorlevel 1 (
+    echo Error: failed to pack the runner.
+    goto fail
+)
+rem already the runner without the GPU feature
+if "%QBNEX_GPU%"=="0" goto haverunner
+echo Building the runner without the GPU feature for console programs
+cargo build --release --locked -p qb-exec --target %QBNEX_RUST_TARGET% --target-dir target
+if errorlevel 1 (
+    echo Error: failed to build the runner without the GPU feature.
+    goto fail
+)
+%PACKER% target\%QBNEX_RUST_TARGET%\release\qb-exec.exe --stub %STUB% -o crates\engine\exec\bin\windows\qb-exec-lite.pack
+if errorlevel 1 (
+    echo Error: failed to pack the runner without the GPU feature.
     goto fail
 )
 :haverunner

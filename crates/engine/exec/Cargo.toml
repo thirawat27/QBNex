@@ -32,6 +32,8 @@ qb-runtime = { path = "../../runtime/core" }
 qb-ir = { path = "../../compiler/ir" }
 qb-jit = { path = "../jit" }
 qb-link = { path = "../link" }
+# layout of a compiled program (payload forms, packed runner)
+qb-payload = { path = "../payload" }
 qb-float80 = { path = "../../runtime/float80" }
 qb-audio = { path = "../../runtime/audio" }
 # DECLARE LIBRARY: call thunks, and the extension library resolved in-process

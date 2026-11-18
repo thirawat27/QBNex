@@ -8,6 +8,8 @@ members = [
     "crates/engine/jit",
     "crates/engine/link",
     "crates/engine/native",
+    "crates/engine/payload",
+    "crates/engine/stub",
     "crates/runtime/gpu",
     "crates/runtime/float80",
     "crates/engine/ffi",
@@ -38,7 +40,15 @@ opt-level = 3
 debug = false
 panic = "abort"
 codegen-units = 1
+# Fat LTO made the runner 3% smaller (1% once packed) for twice the build time and
+# memory, so it stays off. The binaries keep no symbol table.
 lto = false
+strip = "symbols"
+
+# The launcher is the first bytes of every compiled program: small. Brotli keeps
+# opt-level 3, the runner unpacks at that speed.
+[profile.release.package.qb-stub]
+opt-level = "z"
 
 # The installer runs once: it and its window library are built small, not fast.
 [profile.release.package.qb-setup]

@@ -719,14 +719,24 @@ pub fn console_window() -> isize {
     0
 }
 
-/// True when this process is the only one attached to its console: the console
-/// window was opened for the program (started from Explorer), not by a shell.
+static STARTED_BY_LAUNCHER: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// The runner was started by the launcher qb-stub, which stays attached to the
+/// console until the program ends.
+pub fn set_started_by_launcher() {
+    STARTED_BY_LAUNCHER.store(true, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// True when this process (with the launcher that started it) is the only one
+/// attached to its console: the console window was opened for the program (started
+/// from Explorer), not by a shell.
 pub fn console_is_own() -> bool {
     #[cfg(windows)]
     {
-        let mut ids = [0u32; 2];
+        let mut ids = [0u32; 3];
+        let own = 1 + u32::from(STARTED_BY_LAUNCHER.load(std::sync::atomic::Ordering::Relaxed));
         // SAFETY: a buffer of the stated length.
-        unsafe { win::GetConsoleProcessList(ids.as_mut_ptr(), ids.len() as u32) == 1 }
+        unsafe { win::GetConsoleProcessList(ids.as_mut_ptr(), ids.len() as u32) == own }
     }
     #[cfg(not(windows))]
     {

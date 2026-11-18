@@ -1,0 +1,12 @@
+[package]
+name = "qb-payload"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "Layout of a compiled QBNex program: the program a runner carries after its own bytes, and the packed runner in front of it."
+publish = false
+
+[lib]
+name = "qb_payload"
+path = "src/lib.rs"

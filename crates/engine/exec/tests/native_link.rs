@@ -90,7 +90,7 @@ fn linked_executables_match_the_vm() {
         b(&exe, "--native-link");
         b(&pay, "--payload");
         let bytes = std::fs::read(&exe).unwrap();
-        assert!(!bytes.ends_with(b"QBNEXIR0") && !bytes.ends_with(b"QBNEXAO1"), "{name}: payload, not linked");
+        assert!(qb_payload::program(&bytes).is_none(), "{name}: payload, not linked");
         let native = run(&exe, &dir);
         let payload = run(&pay, &dir);
         let mut vm = Vec::new();

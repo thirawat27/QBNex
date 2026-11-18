@@ -2696,6 +2696,12 @@ fn str_compare(p: &[u8], q: &[u8], nocase: bool) -> i64 {
 }
 
 static PROGRAM_ARGS: std::sync::OnceLock<Vec<Vec<u8>>> = std::sync::OnceLock::new();
+static PROGRAM_EXE: std::sync::OnceLock<std::path::PathBuf> = std::sync::OnceLock::new();
+
+/// The program file when the launcher started this runner from its cache folder.
+pub fn set_program_exe(path: std::path::PathBuf) {
+    let _ = PROGRAM_EXE.set(path);
+}
 
 /// The program's argv as BASIC sees it: [program, args...]. `qb-exec prog.qir a b`
 /// sets it to [prog.qir, a, b] (`set_program_args`); a packaged program uses its own argv.
@@ -2705,8 +2711,9 @@ pub(crate) fn program_args() -> &'static [Vec<u8>] {
     PROGRAM_ARGS.get_or_init(|| {
         let mut a: Vec<Vec<u8>> = std::env::args_os().map(|s| qb_runtime::osstr::bytes_of(&s)).collect();
         // COMMAND$(0) is the executable's full path (as QB64's GetModuleFileName), also
-        // when the program was started through PATH by its bare name, or with no argv
-        if let Ok(exe) = std::env::current_exe() {
+        // when the program was started through PATH by its bare name, or with no argv;
+        // the program file, not the runner the launcher unpacked into its cache
+        if let Some(exe) = PROGRAM_EXE.get().cloned().or_else(|| std::env::current_exe().ok()) {
             let exe = qb_runtime::osstr::bytes_of(exe.as_os_str());
             match a.first_mut() {
                 Some(first) => *first = exe,

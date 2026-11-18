@@ -162,8 +162,9 @@ cd QBNex
 scripts\setup_win.cmd
 ```
 
-The setup script builds the runner `qb-exec` with cargo, packs `bootstrap/qbnex.qir`
-into it as a stage-0 compiler, and lets that compile `qb.exe` in the repository root
+The setup script builds the runner `qb-exec` with cargo, packs it behind the launcher
+`qb-stub` (the front of every compiled program), packs `bootstrap/qbnex.qir` into a copy
+of the runner as a stage-0 compiler, and lets that compile `qb.exe` in the repository root
 (run it as `qb` or `qbnex`). Linux and macOS work the same way.
 
 ### Linux
@@ -190,8 +191,11 @@ What the setup scripts do, step by step:
 
 ```bash
 cargo build --release -p qb-exec --features gpu
-# copy target/release/qb-exec(.exe) to crates/engine/exec/bin/<os>/, then pack
-# bootstrap/qbnex.qir into a copy of it: that copy is qb-stage0
+# copy target/release/qb-exec(.exe) to crates/engine/exec/bin/<os>/
+cargo build --release -p qb-stub
+# qb-pack <bin>/qb-exec --stub target/release/qb-stub -o <bin>/qb-exec.pack; the same for
+# the runner built without --features gpu, as <bin>/qb-exec-lite.pack (console programs)
+# then pack bootstrap/qbnex.qir into a copy of the runner: that copy is qb-stage0
 # (scripts/qir_pack.ps1 on Windows; setup_lnx.sh does the same in shell)
 ./qb-stage0 compiler/qbnex.bas -o qb
 sh scripts/selfhost_fixpoint.sh   # gen2 == gen3 == bootstrap/qbnex.qir
@@ -200,7 +204,9 @@ sh scripts/selfhost_fixpoint.sh   # gen2 == gen3 == bootstrap/qbnex.qir
 Setup variables: `QBNEX_QB_EXEC` (use a prebuilt `qb-exec`), `QBNEX_RUST_TARGET`,
 `QBNEX_BOOTSTRAP` (another bootstrap QIR), `QBNEX_QIR_PACK=ir|native`, `QBNEX_STAGE1_ARGS`
 (extra switches for the stage-0 compile), `QBNEX_SKIP_SELFHOST=1` (stop at `qb-stage0`),
-`QBNEX_KEEP_STAGE0=1`, and on Windows `QBNEX_CI=1` (no pause at the end).
+`QBNEX_KEEP_STAGE0=1`, `QBNEX_GPU=0` (runner without the GPU feature), `QBNEX_PACK=0` (no
+packed runners: every program carries a copy of `qb-exec`), and on Windows `QBNEX_CI=1`
+(no pause at the end).
 
 After changing the compiler, rebuild `qb` with itself, run the fixpoint, and refresh
 `bootstrap/qbnex.qir` from `target/qb-temp/program.qir` of the last generation once gen2 and

@@ -1,0 +1,35 @@
+[package]
+name = "qb-stub"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "Front of a compiled QBNex program: unpacks the runner it carries into a cache folder once and starts it (qb-stub), and packs a runner behind the launcher (qb-pack)."
+publish = false
+
+# The launcher: the first bytes of every compiled program.
+[[bin]]
+name = "qb-stub"
+path = "src/main.rs"
+
+# Packs a runner behind the launcher; setup runs it once per runner build.
+[[bin]]
+name = "qb-pack"
+path = "src/pack.rs"
+
+[dependencies]
+qb-payload = { path = "../payload" }
+# Brotli (RFC 7932): the runner is a third of its size and unpacks in tens of
+# milliseconds, once per runner build. Pure Rust, both directions.
+brotli-decompressor = "6.3.2"
+brotli = "9.1.3"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = [
+    "Win32_Foundation",
+    "Win32_Security",
+    "Win32_System_Console",
+    "Win32_System_JobObjects",
+    "Win32_System_Threading",
+    "Win32_UI_WindowsAndMessaging",
+] }

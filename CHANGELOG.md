@@ -25,6 +25,8 @@ marked so below and removed code nothing used (about 1,900 lines of the compiler
 Rust crates); `2.0.0-preview.3` adds the items marked "In 2.0.0-preview.3".
 `2.0.0-preview.4` (2026-11-16) adds the items marked "In 2.0.0-preview.4": GPU 3D in
 the standard builds, faster 3D drawing and `qb --help` options that do what they say.
+`2.0.0-preview.5` adds the items marked "In 2.0.0-preview.5": programs about a quarter of
+their former size.
 
 ### Changed
 
@@ -108,6 +110,13 @@ the standard builds, faster 3D drawing and `qb --help` options that do what they
 - `DECLARE LIBRARY` and `DECLARE DYNAMIC LIBRARY` are checked at compile time with the same search order the runner uses to load the library.
 - `qb-fmt` and the language server read `a$"..."` as a name followed by a plain string, as the compiler does; they took the `$` of the name for the start of an interpolated string, and formatting could change the program.
 - `examples/showcase`: eight runnable programs shown in the README (among them `life.bas`, Conway's Game of Life), `shapes3d.bas` (six 3D shapes drawn with `_DRAW3D` or `_MAPTRIANGLE` 3D), `physics3d.bas` (five animated physics scenes on the GPU with `_SHADER` highlights and soft shadows), and `raytrace_gpu.bas` (six animated scenes ray traced live by a WGSL `_SHADER`: reflections, glass, soft shadows, coloured lamps).
+
+#### In 2.0.0-preview.5
+
+- Smaller programs: a compiled program is the launcher `qb-stub` with the runner packed behind it (brotli with a branch filter, a third of its size) and the QIR text as a zlib stream (a fifth of its size). The launcher unpacks the runner once per runner build into the user's cache folder and starts it there. On Windows x64 a hello world is 4.2 MB instead of 18.4 MB, a window or 3D program 5.7 MB, the compiler `qb.exe` 5.4 MB instead of 24.2 MB. Run time is unchanged; a start takes about 15 ms more on Windows, where the runner is a child process of the launcher (it passes on the exit code, leaves Ctrl+C to the program and ends the runner when it is killed). `COMMAND$(0)`, `DECLARE DYNAMIC LIBRARY` and the "own console" check go by the program file, not the cached runner.
+- Console-only programs that use no 3D get the runner built without the GPU feature (`qb-exec-lite.pack`, 4.2 MB packed instead of 5.7 MB); window programs keep the GPU runner, which presents the window through the GPU.
+- The release binaries keep no symbol table, and the runner builds only the host's Cranelift back end. Fat LTO was measured (3% smaller, twice the build time and memory) and left off.
+- `qb-payload` holds the layout of a compiled program in one place for the runner, the launcher and `qb-dap`, which now also reads compressed programs. Setup builds `qb-stub` and packs the runners with `qb-pack`; `QBNEX_PACK=0` writes a copy of the runner as before.
 
 ### Added
 

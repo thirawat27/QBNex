@@ -59,8 +59,10 @@ Run the executable you built: `hello.exe` or `./hello`.
 ## How a program is built
 
 The compiler writes QIR (the QBNex intermediate representation,
-`docs/dev/qir.md`) and appends it to a copy of the prebuilt Rust
-runner `crates/engine/exec/bin/<os>/qb-exec`. No linker runs.
+`docs/dev/qir.md`) and appends it, compressed, to the launcher with the
+prebuilt Rust runner packed behind it (`crates/engine/exec/bin/<os>/qb-exec.pack`;
+a copy of `qb-exec` when setup made no packed runner). No linker runs. The
+launcher unpacks the runner once into the user's cache folder and starts it.
 The runner lowers QIR to bytecode, runs it on a register VM and
 compiles hot loops to native code with Cranelift
 (`QB_JIT=off|eager|<threshold>`). A statement the QIR back end does not

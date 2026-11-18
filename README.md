@@ -282,14 +282,17 @@ sudo pacman -S gcc alsa-lib systemd-libs libxkbcommon libx11 pkgconf  # Arch Lin
 ```
 
 The setup script:
-1. Builds the runner `qb-exec` with cargo into `crates/engine/exec/bin/<os>/`
+1. Builds the runner `qb-exec` with cargo into `crates/engine/exec/bin/<os>/`, and packs it
+   behind the launcher `qb-stub` (`qb-exec.pack`, and `qb-exec-lite.pack` without the GPU
+   feature for console programs)
 2. Packs `bootstrap/qbnex.qir` into it, giving a stage-0 compiler (`qb-stage0`)
 3. Lets stage 0 compile `compiler/qbnex.bas` into `qb` / `qb.exe` in the project root
    (run it as `qb` or `qbnex`) and runs a smoke test
 
 Setup variables: `QBNEX_QB_EXEC` (use a prebuilt `qb-exec`), `QBNEX_RUST_TARGET`,
 `QBNEX_BOOTSTRAP`, `QBNEX_QIR_PACK=ir|native`, `QBNEX_STAGE1_ARGS`, `QBNEX_SKIP_SELFHOST=1`,
-`QBNEX_KEEP_STAGE0=1`, `QBNEX_CI=1` (Windows: no pause at the end).
+`QBNEX_KEEP_STAGE0=1`, `QBNEX_GPU=0` (runner without the GPU feature), `QBNEX_PACK=0` (no
+packed runners), `QBNEX_CI=1` (Windows: no pause at the end).
 
 The developer tools are separate Rust programs:
 
@@ -1247,8 +1250,9 @@ port with `-p 8080:8080`.
 └────────┬────────┘
          ▼
 ┌─────────────────┐
-│   Packaging     │  Copy the runner qb-exec and append the QIR
-│                 │  (or link a native executable when the native kit exists)
+│   Packaging     │  Launcher + packed runner qb-exec, then the QIR
+│                 │  compressed (or link a native executable when the
+│                 │  native kit exists)
 └────────┬────────┘
          ▼
 ┌─────────────────┐
@@ -1279,9 +1283,13 @@ of the last build stays in `target/qb-temp/program.qir` in the QBNex folder (eac
 compiler uses its own `target/qb-temp<N>` folder). A statement the QIR back end does not cover
 stops the build with `QIR: unsupported: line N: ...`.
 
-**Packaging and execution.** The output is a copy of the prebuilt runner
-`crates/engine/exec/bin/<os>/qb-exec` followed by the QIR text, its length (u64, little endian)
-and the tag `QBNEXIR0`. At start-up the runner reads that payload from its own file, validates it,
+**Packaging and execution.** The output is the launcher `qb-stub` with the prebuilt runner
+`qb-exec` packed behind it (`crates/engine/exec/bin/<os>/qb-exec.pack`, brotli), followed by the
+QIR text as a zlib stream, its lengths (u64, little endian) and the tag `QBNEXIZ0` (layout:
+`crates/engine/payload`). The launcher unpacks the runner once per runner build into the user's
+cache folder (`%LOCALAPPDATA%\QBNex\runners`, `~/.cache/qbnex/runners`,
+`~/Library/Caches/QBNex/runners`) and starts it there; on Linux and macOS the runner takes over
+the launcher's process. The runner reads the payload from the program file, validates it,
 lowers it to bytecode and runs it on a register VM; hot functions are compiled by the Cranelift
 JIT (`QB_JIT`). The runtime (window, graphics, sound, files, network) is the Rust crate
 `qb-runtime` with `qb-audio`, `qb-gpu` and `qb-ext`. On Windows a window program without
@@ -1290,9 +1298,13 @@ and `$CONSOLE:ONLY` programs stay console executables. With the native kit next 
 `qb` links a native executable instead; when that link fails it writes the runner with the QIR.
 
 **Sizes and speed.** A small program compiles quickly; compile time grows with the size of the
-program. Every program is the
-runner (with graphics, sound, network and the JIT) plus its QIR text, so a hello world and a
-graphics program are about the same size; executables are large because each one carries the VM.
+program. Every program carries the packed runner (with graphics, sound, network and the JIT)
+plus its compressed QIR: on Windows x64 a hello world is about 4.2 MB and a window or 3D program
+about 5.7 MB (a copy of the runner was 18 MB). A console program that uses no 3D gets the runner
+built without the GPU back end (`qb-exec-lite.pack`). The program runs as fast as with a copy of
+the runner; starting it takes about 15 ms more on Windows (the launcher starts the runner as a
+child process), and the first start after a new runner build unpacks it (a tenth of a second,
+plus a virus scan of the new file). `QBNEX_PACK=0` at setup writes a copy of the runner instead.
 
 ---
 
@@ -2126,6 +2138,8 @@ QBNex/
 │   ├── compiler/ir/            # qb-ir: QIR types, text parser/printer, validator, builtin table
 │   ├── compiler/syntax/        # qb-syntax: lexer and keyword tables for the tools
 │   ├── engine/exec/            # qb-exec: runner for compiled QIR programs (VM, loader; bin/<os>/qb-exec)
+│   ├── engine/payload/         # qb-payload: layout of a compiled program (payload forms, packed runner)
+│   ├── engine/stub/            # qb-stub: launcher in front of every program; qb-pack packs the runner
 │   ├── engine/jit/             # qb-jit: Cranelift JIT tier
 │   ├── engine/link/            # qb-link: linker/loader for native program code (Cranelift object
 │   │                           #   -> loadable image; rust-lld toolchain)
