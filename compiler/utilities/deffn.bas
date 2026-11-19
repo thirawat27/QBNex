@@ -424,11 +424,12 @@ SUB DefFn_RewriteText (buf AS STRING, defState AS STRING, anyDefType AS LONG)
     IF INSTR(UCASE$(buf), "FN") = 0 THEN EXIT SUB
     crlf = CHR$(13) + CHR$(10)
     p = 1
+    c13 = 0: c10 = 0
     DO WHILE p <= n
-        c13 = INSTR(p, buf, CHR$(13))
-        c10 = INSTR(p, buf, CHR$(10))
-        IF c13 = 0 THEN c13 = n + 1
-        IF c10 = 0 THEN c10 = n + 1
+        'search again only once p has passed the line end found before (a file with
+        'LF line ends has no CR: a search to the end per line was quadratic)
+        IF c13 < p THEN c13 = INSTR(p, buf, CHR$(13)): IF c13 = 0 THEN c13 = n + 1
+        IF c10 < p THEN c10 = INSTR(p, buf, CHR$(10)): IF c10 = 0 THEN c10 = n + 1
         IF c13 < c10 THEN e = c13 ELSE e = c10
         lineText = MID$(buf, p, e - p)
         IF inDef THEN

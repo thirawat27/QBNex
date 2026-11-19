@@ -33,7 +33,7 @@ NEXT
 
 IF id2.arrayelements = -1 THEN
     IF arrayelementslist(currentid) <> 0 AND elements <> arrayelementslist(currentid) THEN Give_Error "Cannot change the number of elements an array has!": EXIT FUNCTION
-    IF elements = 1 THEN id2.arrayelements = 1: ids(currentid).arrayelements = 1 'lucky guess
+    IF elements = 1 THEN id2.arrayelements = 1: ids(currentid).arrayelements = 1: idsGen = idsGen + 1 'lucky guess
     arrayelementslist(currentid) = elements
 ELSE
     IF elements <> id2.arrayelements THEN Give_Error "Cannot change the number of elements an array has!": EXIT FUNCTION
@@ -1721,7 +1721,7 @@ IF (targettyp AND ISPOINTER) THEN
                 MID$(id2.nelereq, curarg, 1) = CHR$(nelereq)
             END IF
 
-            ids(targetid) = id2
+            ids(targetid) = id2: idsGen = idsGen + 1
 
         ELSE
 

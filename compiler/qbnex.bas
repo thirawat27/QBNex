@@ -515,6 +515,7 @@ FUNCTION getpid& ()
 
     DIM SHARED lineinput3buffer AS STRING
     DIM SHARED lineinput3index AS LONG
+    DIM SHARED lineinput3cr AS LONG, lineinput3crFrom AS LONG, lineinput3lf AS LONG, lineinput3lfFrom AS LONG 'sources.bas: the next CR and LF in lineinput3buffer
     DIM SHARED classSyntaxQueue AS STRING
     DIM SHARED classSyntaxQueuedLine AS LONG 'the line just read was made by lowering: it has no source line of its own
     DIM SHARED classSyntaxDeferredQueue AS STRING
@@ -700,6 +701,19 @@ FUNCTION getpid& ()
     DIM SHARED findanotherid AS INTEGER
     DIM SHARED findidinternal AS LONG
     DIM SHARED currentid AS LONG 'is the index of the last ID accessed
+'findid remembers its answers (symbols.bas). idsGen changes whenever the ids, the hash
+'table or the used-variable list change, which makes every remembered answer stale.
+DIM SHARED idsGen AS LONG, hashFindStateWrites AS LONG
+DIM SHARED findidMemoGen(1023) AS LONG, findidMemoName(1023) AS STRING, findidMemoSecond(1023) AS STRING
+DIM SHARED findidMemoSub(1023) AS STRING, findidMemoModule(1023) AS STRING, findidMemoPrefix(1023) AS LONG
+DIM SHARED findidMemoResult(1023) AS LONG, findidMemoId(1023) AS LONG, findidMemoInternal(1023) AS LONG
+DIM SHARED findidMemoHashSet(1023) AS LONG, findidMemoHashNext(1023) AS LONG, findidMemoHashReverse(1023) AS LONG
+DIM SHARED findidMemoHashFlags(1023) AS LONG, findidMemoHashName(1023) AS STRING
+'element tables of the last four lines read by getelement$/numelements (tokens.bas):
+'the line, the start of each element found so far, and the count once known
+CONST ELEMENTS_MAXPOS = 1024
+DIM SHARED elementsSrc(0 TO 4) AS STRING, elementsKnown(0 TO 4) AS LONG, elementsCount(0 TO 4) AS LONG
+DIM SHARED elementsPos(0 TO 4, 1 TO ELEMENTS_MAXPOS) AS LONG, elementsMru AS LONG, elementsVictim AS LONG
     DIM SHARED linenumber AS LONG, reallinenumber AS LONG, totallinenumber AS LONG, definingtypeerror AS LONG
     DIM SHARED wholeline AS STRING
     DIM SHARED diagnosticSourceLine AS STRING
@@ -1220,14 +1234,14 @@ DIM SHARED incRangeFrom AS LONG, incRangeTo AS LONG, incRangeSkip AS LONG, incRa
                 diagnosticSourceLine = ""
                 classSyntaxSourceLine = ""
                 linefragment$ = ""
-                idn = 0
+                idn = 0: idsGen = idsGen + 1
                 subfuncn = 0
                 closedsubfunc = 0
                 subfunc = ""
                 SelectCaseCounter = 0
                 ExecCounter = 0
                 UserDefineCount = 7
-                totalVariablesCreated = 0
+                totalVariablesCreated = 0: idsGen = idsGen + 1
                 typeDefinitions$ = ""
                 totalMainVariablesCreated = 0
                 totalWarnings = 0
@@ -3872,7 +3886,7 @@ IF n >= 1 THEN
                     nele = nelereq
                     MID$(id2.nele, params, 1) = CHR$(nele)
 
-                    ids(targetid) = id2
+                    ids(targetid) = id2: idsGen = idsGen + 1
 
                     ignore = dim2(n2$, t2$, dimmethod, str2$(nele))
                     IF Error_Happened THEN GOTO errmes
@@ -3881,7 +3895,7 @@ IF n >= 1 THEN
                     nele = 1
                     MID$(id2.nele, params, 1) = CHR$(nele)
 
-                    ids(targetid) = id2
+                    ids(targetid) = id2: idsGen = idsGen + 1
 
                     ignore = dim2(n2$, t2$, dimmethod, "?")
                     IF Error_Happened THEN GOTO errmes
@@ -4015,7 +4029,7 @@ IF n = 2 THEN
 
         'unshare temp. shared variables
         FOR i = 1 TO idn
-            IF ids(i).share AND 2 THEN ids(i).share = ids(i).share - 2
+            IF ids(i).share AND 2 THEN ids(i).share = ids(i).share - 2: idsGen = idsGen + 1
         NEXT
 
         FOR i = 1 TO revertmaymusthaven
@@ -5986,7 +6000,7 @@ IF n >= 1 THEN
                 END IF
             END IF
 
-            ids(currentid).share = ids(currentid).share OR 2 'set as temporarily shared
+            ids(currentid).share = ids(currentid).share OR 2: idsGen = idsGen + 1 'set as temporarily shared
 
             'method must apply to the current sub/function regardless of how the variable was defined in 'main'
             lmay = LEN(RTRIM$(id.mayhave)): lmust = LEN(RTRIM$(id.musthave))
@@ -6698,7 +6712,7 @@ IF commonoption THEN
 
                 IF match THEN
                     x = currentid
-                    IF dimshared THEN ids(x).share = 1 'share if necessary
+                    IF dimshared THEN ids(x).share = 1: idsGen = idsGen + 1 'share if necessary
                     tlayout$ = RTRIM$(id.cn) + sp + "(" + sp2 + ")"
 
                     IF dimmethod = 0 THEN
@@ -8711,7 +8725,7 @@ IF separgs_local$(i) <> "N-LL" THEN 'an omitted argument needs no checks
 
             'print rtrim$(id2.n)+">nelereq=";nelereq
 
-            ids(targetid) = id2
+            ids(targetid) = id2: idsGen = idsGen + 1
 
         ELSE
 
@@ -10787,6 +10801,7 @@ SUB manageVariableList (__name$, __cname$, localIndex AS LONG, action AS _BYTE)
             END IF
             IF i > UBOUND(varListNext) THEN REDIM _PRESERVE varListNext(i + 999) AS LONG
             varListNext(i) = varListHead(vlHash): varListHead(vlHash) = i: varListHeadCount = varListHeadCount + 1
+            idsGen = idsGen + 1 'findid marks the variables it finds as used: its answers are stale
 
             usedVariableList(i).id = currentid
             usedVariableList(i).used = 0

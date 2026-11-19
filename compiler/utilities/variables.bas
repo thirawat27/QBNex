@@ -32,7 +32,7 @@ IF arraydesc THEN
 
         IF id.arrayelements = -1 THEN 'unknown
         IF arrayelementslist(currentid) <> 0 AND nume <> arrayelementslist(currentid) THEN Give_Error "Cannot change the number of elements an array has!": EXIT FUNCTION
-        IF nume = 1 THEN id.arrayelements = 1: ids(currentid).arrayelements = 1 'lucky guess!
+        IF nume = 1 THEN id.arrayelements = 1: ids(currentid).arrayelements = 1: idsGen = idsGen + 1 'lucky guess!
         arrayelementslist(currentid) = nume
     ELSE
         Give_Error "Cannot change the number of elements an array has!": EXIT FUNCTION
@@ -1206,7 +1206,7 @@ bypassNextVariable = 0
 
 IF dimsfarray THEN
     ids(idn).sfid = glinkid
-    ids(idn).sfarg = glinkarg
+    ids(idn).sfarg = glinkarg: idsGen = idsGen + 1
 END IF
 
 tlayout$ = l$
@@ -1278,7 +1278,7 @@ SUB regid
         IF dimstatic THEN id.staticscope = 1
     END IF
 
-    ids(idn) = id
+    ids(idn) = id: idsGen = idsGen + 1
 
     currentid = idn
 
@@ -1288,7 +1288,7 @@ SUB regid
     'sub/function?
     'Note: QBASIC does not allow: Internal type names (INTEGER,LONG,...)
     IF id.subfunc THEN
-        ids(currentid).internal_subfunc = reginternalsubfunc
+        ids(currentid).internal_subfunc = reginternalsubfunc: idsGen = idsGen + 1
         IF id.subfunc = 1 THEN hashflags = hashflags + HASHFLAG_FUNCTION ELSE hashflags = hashflags + HASHFLAG_SUB
         IF reginternalsubfunc = 0 THEN 'allow internal definition of subs/functions without checks
         hashchkflags = HASHFLAG_RESERVED + HASHFLAG_CONSTANT

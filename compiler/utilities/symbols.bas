@@ -1,4 +1,5 @@
 FUNCTION findid& (n2$)
+    memoslot = -1
     n$ = UCASE$(n2$)
 
     IF ASC(n$) = 34 THEN GOTO noid
@@ -8,6 +9,39 @@ FUNCTION findid& (n2$)
     findanother = findanotherid: findanotherid = 0
     IF findanother <> 0 AND findidinternal <> 2 THEN Give_Error "FINDID() ERROR: Invalid repeat search requested!": EXIT FUNCTION
     IF Error_Happened THEN EXIT FUNCTION
+
+    'A new search (not a continuation) with the same name, second argument and scope
+    'while nothing it reads has changed gives the answer of the last such search:
+    'evaluate and the QIR emitter look up the same names again and again. The
+    'state a continuation (findanotherid) needs is restored with it.
+    IF findanother = 0 THEN
+        memoslot = (LEN(n$) * 31 + ASC(n$) * 7 + ASC(n$, LEN(n$)) * 3) AND 1023
+        IF findidMemoGen(memoslot) = idsGen + 1 THEN
+            IF findidMemoName(memoslot) = n$ THEN
+                IF findidMemoSecond(memoslot) = secondarg$ AND findidMemoSub(memoslot) = subfunc AND findidMemoModule(memoslot) = module$ AND findidMemoPrefix(memoslot) = qbnexprefix_set THEN
+                    findidinternal = findidMemoInternal(memoslot)
+                    IF findidMemoHashSet(memoslot) THEN
+                        HashFind_NextListItem = findidMemoHashNext(memoslot)
+                        HashFind_Reverse = findidMemoHashReverse(memoslot)
+                        HashFind_SearchFlags = findidMemoHashFlags(memoslot)
+                        HashFind_Name = findidMemoHashName(memoslot)
+                    END IF
+                    z = findidMemoResult(memoslot)
+                    IF z THEN
+                        currentid = findidMemoId(memoslot)
+                        id = ids(currentid)
+                    ELSE
+                        currentid = -1
+                    END IF
+                    findid& = z
+                    EXIT FUNCTION
+                END IF
+            END IF
+        END IF
+        memoname$ = n$
+        memowrites = hashFindStateWrites
+    END IF
+
     findid& = 2
 
     i = 0
@@ -88,6 +122,7 @@ findidok:
     temp$ = refer$(str2$(i), t, 1)
     manageVariableList "", temp$, 0, 1
     currentid = i
+    IF memoslot >= 0 THEN GOSUB findidremember
     EXIT FUNCTION
 
 findidnomatch:
@@ -96,6 +131,26 @@ findidnomatch:
 noid:
     findid& = 0
     currentid = -1
+    IF memoslot >= 0 THEN z = 0: GOSUB findidremember
+    EXIT FUNCTION
+
+findidremember:
+    IF Error_Happened THEN RETURN
+    findidMemoGen(memoslot) = idsGen + 1
+    findidMemoName(memoslot) = memoname$
+    findidMemoSecond(memoslot) = secondarg$
+    findidMemoSub(memoslot) = subfunc
+    findidMemoModule(memoslot) = module$
+    findidMemoPrefix(memoslot) = qbnexprefix_set
+    findidMemoResult(memoslot) = z
+    findidMemoId(memoslot) = currentid
+    findidMemoInternal(memoslot) = findidinternal
+    findidMemoHashSet(memoslot) = (hashFindStateWrites <> memowrites)
+    findidMemoHashNext(memoslot) = HashFind_NextListItem
+    findidMemoHashReverse(memoslot) = HashFind_Reverse
+    findidMemoHashFlags(memoslot) = HashFind_SearchFlags
+    findidMemoHashName(memoslot) = HashFind_Name
+    RETURN
 END FUNCTION
 
 FUNCTION FindArray (secure$)

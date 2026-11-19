@@ -191,14 +191,24 @@ SUB lineinput3load (f$)
 
     DefFn_RewriteBuffer 'single-line DEF FN -> FUNCTION (deffn.bas)
     lineinput3index = 1
+    lineinput3crFrom = 0: lineinput3lfFrom = 0 'a new buffer: forget the line ends found in the old one
 END SUB
 
 FUNCTION lineinput3$
     'returns CHR$(13) if no more lines are available
     l = LEN(lineinput3buffer$)
     IF lineinput3index > l THEN lineinput3$ = CHR$(13): EXIT FUNCTION
-    c13 = INSTR(lineinput3index, lineinput3buffer$, CHR$(13))
-    c10 = INSTR(lineinput3index, lineinput3buffer$, CHR$(10))
+    'The next CR and LF are remembered until the line start passes them: a file with
+    'LF line ends has no CR, and searching to the end of the buffer for it on every
+    'line made reading a long file quadratic.
+    IF lineinput3crFrom = 0 OR lineinput3crFrom > lineinput3index OR (lineinput3cr <> 0 AND lineinput3cr < lineinput3index) THEN
+        lineinput3cr = INSTR(lineinput3index, lineinput3buffer$, CHR$(13)): lineinput3crFrom = lineinput3index
+    END IF
+    IF lineinput3lfFrom = 0 OR lineinput3lfFrom > lineinput3index OR (lineinput3lf <> 0 AND lineinput3lf < lineinput3index) THEN
+        lineinput3lf = INSTR(lineinput3index, lineinput3buffer$, CHR$(10)): lineinput3lfFrom = lineinput3index
+    END IF
+    c13 = lineinput3cr
+    c10 = lineinput3lf
     IF c10 = 0 AND c13 = 0 THEN
         lineinput3$ = MID$(lineinput3buffer$, lineinput3index, l - lineinput3index + 1)
         lineinput3index = l + 1

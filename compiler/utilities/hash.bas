@@ -11,6 +11,7 @@ FUNCTION HashValue& (a$)
     HashValue& = h
 END FUNCTION
 SUB HashAdd (a$, flags, reference)
+    idsGen = idsGen + 1 'findid answers are stale
     IF HashListFreeLast > 0 THEN
         i = HashListFree(HashListFreeLast)
         HashListFreeLast = HashListFreeLast - 1
@@ -56,6 +57,7 @@ FUNCTION HashFind (a$, searchflags, resultflags, resultreference)
                 i2 = HashList(i).NextItem
                 IF i2 THEN
                     HashFind = 2
+                    hashFindStateWrites = hashFindStateWrites + 1
                     HashFind_NextListItem = i2
                     HashFind_Reverse = 0
                     HashFind_SearchFlags = searchflags
@@ -86,6 +88,7 @@ FUNCTION HashFindRev (a$, searchflags, resultflags, resultreference)
                 i2 = HashList(i).PrevItem
                 IF i2 THEN
                     HashFindRev = 2
+                    hashFindStateWrites = hashFindStateWrites + 1
                     HashFind_NextListItem = i2
                     HashFind_Reverse = 1
                     HashFind_SearchFlags = searchflags
@@ -114,6 +117,7 @@ FUNCTION HashFindCont (resultflags, resultreference)
                 i2 = HashList(i).PrevItem
                 IF i2 THEN
                     HashFindCont = 2
+                    hashFindStateWrites = hashFindStateWrites + 1
                     HashFind_NextListItem = i2
                     EXIT FUNCTION
                 ELSE
@@ -136,6 +140,7 @@ FUNCTION HashFindCont (resultflags, resultreference)
                 i2 = HashList(i).NextItem
                 IF i2 THEN
                     HashFindCont = 2
+                    hashFindStateWrites = hashFindStateWrites + 1
                     HashFind_NextListItem = i2
                     EXIT FUNCTION
                 ELSE
@@ -151,6 +156,7 @@ FUNCTION HashFindCont (resultflags, resultreference)
 END FUNCTION
 
 SUB HashClear
+    idsGen = idsGen + 1 'findid answers are stale
     DIM usedItems AS LONG
     DIM clearLimit AS LONG
 

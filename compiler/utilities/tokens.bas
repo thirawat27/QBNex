@@ -69,59 +69,60 @@ FUNCTION getelementspecial$ (savea$, elenum)
 END FUNCTION
 
 FUNCTION getelement$ (a$, elenum)
-    'Two lines are cached (callers often alternate between two): the element
-    'last returned for each (its number, start and the separator after it).
-    'Scalars rather than STATIC arrays keep a cache hit, by far the most
-    'frequent call of the compiler, short.
-    STATIC geSrc1 AS STRING, geEl1 AS LONG, geSt1 AS LONG, geNx1 AS LONG
-    STATIC geSrc2 AS STRING, geEl2 AS LONG, geSt2 AS LONG, geNx2 AS LONG
-    STATIC geVictim AS LONG
-    DIM slot AS LONG, ce AS LONG, cs AS LONG, cn AS LONG, p AS LONG, i AS LONG, n AS LONG
+    'The element table of the line: elementslot finds (or makes) the line's slot,
+    'which holds the start of every element found so far, so reading the elements
+    'in any order scans each separator once.
+    DIM s AS LONG, k AS LONG, p AS LONG, i AS LONG
 
     IF a$ = "" THEN EXIT FUNCTION 'no elements!
+    s = elementsMru
+    IF a$ <> elementsSrc(s) THEN s = elementslot(a$)
+    IF elenum < 1 THEN EXIT FUNCTION
 
-    IF a$ = geSrc1 THEN
-        slot = 1: ce = geEl1: cs = geSt1: cn = geNx1
-    ELSEIF a$ = geSrc2 THEN
-        slot = 2: ce = geEl2: cs = geSt2: cn = geNx2
-    ELSE
-        IF geVictim = 1 THEN geVictim = 2 ELSE geVictim = 1
-        slot = geVictim
-        IF slot = 1 THEN
-            geSrc1 = a$: geEl1 = 0: geSt1 = 0: geNx1 = 0
-        ELSE
-            geSrc2 = a$: geEl2 = 0: geSt2 = 0: geNx2 = 0
-        END IF
+    k = elementsKnown(s)
+    IF elenum < k THEN
+        p = elementsPos(s, elenum)
+        getelement$ = MID$(a$, p, elementsPos(s, elenum + 1) - 1 - p)
+        EXIT FUNCTION
     END IF
-
-    IF elenum = ce AND cs > 0 THEN
-        p = cs
-        i = cn
-    ELSE
-        IF elenum > ce AND cn <> 0 THEN
-            n = ce + 1
-            p = cn + 1
-        ELSE
-            'Jump to the element with the shared position cache (seeded by the
-            'SUBs that edit lines) instead of scanning from the start
-            p = elementpos(a$, elenum, 0)
-            IF p = 0 THEN EXIT FUNCTION 'no such element
-            n = elenum
-        END IF
+    IF elenum > k THEN
+        IF elementsCount(s) <> 0 AND elenum > elementsCount(s) THEN EXIT FUNCTION 'no such element
+        p = elementsPos(s, k)
         DO
             i = INSTR(p, a$, sp)
-            IF elenum = n THEN EXIT DO
-            IF i = 0 THEN EXIT FUNCTION 'no more elements!
-            n = n + 1
+            IF i = 0 THEN elementsCount(s) = k: EXIT FUNCTION 'no more elements!
+            k = k + 1
             p = i + 1
-        LOOP
-        IF slot = 1 THEN
-            geEl1 = elenum: geSt1 = p: geNx1 = i
-        ELSE
-            geEl2 = elenum: geSt2 = p: geNx2 = i
-        END IF
+            IF k <= ELEMENTS_MAXPOS THEN elementsPos(s, k) = p: elementsKnown(s) = k
+        LOOP UNTIL k = elenum
+    ELSE
+        p = elementsPos(s, k)
     END IF
-    IF i THEN getelement$ = MID$(a$, p, i - p) ELSE getelement$ = RIGHT$(a$, LEN(a$) - p + 1)
+    'element elenum starts at p and is the last one with a known start
+    i = INSTR(p, a$, sp)
+    IF i THEN
+        IF elenum = elementsKnown(s) AND elenum < ELEMENTS_MAXPOS THEN elementsPos(s, elenum + 1) = i + 1: elementsKnown(s) = elenum + 1
+        getelement$ = MID$(a$, p, i - p)
+    ELSE
+        elementsCount(s) = elenum
+        getelement$ = MID$(a$, p)
+    END IF
+END FUNCTION
+
+FUNCTION elementslot& (a$)
+    'The slot of line a$ in the element tables (getelement$, numelements), made from
+    'the least recently made slot when the line is not there. Four lines: the main
+    'loop and the expression code read up to four lines in turn.
+    DIM s AS LONG
+    FOR s = 1 TO 4
+        IF a$ = elementsSrc(s) THEN elementsMru = s: elementslot& = s: EXIT FUNCTION
+    NEXT
+    elementsVictim = elementsVictim MOD 4 + 1
+    IF elementsVictim = elementsMru THEN elementsVictim = elementsVictim MOD 4 + 1
+    s = elementsVictim
+    elementsSrc(s) = a$: elementsKnown(s) = 1: elementsPos(s, 1) = 1: elementsCount(s) = 0
+    elementsMru = s
+    elementslot& = s
 END FUNCTION
 
 FUNCTION getelements$ (a$, i1, i2)
@@ -206,26 +207,24 @@ FUNCTION elementpos (a$, k, setpos)
 END FUNCTION
 
 FUNCTION numelements (a$)
-    'the counts of the last two lines (scalars: see getelement$)
-    STATIC neSrc1 AS STRING, neCnt1 AS LONG, neSrc2 AS STRING, neCnt2 AS LONG
-    STATIC neVictim AS LONG
-    DIM n AS LONG, p AS LONG, i AS LONG
+    'counted in the element table of the line (see getelement$)
+    DIM s AS LONG, k AS LONG, p AS LONG, i AS LONG
 
     IF a$ = "" THEN EXIT FUNCTION
-    IF a$ = neSrc1 THEN numelements = neCnt1: EXIT FUNCTION
-    IF a$ = neSrc2 THEN numelements = neCnt2: EXIT FUNCTION
-
-    n = 1
-    p = 1
+    s = elementsMru
+    IF a$ <> elementsSrc(s) THEN s = elementslot(a$)
+    IF elementsCount(s) THEN numelements = elementsCount(s): EXIT FUNCTION
+    k = elementsKnown(s)
+    p = elementsPos(s, k)
     DO
         i = INSTR(p, a$, sp)
         IF i = 0 THEN EXIT DO
-        n = n + 1
+        k = k + 1
         p = i + 1
+        IF k <= ELEMENTS_MAXPOS THEN elementsPos(s, k) = p: elementsKnown(s) = k
     LOOP
-    IF neVictim = 1 THEN neVictim = 2 ELSE neVictim = 1
-    IF neVictim = 1 THEN neSrc1 = a$: neCnt1 = n ELSE neSrc2 = a$: neCnt2 = n
-    numelements = n
+    elementsCount(s) = k
+    numelements = k
 END FUNCTION
 
 SUB removeelements (a$, first, last, keepindexing)
