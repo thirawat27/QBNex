@@ -347,6 +347,18 @@ fn count(v: &V) -> R<usize> {
     usize::try_from(v.i()).or_else(|_| e(5))
 }
 
+/// `n` copies of byte `c` (SPACE$, STRING$): error 14 (out of string space) past the
+/// longest string or when the system has not the room, instead of ending the process.
+fn repeat(c: u8, n: usize) -> R<Vec<u8>> {
+    if n > crate::vm::MAX_STR {
+        return e(14);
+    }
+    let mut v = Vec::new();
+    v.try_reserve_exact(n).or_else(|_| e(14))?;
+    v.resize(n, c);
+    Ok(v)
+}
+
 fn float1(a: &V, f: impl Fn(f64) -> f64) -> V {
     V::F(f(a.f()))
 }
@@ -464,6 +476,7 @@ pub(crate) enum Pure {
 /// argument vector and the modules' name dispatch like the string builtins.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub(crate) enum NumFn {
+    AbsI,
     AbsF,
     SgnI,
     SgnF,
@@ -497,6 +510,7 @@ pub(crate) fn pure(name: &str) -> Option<Pure> {
         "VAL" => Pure::Val,
         "VAL.f80" => Pure::ValF80,
         "ABS.f32" | "ABS.f64" => Pure::Num(NumFn::AbsF),
+        "ABS.i64" => Pure::Num(NumFn::AbsI),
         "SGN.i64" => Pure::Num(NumFn::SgnI),
         "SGN.f64" => Pure::Num(NumFn::SgnF),
         "INT.f32" => Pure::Num(NumFn::IntF32),
@@ -524,7 +538,7 @@ pub(crate) fn pure_call(p: Pure, s: &[u8], v: &V) -> R<V> {
         Pure::RTrim => V::S(trim_r(s)),
         Pure::Trim => V::S(trim_l(&trim_r(s))),
         Pure::StrNum(t) => V::S(str_num(t, v)),
-        Pure::Space => V::S(vec![b' '; count(v)?]),
+        Pure::Space => V::S(repeat(b' ', count(v)?)?),
         Pure::MkI => V::S((v.i() as i16).to_le_bytes().to_vec()),
         Pure::MkL => V::S((v.i() as i32).to_le_bytes().to_vec()),
         Pure::Cvi => V::I(i16::from_le_bytes(fixed(s)?).into()),
@@ -539,6 +553,7 @@ pub(crate) fn pure_call(p: Pure, s: &[u8], v: &V) -> R<V> {
 fn num_call(n: NumFn, v: &V) -> R<V> {
     let x = v.f();
     Ok(match n {
+        NumFn::AbsI => V::I(v.i().wrapping_abs()),
         NumFn::AbsF => V::F(x.abs()),
         NumFn::SgnI => V::I(v.i().signum()),
         NumFn::SgnF => V::I(if x > 0.0 { 1 } else if x < 0.0 { -1 } else { 0 }),
@@ -604,9 +619,12 @@ fn flush_triangles(name: &str) {
 }
 
 /// PRINT to the console while a screen page is the destination: drawn on it.
+fn is_print(name: &str) -> bool {
+    matches!(name, "PRINTS" | "PRINTZONE" | "PRINTNL" | "PRINTTAB" | "PRINTSPC") || name.starts_with("PRINTN.")
+}
+
 fn print_on_screen<'a>(vm: &mut dyn Host<'a>, name: &str, a: &[V]) -> Option<R<Option<V>>> {
-    let is_print = matches!(name, "PRINTS" | "PRINTZONE" | "PRINTNL" | "PRINTTAB" | "PRINTSPC") || name.starts_with("PRINTN.");
-    if is_print && a.first().is_some_and(|c| c.i() == 0) && screen_out(vm) {
+    if is_print(name) && a.first().is_some_and(|c| c.i() == 0) && screen_out(vm) {
         let r = match name {
             "PRINTS" => Some(super::display::call(vm, "SCREENPRINT", &a[1..])),
             "PRINTZONE" => Some(super::display::call(vm, "SCREENZONE", &[])),
@@ -628,33 +646,44 @@ fn print_on_screen<'a>(vm: &mut dyn Host<'a>, name: &str, a: &[V]) -> Option<R<O
 }
 
 pub(crate) fn call<'a>(vm: &mut dyn Host<'a>, name: &'static str, a: Vec<V>) -> R<Option<V>> {
+    call_from(vm, name, a, &mut 0)
+}
+
+/// Stage of [`call_from`] after the modules: `call_main` and the cases before it.
+const STAGE_MAIN: u8 = 9;
+
+/// [`call`] that starts at module `stage` of the chain and sets it to the module that
+/// answered. Each module takes or leaves a builtin by its name alone, so the modules
+/// before the one that answered once never answer it: the VM keeps the stage per
+/// builtin and skips their string matches (hundreds of names) at every later call.
+/// The PRINT cases depend on where output goes, so they are never skipped.
+pub(crate) fn call_from<'a>(vm: &mut dyn Host<'a>, name: &'static str, a: Vec<V>, stage: &mut u8) -> R<Option<V>> {
     flush_triangles(name);
-    if let Some(r) = super::display::call(vm, name, &a) {
-        return r;
+    let from = *stage;
+    let keep = !is_print(name);
+    macro_rules! stage {
+        ($k:expr, $e:expr) => {
+            if from <= $k
+                && let Some(r) = $e
+            {
+                if keep {
+                    *stage = $k;
+                }
+                return r;
+            }
+        };
     }
-    if let Some(r) = super::dosx::call(vm, name, &a) {
-        return r;
-    }
-    if let Some(r) = super::winx::call(vm, name, &a) {
-        return r;
-    }
-    if let Some(r) = print_on_screen(vm, name, &a) {
-        return r;
-    }
-    if let Some(r) = super::audiox::call(vm, name, &a) {
-        return r;
-    }
-    if let Some(r) = super::scene3d::call(vm, name, &a) {
-        return r;
-    }
-    if let Some(r) = super::netx::call(vm, name, &a) {
-        return r;
-    }
-    if let Some(r) = super::files::call(vm, name, &a) {
-        return r;
-    }
-    if let Some(r) = super::memx::call(vm, name, &a) {
-        return r;
+    stage!(0, super::display::call(vm, name, &a));
+    stage!(1, super::dosx::call(vm, name, &a));
+    stage!(2, super::winx::call(vm, name, &a));
+    stage!(3, print_on_screen(vm, name, &a));
+    stage!(4, super::audiox::call(vm, name, &a));
+    stage!(5, super::scene3d::call(vm, name, &a));
+    stage!(6, super::netx::call(vm, name, &a));
+    stage!(7, super::files::call(vm, name, &a));
+    stage!(8, super::memx::call(vm, name, &a));
+    if keep {
+        *stage = STAGE_MAIN;
     }
     if (name == "POS" || name == "CSRLIN") && screen_out(vm) {
         return super::display::call(vm, if name == "POS" { "func_pos" } else { "func_csrlin" }, &[]).unwrap();
@@ -1085,17 +1114,17 @@ fn call_main<'a>(vm: &mut dyn Host<'a>, name: &'static str, a: &[V]) -> R<Option
         "LTRIM$" => return ok(V::S(trim_l(s(0)))),
         "RTRIM$" => return ok(V::S(trim_r(s(0)))),
         "_TRIM$" => return ok(V::S(trim_l(&trim_r(s(0))))),
-        "SPACE$" => return ok(V::S(vec![b' '; count(&a[0])?])),
+        "SPACE$" => return ok(V::S(repeat(b' ', count(&a[0])?)?)),
         "STRING$" => {
             let c = i(1);
             if !(0..=255).contains(&c) {
                 return e(5);
             }
-            return ok(V::S(vec![c as u8; count(&a[0])?]));
+            return ok(V::S(repeat(c as u8, count(&a[0])?)?));
         }
         "STRING$.s" => {
             let c = *s(1).first().ok_or(Stop::Err(5))?;
-            return ok(V::S(vec![c; count(&a[0])?]));
+            return ok(V::S(repeat(c, count(&a[0])?)?));
         }
         "LSET" => {
             let n = s(0).len();
@@ -1525,6 +1554,8 @@ fn call_main<'a>(vm: &mut dyn Host<'a>, name: &'static str, a: &[V]) -> R<Option
 /// (as QB64's `fixdir`), so `'$INCLUDE:'dir\file.bas'` and `_FILEEXISTS("a\b")` work
 /// on Linux and macOS too.
 fn os_path(b: &[u8]) -> std::path::PathBuf {
+    // the file may be one the program wrote through a file number
+    qb_runtime::gfs::flush_pending();
     let mut v = b.to_vec();
     qb_runtime::gfs::fixdir(&mut v);
     qb_runtime::gfs::os_path(&v)
@@ -2781,7 +2812,11 @@ pub(crate) fn qb_instr(start: i32, s: &[u8], t: &[u8], passed: bool) -> i32 {
     if start + tlen - 1 > slen {
         return 0;
     }
-    s[start as usize - 1..].windows(t.len()).position(|w| w == t).map_or(0, |p| p as i32 + start)
+    // memchr's searcher, not a compare at each position: INSTR over a long string
+    // (and the compiler's own line scans) ran at well under a byte per nanosecond
+    let hay = &s[start as usize - 1..];
+    let found = if let [c] = t { memchr::memchr(*c, hay) } else { memchr::memmem::find(hay, t) };
+    found.map_or(0, |p| p as i32 + start)
 }
 
 /// `qb_func__instrrev` (qbs.rs) on slices.
@@ -2806,17 +2841,9 @@ fn qb_instrrev(start: i32, s: &[u8], t: &[u8], passed: bool) -> i32 {
     if start + tlen - 1 > slen {
         start = slen - tlen + 1;
     }
-    let (mut forward, mut result) = (0, 0);
-    loop {
-        forward = qb_instr(forward + 1, s, t, true);
-        if forward > 0 && forward <= start {
-            result = forward;
-        }
-        if forward == 0 || forward > start {
-            break;
-        }
-    }
-    result
+    // the last match that starts at or before `start` (matches may overlap)
+    let end = (start + tlen - 1) as usize;
+    memchr::memmem::rfind(&s[..end], t).map_or(0, |p| p as i32 + 1)
 }
 
 #[cfg(test)]
@@ -2857,6 +2884,8 @@ mod int33_tests {
 /// starts with two quotes was wrapped by the program itself (as QB64 programs had to
 /// do): it gets no second pair.
 pub(crate) fn shell_command(cmd: &[u8]) -> std::process::Command {
+    // the other program may read files this one wrote through a file number
+    qb_runtime::gfs::flush_pending();
     // the other program gets the terminal in line mode, with echo
     qb_runtime::console::keys::key_mode_off();
     let text = qb_runtime::osstr::os_string(cmd);
@@ -2965,7 +2994,7 @@ mod route_tests {
         let main_at = me.find("fn call_main").unwrap();
         let chain = &me[me.find("pub(crate) fn call<'a>").unwrap()..main_at];
         let names = [
-            "ABS.f32", "ABS.f64", "SGN.i64", "SGN.f64", "INT.f32", "INT.f64", "FIX.f32", "FIX.f64", "SQR", "SIN", "COS",
+            "ABS.i64", "ABS.f32", "ABS.f64", "SGN.i64", "SGN.f64", "INT.f32", "INT.f64", "FIX.f32", "FIX.f64", "SQR", "SIN", "COS",
             "TAN", "ATN", "LOG", "EXP.s", "EXP",
         ];
         for n in names {

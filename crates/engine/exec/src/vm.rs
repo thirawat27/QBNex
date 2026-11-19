@@ -118,6 +118,15 @@ impl std::fmt::Debug for ArrBox {
     }
 }
 
+/// `n` copies of `v`, or error 7 (out of memory) when the system has not the room:
+/// `vec![v; n]` ends the process instead (DIM a#(400000000) on a small machine).
+fn filled<T: Clone>(n: usize, v: T) -> Result<Vec<T>, i32> {
+    let mut x = Vec::new();
+    x.try_reserve_exact(n).map_err(|_| 7)?;
+    x.resize(n, v);
+    Ok(x)
+}
+
 /// Puts `new` in slot `slot`: in place when the slot has an array, which other
 /// slots may share.
 fn put_arr(slot: &mut Option<ArrBox>, new: Arr) {
@@ -142,12 +151,12 @@ impl Arr {
             return Err(7); // out of memory
         }
         let data = match ty {
-            Ty::I16 => ArrData::I16(vec![0; count]),
-            Ty::I32 => ArrData::I32(vec![0; count]),
-            Ty::I64 => ArrData::I64(vec![0; count]),
-            Ty::F32 => ArrData::F32(vec![0.0; count]),
-            Ty::F64 => ArrData::F64(vec![0.0; count]),
-            Ty::Str => ArrData::Str(vec![Vec::new(); count]),
+            Ty::I16 => ArrData::I16(filled(count, 0)?),
+            Ty::I32 => ArrData::I32(filled(count, 0)?),
+            Ty::I64 => ArrData::I64(filled(count, 0)?),
+            Ty::F32 => ArrData::F32(filled(count, 0.0)?),
+            Ty::F64 => ArrData::F64(filled(count, 0.0)?),
+            Ty::Str => ArrData::Str(filled(count, Vec::new())?),
             Ty::F80 => return Err(5), // _FLOAT arrays live in memory mode
         };
         Ok(Arr::with_data(dims, data))
@@ -460,6 +469,9 @@ const STRIG_EV: i32 = -2000;
 /// GOSUBs that may be waiting for their RETURN; one more is error 7 (Out of memory).
 const MAX_GOSUB_DEPTH: usize = 1 << 20;
 
+/// Longest string: LEN and the string positions are LONGs.
+pub(crate) const MAX_STR: usize = i32::MAX as usize;
+
 #[derive(Debug, Clone, Copy)]
 struct Gs {
     /// ON TIMER slot whose handler this GOSUB runs (-1 = a plain GOSUB)
@@ -581,6 +593,9 @@ pub struct Vm<'m, 'o> {
     /// per `Module::rtfns` entry: the builtin goes past the rt modules' name
     /// dispatch (`rt::builtins::call_direct`), resolved once here
     direct: Vec<bool>,
+    /// per `Module::rtfns` entry: the module of the runtime's dispatch that answered
+    /// it (`rt::builtins::call_from`), learned at its first call
+    stage: Vec<u8>,
     /// native -> VM -> native nesting of such calls
     jit_nest: u32,
     /// addressable memory (QIR TYPE / STRING * n / pointers)
@@ -767,6 +782,7 @@ impl<'m, 'o> Vm<'m, 'o> {
             gl: GlFrames::default(),
             pure: m.rtfns.iter().map(|(n, _)| rt::builtins::pure(n)).collect(),
             direct: m.rtfns.iter().map(|(n, _)| rt::builtins::route(n)).collect(),
+            stage: vec![0; m.rtfns.len()],
             jit_nest: 0,
             mem: {
                 let mut mem = crate::mem::Mem::new();
@@ -980,12 +996,15 @@ impl<'m, 'o> Vm<'m, 'o> {
 
     /// Runs the program; returns its exit code (`SYSTEM n`).
     pub fn run_status(&mut self) -> Result<i32, RunError> {
+        #[cfg(not(target_arch = "wasm32"))]
+        qb_runtime::gfs::flush_files_on_panic();
         self.start_profile();
         let mut pc = self.m.funcs[0].entry;
         let r = loop {
             match self.exec(pc) {
                 Ok(code) => {
                     if let Some((k, run)) = self.rt.dos.restart.take() {
+                        qb_runtime::gfs::flush_pending();
                         self.restart(k, run);
                         pc = self.m.funcs[0].entry;
                         continue;
@@ -998,6 +1017,8 @@ impl<'m, 'o> Vm<'m, 'o> {
                 },
             }
         };
+        // files the program left open have all their bytes before anything waits or ends
+        qb_runtime::gfs::flush_pending();
         self.write_profile();
         if std::env::var_os("QB_JIT_STATS").is_some() {
             // tiering report for benchmarks (scripts/bench/corpus_perf.ps1)
@@ -1145,10 +1166,17 @@ impl<'m, 'o> Vm<'m, 'o> {
         dst.extend_from_slice(unsafe { &*src });
     }
 
-    fn concat(&mut self, d: R, a: R, bb: R) {
+    /// d = a + bb; error 14 (out of string space) past [`MAX_STR`] or when the
+    /// system has not the room (`a$ = a$ + a$` in a loop ended the process).
+    fn concat(&mut self, d: R, a: R, bb: R) -> Result<(), i32> {
+        let total = self.sget(a).len() + self.sget(bb).len();
+        if total > MAX_STR {
+            return Err(14);
+        }
         if a == d {
+            let dst = self.sdst(d);
+            dst.try_reserve(total - dst.len()).map_err(|_| 14)?;
             if bb == d {
-                let dst = self.sdst(d);
                 let n = dst.len();
                 dst.extend_from_within(..n);
             } else {
@@ -1157,23 +1185,24 @@ impl<'m, 'o> Vm<'m, 'o> {
                 self.sdst(d).extend_from_slice(unsafe { &*src });
             }
         } else if bb == d {
-            let x = self.sget(a);
-            let y = self.sget(bb);
-            let mut v = Vec::with_capacity(x.len() + y.len());
-            v.extend_from_slice(x);
-            v.extend_from_slice(y);
+            let mut v = Vec::new();
+            v.try_reserve_exact(total).map_err(|_| 14)?;
+            v.extend_from_slice(self.sget(a));
+            v.extend_from_slice(self.sget(bb));
             *self.sdst(d) = v;
         } else {
             let x: *const [u8] = self.sget(a);
             let y: *const [u8] = self.sget(bb);
             let dst = self.sdst(d);
             dst.clear();
+            dst.try_reserve(total).map_err(|_| 14)?;
             // SAFETY: a != d and bb != d
             unsafe {
                 dst.extend_from_slice(&*x);
                 dst.extend_from_slice(&*y);
             }
         }
+        Ok(())
     }
 
     /// d = s[from..to] (d may be s)
@@ -1215,7 +1244,12 @@ impl<'m, 'o> Vm<'m, 'o> {
                 if self.direct.get(f as usize).copied().unwrap_or(false) {
                     rt::builtins::call_direct(self, name, vals)
                 } else {
-                    rt::call(self, name, vals)
+                    let mut stage = self.stage.get(f as usize).copied().unwrap_or(0);
+                    let r = rt::builtins::call_from(self, name, vals, &mut stage);
+                    if let Some(s) = self.stage.get_mut(f as usize) {
+                        *s = stage;
+                    }
+                    r
                 }
             }
         };
@@ -1523,14 +1557,19 @@ impl<'m, 'o> Vm<'m, 'o> {
                     }
                 };
             }
-            // A SHARED string stays readable under its own name while the procedure
-            // runs (by an ON ERROR or event handler; a procedure that names it gets a
-            // reference): its text is copied in, not moved out. The main module's own
-            // strings are the SHARED ones (its frame is the first).
+            // A SHARED string (or one of the main module's, whose frame is the first)
+            // is moved into the procedure like any other: a procedure that names it
+            // gets a reference instead (`byref`), and an ON ERROR or event handler sees
+            // the text written back first (`handler_enter`). Copying it made each call
+            // cost the string's length, so a loop that grew a string through a SUB was
+            // quadratic. The debugger reads the main module's variables while a
+            // procedure runs, so with it the text is still copied.
+            #[cfg(feature = "debug")]
             (Place::SG(_), Slot::S(r)) => {
                 let v = self.place_take(p, cx, false)?;
                 self.slot_put(Slot::S(r), nb, sb, v)?;
             }
+            #[cfg(feature = "debug")]
             (Place::S(_), Slot::S(r)) if self.view == 0 => {
                 let v = self.place_take(p, cx, false)?;
                 self.slot_put(Slot::S(r), nb, sb, v)?;
@@ -2958,7 +2997,7 @@ impl<'m, 'o> Vm<'m, 'o> {
                         dst.extend_from_slice(unsafe { &*src });
                     }
                 }
-                Ins::Concat { d, a, b: y } => self.concat(d, a, y),
+                Ins::Concat { d, a, b: y } => tryc!(self.concat(d, a, y)),
                 Ins::LenS { d, s } => seti!(d, self.sget(s).len() as i64),
                 Ins::Chr { d, s } => {
                     let c = ri!(s);

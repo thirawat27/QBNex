@@ -105,6 +105,70 @@ struct Slot {
     /// exactly and LOCK may not overlap one, as on Windows.
     #[cfg_attr(windows, allow(dead_code))]
     locks: Vec<(u64, u64)>,
+    /// Bytes written to a regular file and not yet given to the system: `PRINT #`
+    /// made one system call per item. The OS file offset is at `file.pos - wb.len()`.
+    /// Every operation other than a write gives them to the system first
+    /// ([`Table::flush_same`]), and so do CLOSE, OPEN, the end of the program, the
+    /// statements that use a file by its name ([`user_path`]), SHELL, and a thread
+    /// that does it every [`FLUSH_EVERY`] so that other programs see the file grow.
+    wb: Vec<u8>,
+    /// Error of a write [`Table::flush_all`] did on its own: the next operation on
+    /// this file number reports it.
+    wb_err: i32,
+}
+
+/// Size at which [`Slot::wb`] is written out.
+const WRITE_BEHIND_MAX: usize = 64 * 1024;
+
+/// How long written bytes may wait in [`Slot::wb`] at most.
+const FLUSH_EVERY: std::time::Duration = std::time::Duration::from_millis(200);
+
+/// Some [`Slot::wb`] holds bytes ([`flush_pending`] has work to do).
+static DIRTY: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Gives every file's written bytes to the system. Must not be called while the
+/// file table is locked (the lock is not re-entrant).
+pub fn flush_pending() {
+    if DIRTY.swap(false, std::sync::atomic::Ordering::AcqRel) {
+        table().flush_all();
+    }
+}
+
+/// Makes a panic write the files' pending bytes before the process ends (the
+/// builds abort on panic, so nothing is dropped). Installed once.
+pub fn flush_files_on_panic() {
+    static ONCE: std::sync::Once = std::sync::Once::new();
+    ONCE.call_once(|| {
+        let prev = std::panic::take_hook();
+        std::panic::set_hook(Box::new(move |info| {
+            // try_lock: the panic may have happened while the table was locked
+            let t = match TABLE.try_lock() {
+                Ok(t) => Some(t),
+                Err(std::sync::TryLockError::Poisoned(p)) => Some(p.into_inner()),
+                Err(std::sync::TryLockError::WouldBlock) => None,
+            };
+            if let Some(mut t) = t {
+                t.flush_all();
+            }
+            prev(info);
+        }));
+    });
+}
+
+/// Starts the thread that writes pending bytes out every [`FLUSH_EVERY`].
+fn start_flusher() {
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        static ONCE: std::sync::Once = std::sync::Once::new();
+        ONCE.call_once(|| {
+            let _ = std::thread::Builder::new().name("qb-file-flush".into()).spawn(|| {
+                loop {
+                    std::thread::sleep(FLUSH_EVERY);
+                    flush_pending();
+                }
+            });
+        });
+    }
 }
 
 /// Bytes read ahead of the position for the byte-at-a-time readers (INPUT #,
@@ -132,6 +196,10 @@ struct ReadAhead {
 /// Smallest and largest [`ReadAhead`] block.
 const READ_AHEAD_MIN: usize = 4 * 1024;
 const READ_AHEAD_MAX: usize = 64 * 1024;
+
+/// Largest [`Table::read`] served from a [`ReadAhead`] block; larger reads are one
+/// system call anyway.
+const READ_SMALL_MAX: usize = 1024;
 
 /// Highest usable file number; larger numbers are "Bad file name or number".
 pub(crate) const MAX_FILENO: i32 = 32767;
@@ -185,6 +253,8 @@ impl Table {
                 ra: ReadAhead::default(),
                 ident: None,
                 locks: Vec::new(),
+                wb: Vec::new(),
+                wb_err: 0,
             });
             self.slots.len() as i32 - 1
         };
@@ -197,13 +267,73 @@ impl Table {
         s.ra = ReadAhead::default();
         s.ident = None;
         s.locks.clear();
+        s.wb.clear();
+        s.wb_err = 0;
         s.file.id = id;
         i
     }
 
+    /// Gives the bytes of [`Slot::wb`] to the system; returns a write error, this
+    /// one's or one [`Table::flush_all`] kept.
+    fn flush(&mut self, i: i32) -> i32 {
+        let s = &mut self.slots[i as usize];
+        if s.wb.is_empty() {
+            return std::mem::take(&mut s.wb_err);
+        }
+        let wb = std::mem::take(&mut s.wb);
+        let e = os::write_raw(s, &wb);
+        // the buffer keeps its capacity for the next writes
+        s.wb = wb;
+        s.wb.clear();
+        if e != 0 { e } else { std::mem::take(&mut s.wb_err) }
+    }
+
+    /// [`Table::flush`] of `i` and of the other file numbers of the same file (their
+    /// errors are kept for them): what any of them wrote is in the file before `i`
+    /// reads it or asks for its size.
+    fn flush_same(&mut self, i: i32) -> i32 {
+        self.flush_others(i);
+        self.flush(i)
+    }
+
+    /// [`Table::flush`] of the other file numbers of the file `i` has open.
+    fn flush_others(&mut self, i: i32) {
+        if let Some(id) = self.slots[i as usize].ident {
+            for j in 0..self.slots.len() as i32 {
+                if j != i && !self.slots[j as usize].wb.is_empty() && self.slots[j as usize].ident == Some(id) {
+                    let e = self.flush(j);
+                    if e != 0 {
+                        self.slots[j as usize].wb_err = e;
+                    }
+                }
+            }
+        }
+    }
+
+    /// Every file's pending bytes to the system; errors are kept per file number.
+    fn flush_all(&mut self) {
+        for j in 0..self.slots.len() as i32 {
+            if !self.slots[j as usize].wb.is_empty() {
+                let e = self.flush(j);
+                if e != 0 {
+                    self.slots[j as usize].wb_err = e;
+                }
+            }
+        }
+    }
+
+    /// Writes pending bytes ([`Table::flush_same`]), then [`Table::sync_ra`].
+    fn sync(&mut self, i: i32) -> i32 {
+        let e = self.flush_same(i);
+        if e != 0 {
+            return e;
+        }
+        self.sync_ra(i)
+    }
+
     /// Puts the OS file offset back at the program's position when a
     /// [`ReadAhead`] block moved it, and drops the block.
-    fn sync(&mut self, i: i32) -> i32 {
+    fn sync_ra(&mut self, i: i32) -> i32 {
         let s = &mut self.slots[i as usize];
         if s.ra.data.is_empty() {
             return 0;
@@ -286,6 +416,8 @@ impl Table {
 
     /// `gfs_close`.
     pub(crate) fn close(&mut self, i: i32) -> i32 {
+        // the file is closed even when its last bytes could not be written (a full disk)
+        let werr = if self.valid(i) { self.flush(i) } else { 0 };
         let x = self.free(i);
         if x != 0 {
             return x;
@@ -296,11 +428,10 @@ impl Table {
         s.ident = None;
         // (closing the file also releases its LOCKs, as on Windows)
         s.locks.clear();
-        if s.file.scrn != 0 {
-            return 0;
+        if s.file.scrn == 0 {
+            s.os.close();
         }
-        s.os.close();
-        0
+        werr
     }
 
     /// `gfs_lof`.
@@ -308,11 +439,15 @@ impl Table {
         if !self.valid(i) {
             return -2;
         }
-        let s = &mut self.slots[i as usize];
-        if s.file.scrn != 0 {
+        if self.slots[i as usize].file.scrn != 0 {
             return -4;
         }
-        os::lof(s)
+        // this file number's own pending bytes end at its position: the size they give
+        // the file is known without writing them out (EOF asks for it once per line)
+        self.flush_others(i);
+        let s = &mut self.slots[i as usize];
+        let n = os::lof(s);
+        if n >= 0 && !s.wb.is_empty() { n.max(s.file.pos) } else { n }
     }
 
     /// `gfs_setpos`.
@@ -322,6 +457,18 @@ impl Table {
         }
         if position < 0 {
             return -4;
+        }
+        if position == self.slots[i as usize].file.pos && !self.slots[i as usize].wb.is_empty() {
+            // already there (where the pending bytes end): they stay
+            // pending and may go on growing
+            let f = self.f(i);
+            f.eof_passed = 0;
+            f.eof_reached = 0;
+            return 0;
+        }
+        let e = self.flush(i);
+        if e != 0 {
+            return e;
         }
         {
             // inside the bytes read ahead (INPUT # steps back one byte): no system
@@ -366,16 +513,20 @@ impl Table {
         if self.f(i).write == 0 {
             return -3;
         }
-        let x = self.sync(i);
+        let x = self.sync_ra(i);
         if x != 0 {
             return x;
         }
-        // another file number of this file must not go on with bytes read before
+        // another file number of this file must not go on with bytes read before, and
+        // what it wrote goes first
         if let Some(id) = self.slots[i as usize].ident {
             for j in 0..self.slots.len() as i32 {
                 let s = &self.slots[j as usize];
-                if j != i && !s.ra.data.is_empty() && s.ident == Some(id) {
-                    self.sync(j);
+                if j != i && (!s.ra.data.is_empty() || !s.wb.is_empty()) && s.ident == Some(id) {
+                    let e = self.sync(j);
+                    if e != 0 {
+                        self.slots[j as usize].wb_err = e;
+                    }
                 }
             }
         }
@@ -385,7 +536,30 @@ impl Table {
                 return x;
             }
         }
-        os::write(&mut self.slots[i as usize], data)
+        let s = &mut self.slots[i as usize];
+        // only a regular file waits: a device, pipe or COM port gets its bytes at once
+        if s.ident.is_none() || s.file.scrn != 0 {
+            return os::write(s, data);
+        }
+        if s.wb_err != 0 {
+            return std::mem::take(&mut s.wb_err);
+        }
+        if s.wb.len() + data.len() > WRITE_BEHIND_MAX {
+            let e = self.flush(i);
+            if e != 0 {
+                return e;
+            }
+            let s = &mut self.slots[i as usize];
+            if data.len() >= WRITE_BEHIND_MAX {
+                return os::write(s, data);
+            }
+        }
+        let s = &mut self.slots[i as usize];
+        s.wb.extend_from_slice(data);
+        s.file.pos += data.len() as i64;
+        DIRTY.store(true, std::sync::atomic::Ordering::Release);
+        start_flusher();
+        0
     }
 
     /// `gfs_read`; on a short read the rest of `data` is zeroed and -10 returned.
@@ -396,6 +570,12 @@ impl Table {
         }
         if self.f(i).read == 0 {
             return -3;
+        }
+        {
+            let s = &self.slots[i as usize];
+            if data.len() <= READ_SMALL_MAX && s.ident.is_some() && s.file.scrn == 0 {
+                return self.read_small(i, position, data);
+            }
         }
         let x = self.sync(i);
         if x != 0 {
@@ -432,49 +612,136 @@ impl Table {
         if !self.valid(i) || !self.slots[i as usize].buffered || self.f(i).read == 0 {
             return plain(self, &mut c);
         }
-        self.read_bytes = 0;
-        let epoch = self.epoch;
-        let s = &mut self.slots[i as usize];
-        let pos = s.file.pos;
-        let end = s.ra.start + s.ra.data.len() as i64;
-        if s.ra.epoch != epoch || pos < s.ra.start || pos >= end {
-            // a new block from the position on; the OS offset is at the end of the old one
-            let moved = !s.ra.data.is_empty() && pos != end;
-            s.ra.data.clear();
-            if moved && os::setpos(s, pos) != 0 {
-                return plain(self, &mut c);
-            }
-            // sequential reading: a larger block each time
-            let size = if pos == end { (s.ra.size * 2).clamp(READ_AHEAD_MIN, READ_AHEAD_MAX) } else { READ_AHEAD_MIN };
-            s.ra.size = size;
-            let mut block = std::mem::take(&mut s.ra.data);
-            block.resize(size, 0);
-            let got = os::read_some(s, &mut block);
-            s.ra.data = block;
-            match got {
-                Ok(0) => {
-                    s.ra.data.clear();
-                    s.file.eof_passed = 1;
-                    return Err(-10);
-                }
-                Ok(n) => {
-                    s.ra.data.truncate(n);
-                    s.ra.start = pos;
-                    s.ra.epoch = epoch;
-                }
-                Err(_) => {
-                    // (a byte range LOCKed by another program on Windows): the single byte
-                    // as before, with its own result
-                    s.ra.data.clear();
-                    return plain(self, &mut c);
-                }
+        // bytes written and still pending (by this or another file number) are read
+        // from the file
+        if DIRTY.load(std::sync::atomic::Ordering::Acquire) {
+            let e = self.flush_same(i);
+            if e != 0 {
+                return Err(e);
             }
         }
-        let b = s.ra.data[(pos - s.ra.start) as usize];
+        self.read_bytes = 0;
+        match self.ra_fill(i) {
+            Ok(true) => {}
+            Ok(false) => {
+                self.slots[i as usize].file.eof_passed = 1;
+                return Err(-10);
+            }
+            // (a byte range LOCKed by another program on Windows): the single byte
+            // as before, with its own result
+            Err(()) => return plain(self, &mut c),
+        }
+        let s = &mut self.slots[i as usize];
+        let b = s.ra.data[(s.file.pos - s.ra.start) as usize];
         s.file.pos += 1;
         s.file.eof_passed = 0;
         self.read_bytes = 1;
         Ok(b)
+    }
+
+    /// Makes the [`ReadAhead`] block of `i` hold the byte at its position: `Ok(true)`,
+    /// `Ok(false)` when the file ends there, `Err(())` when the block cannot be read
+    /// (the caller reads directly). With no block, the OS offset must be the position.
+    fn ra_fill(&mut self, i: i32) -> Result<bool, ()> {
+        let epoch = self.epoch;
+        let s = &mut self.slots[i as usize];
+        let pos = s.file.pos;
+        let end = s.ra.start + s.ra.data.len() as i64;
+        if s.ra.epoch == epoch && pos >= s.ra.start && pos < end {
+            return Ok(true);
+        }
+        // a new block from the position on; the OS offset is at the end of the old one
+        let moved = !s.ra.data.is_empty() && pos != end;
+        s.ra.data.clear();
+        if moved && os::setpos(s, pos) != 0 {
+            return Err(());
+        }
+        // sequential reading: a larger block each time
+        let size = if pos == end { (s.ra.size * 2).clamp(READ_AHEAD_MIN, READ_AHEAD_MAX) } else { READ_AHEAD_MIN };
+        s.ra.size = size;
+        let mut block = std::mem::take(&mut s.ra.data);
+        block.resize(size, 0);
+        let got = os::read_some(s, &mut block);
+        s.ra.data = block;
+        match got {
+            Ok(0) => {
+                s.ra.data.clear();
+                Ok(false)
+            }
+            Ok(n) => {
+                s.ra.data.truncate(n);
+                s.ra.start = pos;
+                s.ra.epoch = epoch;
+                Ok(true)
+            }
+            Err(_) => {
+                s.ra.data.clear();
+                Err(())
+            }
+        }
+    }
+
+    /// [`Table::read`] of a few bytes of a regular file (GET of a number or a record)
+    /// from a [`ReadAhead`] block: one system call per block instead of one or two
+    /// per GET. Same results, `eof_passed` and `read_bytes` as the direct read.
+    fn read_small(&mut self, i: i32, position: i64, data: &mut [u8]) -> i32 {
+        if DIRTY.load(std::sync::atomic::Ordering::Acquire) {
+            let e = self.flush_same(i);
+            if e != 0 {
+                return e;
+            }
+        }
+        if position != -1 {
+            if position < 0 {
+                return -4;
+            }
+            let epoch = self.epoch;
+            let s = &mut self.slots[i as usize];
+            let end = s.ra.start + s.ra.data.len() as i64;
+            if !(s.ra.epoch == epoch && position >= s.ra.start && position < end) {
+                // outside the block: drop it and go there (the OS offset is then the position)
+                s.ra.data.clear();
+                let x = os::setpos(s, position);
+                if x != 0 {
+                    return x;
+                }
+            }
+            s.file.pos = position;
+            s.file.eof_reached = 0;
+        }
+        let mut done = 0;
+        while done < data.len() {
+            match self.ra_fill(i) {
+                Ok(true) => {
+                    let s = &mut self.slots[i as usize];
+                    let at = (s.file.pos - s.ra.start) as usize;
+                    let n = (data.len() - done).min(s.ra.data.len() - at);
+                    data[done..done + n].copy_from_slice(&s.ra.data[at..at + n]);
+                    s.file.pos += n as i64;
+                    done += n;
+                }
+                Ok(false) => {
+                    data[done..].fill(0);
+                    self.slots[i as usize].file.eof_passed = 1;
+                    self.read_bytes = done as i64;
+                    return -10;
+                }
+                Err(()) => {
+                    // the rest directly, from the position
+                    let s = &mut self.slots[i as usize];
+                    let x = os::setpos(s, s.file.pos);
+                    if x != 0 {
+                        return x;
+                    }
+                    let (e, n) = os::read(s, &mut data[done..]);
+                    self.read_bytes = done as i64 + n;
+                    return e;
+                }
+            }
+        }
+        self.slots[i as usize].file.eof_passed = 0;
+        self.read_bytes = done as i64;
+        0
     }
 
     /// Bytes transferred by the last [`Table::read`].
@@ -530,8 +797,10 @@ impl Table {
     pub(crate) fn open(&mut self, filename: &[u8], access: i32, restrictions: i32, how: i32) -> i32 {
         let mut filenamez = filename.to_vec();
         filenamez.push(0);
-        // OUTPUT truncates a file another file number may be reading
+        // OUTPUT truncates a file another file number may be reading; the file may be
+        // one another file number has pending bytes for
         self.epoch += 1;
+        self.flush_all();
         let i = self.new_entry();
         // "SCRN:" (legacy reads the first five bytes even past the end)
         let at = |k: usize| filename.get(k).copied().unwrap_or(0);
@@ -599,6 +868,8 @@ pub fn os_path(name: &[u8]) -> std::path::PathBuf {
 /// _SNDOPEN, ...), which skipped the separator change and failed with
 /// "assets\hero.png" on Linux and macOS.
 pub fn user_path(name: &[u8]) -> std::path::PathBuf {
+    // the file may be one the program wrote through a file number
+    flush_pending();
     let mut v = name.to_vec();
     fixdir(&mut v);
     os_path(&v)
@@ -1116,7 +1387,20 @@ mod os {
         0
     }
 
-    pub fn write(s: &mut Slot, mut data: &[u8]) -> i32 {
+    pub fn write(s: &mut Slot, data: &[u8]) -> i32 {
+        let (e, n) = put(s, data);
+        s.file.pos += n as i64;
+        e
+    }
+
+    /// [`write`] that leaves `file.pos` alone (the bytes are already counted in it).
+    pub fn write_raw(s: &mut Slot, data: &[u8]) -> i32 {
+        put(s, data).0
+    }
+
+    /// Writes `data` at the OS offset: the result and the bytes written.
+    fn put(s: &mut Slot, mut data: &[u8]) -> (i32, usize) {
+        let mut done = 0usize;
         while !data.is_empty() {
             let n = data.len().min(0xFFFF_FFFF) as DWORD;
             let mut written: DWORD = 0;
@@ -1124,16 +1408,17 @@ mod os {
             unsafe {
                 if WriteFile(s.os.0, data.as_ptr(), n, &mut written, null_mut()) == 0 {
                     let e = GetLastError();
-                    return if e == 5 || e == 33 { -7 } else { -9 };
+                    // 112 ERROR_DISK_FULL, 39 ERROR_HANDLE_DISK_FULL: "Disk full" as elsewhere
+                    return (if e == 5 || e == 33 { -7 } else if e == 112 || e == 39 { -13 } else { -9 }, done);
                 }
             }
             data = &data[written as usize..];
-            s.file.pos += i64::from(written);
+            done += written as usize;
             if written != n {
-                return -1;
+                return (-1, done);
             }
         }
-        0
+        (0, done)
     }
 
     pub fn read(s: &mut Slot, data: &mut [u8]) -> (i32, i64) {
@@ -1327,6 +1612,16 @@ mod os {
     }
 
     pub fn write(s: &mut Slot, data: &[u8]) -> i32 {
+        let e = write_raw(s, data);
+        if e == 0 {
+            s.file.pos += data.len() as i64;
+        }
+        e
+    }
+
+    /// [`write`] that leaves `file.pos` alone when it succeeds (the bytes are
+    /// already counted in it).
+    pub fn write_raw(s: &mut Slot, data: &[u8]) -> i32 {
         let Some(f) = s.os.0.as_mut() else { return -7 };
         // (write_all goes on after an interrupted call)
         if let Err(e) = f.write_all(data) {
@@ -1338,7 +1633,6 @@ mod os {
             // a full disk is "Disk full" (61), not "Permission denied"
             return if matches!(e.kind(), std::io::ErrorKind::StorageFull | std::io::ErrorKind::QuotaExceeded) { -13 } else { -7 };
         }
-        s.file.pos += data.len() as i64;
         0
     }
 
@@ -1573,6 +1867,73 @@ pub(crate) mod tests {
         assert_eq!(t.close(i), 0);
         assert_eq!(t.close(i), -2);
         assert_eq!(t.lof(i), -2);
+    }
+
+    #[test]
+    fn pending_writes_reach_every_reader() {
+        let d = tmp("wb");
+        let name = p(&d, "w.txt");
+        let mut t = table();
+        let w = t.open(&name, 2, 0, 2);
+        assert!(w >= 0);
+        assert_eq!(t.write(w, -1, b"abc"), 0);
+        assert_eq!(t.write(w, -1, b"def"), 0);
+        // pending, yet counted: position and size
+        assert_eq!(t.getpos(w), 6);
+        assert_eq!(t.lof(w), 6);
+        // another file number of the same file reads what was written
+        let r = t.open(&name, 1, 0, 0);
+        assert!(r >= 0);
+        let mut buf = [0u8; 6];
+        assert_eq!(t.read(r, -1, &mut buf), 0);
+        assert_eq!(&buf, b"abcdef");
+        // more bytes, then a seek back and an overwrite in the middle
+        assert_eq!(t.write(w, -1, b"ghi"), 0);
+        assert_eq!(t.setpos(w, 1), 0);
+        assert_eq!(t.write(w, -1, b"XY"), 0);
+        assert_eq!(t.getpos(w), 3);
+        assert_eq!(t.lof(w), 9);
+        let mut buf = [0u8; 9];
+        assert_eq!(t.read(r, 0, &mut buf), 0);
+        assert_eq!(&buf, b"aXYdefghi");
+        assert_eq!(t.close(r), 0);
+        // CLOSE writes the rest
+        assert_eq!(t.write(w, 9, b"jk"), 0);
+        assert_eq!(t.close(w), 0);
+        drop(t);
+        assert_eq!(std::fs::read(super::os_path(&name)).unwrap(), b"aXYdefghijk");
+    }
+
+    #[test]
+    fn small_reads_match_direct_reads() {
+        let d = tmp("rs");
+        let name = p(&d, "r.bin");
+        let data: Vec<u8> = (0..20000u32).map(|x| (x * 7 % 251) as u8).collect();
+        std::fs::write(super::os_path(&name), &data).unwrap();
+        let mut t = table();
+        let i = t.open(&name, 3, 0, 0);
+        assert!(i >= 0);
+        // sequential GETs of 4 bytes across block borders
+        for k in 0..5000usize {
+            let mut b = [0u8; 4];
+            assert_eq!(t.read(i, -1, &mut b), 0);
+            assert_eq!(&b, &data[k * 4..k * 4 + 4]);
+        }
+        // past the end: the rest zeroed, -10, eof_passed
+        let mut b = [0xAAu8; 4];
+        assert_eq!(t.read(i, 19998, &mut b), -10);
+        assert_eq!(&b, &[data[19998], data[19999], 0, 0]);
+        assert_eq!(t.read_bytes(), 2);
+        assert_eq!(t.eof_passed(i), 1);
+        // positioned reads back and forth, and a write between two reads
+        let mut b = [0u8; 3];
+        assert_eq!(t.read(i, 100, &mut b), 0);
+        assert_eq!(&b, &data[100..103]);
+        assert_eq!(t.eof_passed(i), 0);
+        assert_eq!(t.write(i, 101, b"Z"), 0);
+        assert_eq!(t.read(i, 100, &mut b), 0);
+        assert_eq!(&b, &[data[100], b'Z', data[102]]);
+        assert_eq!(t.close(i), 0);
     }
 
     #[test]

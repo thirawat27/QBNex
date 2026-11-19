@@ -39,3 +39,5 @@ qb-audio = { path = "../../runtime/audio" }
 # DECLARE LIBRARY: call thunks, and the extension library resolved in-process
 qb-ffi = { path = "../ffi" }
 qb-ext = { path = "../../runtime/ext" }
+# INSTR / _INSTRREV substring search
+memchr = "2.8"

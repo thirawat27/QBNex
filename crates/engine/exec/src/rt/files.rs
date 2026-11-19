@@ -132,7 +132,15 @@ pub(crate) fn call<'a>(vm: &mut dyn Host<'a>, name: &str, a: &[V]) -> Option<R<O
                 return Some(e(50));
             }
             vm.rt().field_cur.1 += size as usize;
-            let buf = vm.rt().field_buf.entry(ch0).or_insert_with(|| vec![0u8; rl]);
+            if let std::collections::hash_map::Entry::Vacant(v) = vm.rt().field_buf.entry(ch0) {
+                match zeros(rl) {
+                    Ok(b) => {
+                        v.insert(b);
+                    }
+                    Err(x) => return Some(Err(x)),
+                }
+            }
+            let buf = &vm.rt().field_buf[&ch0];
             let val = buf[off..off + size as usize].to_vec();
             vm.rt().field_vars.retain(|f| f.0 != var);
             vm.rt().field_vars.push((var, ch0, off, size as usize));
@@ -145,7 +153,13 @@ pub(crate) fn call<'a>(vm: &mut dyn Host<'a>, name: &str, a: &[V]) -> Option<R<O
             let pos = i(1);
             let rl = vm.rt().reclen.get(&ch0).copied().unwrap_or(0);
             let passed = pos != -1;
-            let mut buf = vm.rt().field_buf.remove(&ch0).unwrap_or_else(|| vec![0u8; rl]);
+            let mut buf = match vm.rt().field_buf.remove(&ch0) {
+                Some(b) => b,
+                None => match zeros(rl) {
+                    Ok(b) => b,
+                    Err(x) => return Some(Err(x)),
+                },
+            };
             buf.resize(rl, 0);
             let err = if name == "GETFIELD" {
                 fio::qb_file_get(ch0, pos, &mut buf, passed)
@@ -342,11 +356,23 @@ pub(crate) fn call<'a>(vm: &mut dyn Host<'a>, name: &str, a: &[V]) -> Option<R<O
         }
         "GETSTR" => {
             let pos = i(1);
-            let mut fixed = vec![0u8; i(2).max(0) as usize];
+            let mut fixed = match zeros(i(2).max(0) as usize) {
+                Ok(b) => b,
+                Err(x) => return Some(Err(x)),
+            };
             let (v, err) = fio::qb_file_get_string(ch0, pos, &mut fixed, pos != -1);
             let v = v.unwrap_or(fixed);
             Some(chk(err).map(|_| Some(V::S(v))))
         }
         _ => None,
     }
+}
+
+/// `n` zero bytes (a record or fixed-length buffer), or error 7 (out of memory) when
+/// the system has not the room instead of ending the process.
+fn zeros(n: usize) -> R<Vec<u8>> {
+    let mut v = Vec::new();
+    v.try_reserve_exact(n).map_err(|_| Stop::Err(7))?;
+    v.resize(n, 0);
+    Ok(v)
 }

@@ -77,6 +77,8 @@ fn c_system(cmd: &[u8]) -> i32 {
 /// launch attempt failed; 0 for started-but-not-waited processes.
 #[cfg(windows)]
 pub fn run(cmd: &[u8], mode: Mode) -> i64 {
+    // the other program may read files this one wrote through a file number
+    crate::gfs::flush_pending();
     use crate::win32::*;
     use std::ptr::{null, null_mut};
 
@@ -178,6 +180,8 @@ pub fn run(cmd: &[u8], mode: Mode) -> i64 {
 /// Unix: `system()` (waiting: exit status) or a detached `sh -c`.
 #[cfg(not(windows))]
 pub fn run(cmd: &[u8], mode: Mode) -> i64 {
+    // the other program may read files this one wrote through a file number
+    crate::gfs::flush_pending();
     if mode.wait {
         let r = c_system(cmd);
         if r == -1 {
@@ -228,6 +232,7 @@ pub fn cmd_ok() -> bool {
 /// `SHELL` without a command: an interactive `cmd` in the program's console
 /// (allocated for the call when the program has none). Windows only.
 pub fn interactive(use_console: bool) -> i64 {
+    crate::gfs::flush_pending();
     #[cfg(windows)]
     {
         unsafe extern "system" {

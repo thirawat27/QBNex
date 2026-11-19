@@ -25,7 +25,7 @@ mod scene3d;
 pub(crate) mod window;
 mod winx;
 
-pub(crate) use builtins::{call, str_store_hook, Host, RtState};
+pub(crate) use builtins::{str_store_hook, Host, RtState};
 #[cfg(not(target_arch = "wasm32"))]
 pub(crate) use window::{activate as window_activate, closed as window_closed, pixels as window_pixels, present as window_present, present_pixels as window_present_pixels, release_exit as window_release_exit, set_title as window_set_title, PRESENT_EVENT};
 
