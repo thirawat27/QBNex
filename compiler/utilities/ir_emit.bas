@@ -141,9 +141,17 @@ SUB IrHead (s$)
 END SUB
 
 FUNCTION IrReg$
+    DIM r AS LONG
     IF IrFnCur = 0 THEN IrReg$ = "%0": EXIT FUNCTION
-    IrReg$ = "%" + str2$(IrFnRegs(IrFnCur))
-    IrFnRegs(IrFnCur) = IrFnRegs(IrFnCur) + 1
+    r = IrFnRegs(IrFnCur)
+    IrFnRegs(IrFnCur) = r + 1
+    'str2$(r), the table read here
+    IF r >= 0 AND r <= STR2_CACHED THEN
+        IF LEN(str2Cache(r)) = 0 THEN str2Cache(r) = _TRIM$(STR$(r))
+        IrReg$ = "%" + str2Cache(r)
+    ELSE
+        IrReg$ = "%" + str2$(r)
+    END IF
 END FUNCTION
 
 FUNCTION IrNew& ()
@@ -212,7 +220,7 @@ SUB IrCloseMain
 END SUB
 
 SUB IrLine
-    IrFlushCase
+    IF IrPendCaseOn THEN IrFlushCase
     IrE "line " + str2$(linenumber)
     'a statement of an $INCLUDE file also names its line there (runtime errors report it);
     'module code moved in front of the first SUB keeps the place it came from
@@ -612,9 +620,18 @@ END FUNCTION
 
 'index of the matching ")" for the "(" at element i
 FUNCTION IrMatch& (a$, i AS LONG, n AS LONG)
-    DIM b AS LONG, j AS LONG, e$
+    DIM b AS LONG, j AS LONG, e$, p AS LONG, q AS LONG
+    'from element to element along the text (as getelement$ reads them)
+    IF i >= 1 THEN p = elementstart(a$, i)
     FOR j = i TO n
-        e$ = getelement$(a$, j)
+        IF i < 1 THEN
+            e$ = getelement$(a$, j)
+        ELSEIF p THEN
+            q = INSTR(p, a$, sp)
+            IF q THEN e$ = MID$(a$, p, q - p): p = q + 1 ELSE e$ = MID$(a$, p): p = 0
+        ELSE
+            e$ = ""
+        END IF
         IF e$ = "(" OR e$ = "{" THEN b = b + 1
         IF e$ = ")" OR e$ = "}" THEN
             b = b - 1
@@ -627,11 +644,14 @@ END FUNCTION
 'splits a$ at top-level commas into IrArgs(); returns count
 FUNCTION IrSplitArgs& (a$)
     DIM n AS LONG, i AS LONG, b AS LONG, e$, c AS LONG, cur$
-    n = numelements(a$)
-    IF n = 0 THEN IrSplitArgs& = 0: EXIT FUNCTION
+    DIM p AS LONG, q AS LONG
+    IF a$ = "" THEN IrSplitArgs& = 0: EXIT FUNCTION
     c = 1: cur$ = ""
-    FOR i = 1 TO n
-        e$ = getelement$(a$, i)
+    'the elements in turn, along the text (as getelement$ reads them)
+    p = 1
+    DO
+        q = INSTR(p, a$, sp)
+        IF q THEN e$ = MID$(a$, p, q - p): p = q + 1 ELSE e$ = MID$(a$, p)
         IF e$ = "(" OR e$ = "{" THEN b = b + 1
         IF e$ = ")" OR e$ = "}" THEN b = b - 1
         IF e$ = "," AND b = 0 THEN
@@ -641,7 +661,7 @@ FUNCTION IrSplitArgs& (a$)
         ELSE
             IF LEN(cur$) THEN cur$ = cur$ + sp + e$ ELSE cur$ = e$
         END IF
-    NEXT
+    LOOP WHILE q
     IrArgs(c) = cur$
     IrSplitArgs& = c
 END FUNCTION
@@ -725,50 +745,39 @@ END FUNCTION
 
 'lvalue at elements i.. of a$; advances i. Returns "" (IrQuiet) or fails if not a variable.
 FUNCTION IrPlaceAt$ (a$, i AS LONG, n AS LONG, typ AS LONG)
-    DIM l$, l2$, nextl$, dtyp$, try AS LONG, try_method AS LONG, v AS LONG, j AS LONG, p$, idn AS LONG
+    DIM l$, l2$, nextl$, dtyp$, try AS LONG, try_method AS LONG, v AS LONG, j AS LONG, p$, idn AS LONG, hit AS LONG
+    DIM try4 AS LONG, try4$, try4d$, try4v AS LONG, try4e AS LONG, try4m$, isop AS LONG
     l2$ = getelement$(a$, i)
     IF i < n THEN nextl$ = getelement$(a$, i + 1) ELSE nextl$ = ""
     FOR try_method = 1 TO 4
         l$ = l2$
-        IF try_method = 2 OR try_method = 4 THEN
-            dtyp$ = removesymbol(l$): IF Error_Happened THEN dtyp$ = "": Error_Happened = 0
+        IF try_method = 4 AND try4 <> 0 THEN
+            'the same name as try 2 made (nothing it is made from has changed)
+            l$ = try4$: dtyp$ = try4d$: v = try4v
+            IF try4e THEN Error_Message = try4m$
+        ELSEIF try_method = 2 OR try_method = 4 THEN
+            try4e = 0
+            dtyp$ = removesymbol(l$): IF Error_Happened THEN dtyp$ = "": Error_Happened = 0: try4e = -1: try4m$ = Error_Message
             IF LEN(dtyp$) = 0 THEN
-                IF isoperator(l$) = 0 AND isvalidvariable(l$) THEN
-                    IF LEFT$(l$, 1) = "_" THEN v = 27 ELSE v = ASC(UCASE$(l$)) - 64
-                    l$ = l$ + defineextaz(v)
+                IF opStart(ASC(l$ + CHR$(0))) THEN isop = isoperator(l$) ELSE isop = 0
+                IF isop = 0 THEN
+                    IF isvalidvariable(l$) THEN
+                        IF LEFT$(l$, 1) = "_" THEN v = 27 ELSE v = ASC(UCASE$(l$)) - 64
+                        l$ = l$ + defineextaz(v)
+                    END IF
                 END IF
             ELSE
                 l$ = l2$
             END IF
+            try4 = -1: try4$ = l$: try4d$ = dtyp$: try4v = v
         END IF
         try = findid(l$)
         IF Error_Happened THEN Error_Happened = 0: try = 0
         DO WHILE try
             IF (subfuncn = id.insubfuncn AND try_method <= 2) OR try_method >= 3 THEN
                 idn = currentid
-                IF nextl$ = "(" AND id.arraytype <> 0 THEN
-                    j = IrMatch(a$, i + 1, n)
-                    IF j = i + 2 THEN 'a() : whole array
-                        i = j + 1: typ = id.arraytype
-                        p$ = IrVar$(idn)
-                        IrPlaceAt$ = "A" + CHR$(2) + p$: EXIT FUNCTION
-                    END IF
-                    p$ = IrElemPlace$(idn, getelements$(a$, i + 2, j - 1), typ)
-                    i = j + 1
-                    IF typ AND ISUDT THEN p$ = IrUdtPlace$(p$, typ AND 511, a$, i, n, typ)
-                    IrPlaceAt$ = p$: EXIT FUNCTION
-                END IF
-                IF nextl$ <> "(" AND id.t <> 0 AND id.subfunc = 0 THEN
-                    IF id.t AND ISUDT THEN
-                        p$ = "V" + CHR$(2) + IrVar$(idn) + CHR$(2) + IrSTy$(id.t, id.tsize)
-                        i = i + 1
-                        p$ = IrUdtPlace$(p$, id.t AND 511, a$, i, n, typ)
-                        IrPlaceAt$ = p$: EXIT FUNCTION
-                    END IF
-                    typ = id.t
-                    i = i + 1
-                    IrPlaceAt$ = "V" + CHR$(2) + IrVar$(idn) + CHR$(2) + IrSTy$(id.t, id.tsize): EXIT FUNCTION
-                END IF
+                p$ = IrPlaceFound$(a$, i, n, typ, idn, nextl$, hit)
+                IF hit THEN IrPlaceAt$ = p$: EXIT FUNCTION
             END IF
             IF try = 2 THEN findanotherid = 1: try = findid(l$) ELSE try = 0
             IF Error_Happened THEN Error_Happened = 0: try = 0
@@ -776,6 +785,37 @@ FUNCTION IrPlaceAt$ (a$, i AS LONG, n AS LONG, typ AS LONG)
     NEXT
     IF IrQuiet = 0 THEN IrNotSup "not a variable: " + l2$
     IrPlaceAt$ = ""
+END FUNCTION
+
+'the place of element i of a$ named by the id found for it (idn, in id), nextl$ the
+'element after it; hit is 0 when that id is no variable or array there
+FUNCTION IrPlaceFound$ (a$, i AS LONG, n AS LONG, typ AS LONG, idn AS LONG, nextl$, hit AS LONG)
+    DIM j AS LONG, p$
+    hit = -1
+    IF nextl$ = "(" AND id.arraytype <> 0 THEN
+        j = IrMatch(a$, i + 1, n)
+        IF j = i + 2 THEN 'a() : whole array
+            i = j + 1: typ = id.arraytype
+            p$ = IrVar$(idn)
+            IrPlaceFound$ = "A" + CHR$(2) + p$: EXIT FUNCTION
+        END IF
+        p$ = IrElemPlace$(idn, getelements$(a$, i + 2, j - 1), typ)
+        i = j + 1
+        IF typ AND ISUDT THEN p$ = IrUdtPlace$(p$, typ AND 511, a$, i, n, typ)
+        IrPlaceFound$ = p$: EXIT FUNCTION
+    END IF
+    IF nextl$ <> "(" AND id.t <> 0 AND id.subfunc = 0 THEN
+        IF id.t AND ISUDT THEN
+            p$ = "V" + CHR$(2) + IrVar$(idn) + CHR$(2) + IrSTy$(id.t, id.tsize)
+            i = i + 1
+            p$ = IrUdtPlace$(p$, id.t AND 511, a$, i, n, typ)
+            IrPlaceFound$ = p$: EXIT FUNCTION
+        END IF
+        typ = id.t
+        i = i + 1
+        IrPlaceFound$ = "V" + CHR$(2) + IrVar$(idn) + CHR$(2) + IrSTy$(id.t, id.tsize): EXIT FUNCTION
+    END IF
+    hit = 0
 END FUNCTION
 
 'lvalue of a whole fixed expression (assignment target, BYREF argument, INPUT/READ target)
@@ -868,7 +908,8 @@ FUNCTION IrNumLit$ (l$, typ AS LONG)
 END FUNCTION
 
 FUNCTION IrOperand$ (a$, i AS LONG, n AS LONG, typ AS LONG)
-    DIM l$, c AS LONG, r$, p$, nextl$, l2$, dtyp$, try AS LONG, try_method AS LONG, v AS LONG, j AS LONG, idn AS LONG
+    DIM l$, c AS LONG, r$, p$, nextl$, l2$, dtyp$, try AS LONG, try_method AS LONG, v AS LONG, j AS LONG, idn AS LONG, hit AS LONG
+    DIM try4 AS LONG, try4$, try4d$, try4v AS LONG, try4e AS LONG, try4m$, isop AS LONG
     l$ = getelement$(a$, i)
     c = ASC(l$)
     IF c = 34 THEN
@@ -884,23 +925,34 @@ FUNCTION IrOperand$ (a$, i AS LONG, n AS LONG, typ AS LONG)
     IF i < n THEN nextl$ = getelement$(a$, i + 1) ELSE nextl$ = ""
     FOR try_method = 1 TO 4
         l$ = l2$
-        IF try_method = 2 OR try_method = 4 THEN
-            dtyp$ = removesymbol(l$): IF Error_Happened THEN dtyp$ = "": Error_Happened = 0
+        IF try_method = 4 AND try4 <> 0 THEN
+            'the same name as try 2 made (nothing it is made from has changed)
+            l$ = try4$: dtyp$ = try4d$: v = try4v
+            IF try4e THEN Error_Message = try4m$
+        ELSEIF try_method = 2 OR try_method = 4 THEN
+            try4e = 0
+            dtyp$ = removesymbol(l$): IF Error_Happened THEN dtyp$ = "": Error_Happened = 0: try4e = -1: try4m$ = Error_Message
             IF LEN(dtyp$) = 0 THEN
-                IF isoperator(l$) = 0 AND isvalidvariable(l$) THEN
-                    IF LEFT$(l$, 1) = "_" THEN v = 27 ELSE v = ASC(UCASE$(l$)) - 64
-                    l$ = l$ + defineextaz(v)
+                IF opStart(ASC(l$ + CHR$(0))) THEN isop = isoperator(l$) ELSE isop = 0
+                IF isop = 0 THEN
+                    IF isvalidvariable(l$) THEN
+                        IF LEFT$(l$, 1) = "_" THEN v = 27 ELSE v = ASC(UCASE$(l$)) - 64
+                        l$ = l$ + defineextaz(v)
+                    END IF
                 END IF
             ELSE
                 l$ = l2$
             END IF
+            try4 = -1: try4$ = l$: try4d$ = dtyp$: try4v = v
         END IF
         try = findid(l$)
         IF Error_Happened THEN Error_Happened = 0: try = 0
         DO WHILE try
             IF (subfuncn = id.insubfuncn AND try_method <= 2) OR try_method >= 3 THEN
                 IF (nextl$ = "(" AND id.arraytype <> 0) OR (nextl$ <> "(" AND id.t <> 0 AND id.subfunc = 0) THEN
-                    p$ = IrPlaceAt$(a$, i, n, typ)
+                    'IrPlaceAt$ would search again the way this did, and find the same id
+                    idn = currentid
+                    p$ = IrPlaceFound$(a$, i, n, typ, idn, nextl$, hit)
                     IF LEN(p$) = 0 THEN IrT = "i32": IrOperand$ = IrI32$(0): EXIT FUNCTION
                     IF LEFT$(p$, 1) = "A" THEN IrNotSup "array used as a value": IrT = "i32": IrOperand$ = IrI32$(0): EXIT FUNCTION
                     r$ = IrLoad$(p$)
@@ -963,7 +1015,7 @@ FUNCTION IrEval$ (a2$, typ AS LONG)
     DIM blk(1 TO n) AS STRING, bty(1 TO n) AS LONG, bq(1 TO n) AS STRING, bop(1 TO n) AS INTEGER
     DIM o$, u AS LONG, info$, lhs AS LONG, rhs AS LONG, result AS LONG, isop AS LONG
     DIM oldtyp AS LONG, newtyp AS LONG, lr$, lq$, rr$, rq$, b AS LONG, b2 AS LONG, b3 AS LONG, s1 AS LONG, s2 AS LONG
-    DIM saveid AS idstruct, savecur AS LONG, unary AS LONG, d$, op$
+    DIM saveid AS idstruct, savecur AS LONG, unary AS LONG, d$, op$, irisop AS LONG
     saveid = id: savecur = currentid
     IF IrExtShortCircuit%(a2$, typ, r$) THEN IrEval$ = r$: EXIT FUNCTION '_ANDALSO/_ORELSE (ir_ext.bas)
     n = numelements(a2$)
@@ -971,12 +1023,13 @@ FUNCTION IrEval$ (a2$, typ AS LONG)
     DO WHILE i <= n
         l$ = getelement$(a2$, i)
         nb = nb + 1
+        IF opStart(ASC(l$ + CHR$(0))) THEN irisop = isoperator(l$) ELSE irisop = 0
         IF l$ = "(" OR l$ = "{" THEN
             j = IrMatch(a2$, i, n)
             blk(nb) = IrEval$(getelements$(a2$, i + 1, j - 1), t)
             bty(nb) = t: bq(nb) = IrT: bop(nb) = 0
             i = j + 1
-        ELSEIF isoperator(l$) THEN
+        ELSEIF irisop THEN
             blk(nb) = l$: bop(nb) = 1: i = i + 1
         ELSE
             blk(nb) = IrOperand$(a2$, i, n, t)

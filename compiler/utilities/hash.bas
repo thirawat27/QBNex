@@ -45,7 +45,16 @@ SUB HashAdd (a$, flags, reference)
 END SUB
 
 FUNCTION HashFind (a$, searchflags, resultflags, resultreference)
-    i = HashTable(HashValue(a$) AND HASH_TABLE_MASK)
+    'HashValue&(a$), written out (asked for every search)
+    hvl = LEN(a$)
+    IF hvl = 0 THEN
+        hvh = 0
+    ELSE
+        hvh = hash1char(ASC(a$)) + hvl * 7919
+        IF hvl > 1 THEN hvh = hvh + hash1char(ASC(a$, 2)) * 37 + hash1char(ASC(a$, hvl)) * 1031 + hash1char(ASC(a$, hvl - 1)) * 29881
+        IF hvl > 3 THEN hvh = hvh + hash1char(ASC(a$, (hvl + 1) \ 2)) * 211 + hash1char(ASC(a$, hvl - 2)) * 4111
+    END IF
+    i = HashTable(hvh AND HASH_TABLE_MASK)
     IF i THEN
         ua$ = UCASE$(a$)
         hashfind_next:
@@ -75,7 +84,16 @@ FUNCTION HashFind (a$, searchflags, resultflags, resultreference)
 END FUNCTION
 
 FUNCTION HashFindRev (a$, searchflags, resultflags, resultreference)
-    i = HashTable(HashValue(a$) AND HASH_TABLE_MASK)
+    'HashValue&(a$), written out (asked for every search)
+    hvl = LEN(a$)
+    IF hvl = 0 THEN
+        hvh = 0
+    ELSE
+        hvh = hash1char(ASC(a$)) + hvl * 7919
+        IF hvl > 1 THEN hvh = hvh + hash1char(ASC(a$, 2)) * 37 + hash1char(ASC(a$, hvl)) * 1031 + hash1char(ASC(a$, hvl - 1)) * 29881
+        IF hvl > 3 THEN hvh = hvh + hash1char(ASC(a$, (hvl + 1) \ 2)) * 211 + hash1char(ASC(a$, hvl - 2)) * 4111
+    END IF
+    i = HashTable(hvh AND HASH_TABLE_MASK)
     IF i THEN
         i = HashList(i).LastItem
         ua$ = UCASE$(a$)

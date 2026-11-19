@@ -167,26 +167,30 @@ FUNCTION TopLevelRuntime_ProcessLine$ (rawLine$)
         EXIT FUNCTION
     END IF
 
-    IF TopLevelRuntime_IsKeyword%(upperLine, "END SUB") OR TopLevelRuntime_IsKeyword%(upperLine, "END FUNCTION") THEN
-        IF topLevelRuntimeProcDepth > 0 THEN topLevelRuntimeProcDepth = topLevelRuntimeProcDepth - 1
-        TopLevelRuntime_ProcessLine$ = lineText
-        EXIT FUNCTION
-    END IF
-    IF TopLevelRuntime_IsKeyword%(upperLine, "END TYPE") THEN
-        IF topLevelRuntimeTypeDepth > 0 THEN topLevelRuntimeTypeDepth = topLevelRuntimeTypeDepth - 1
-        TopLevelRuntime_ProcessLine$ = lineText
-        EXIT FUNCTION
-    END IF
-    IF TopLevelRuntime_IsKeyword%(upperLine, "END DECLARE") THEN
-        IF topLevelRuntimeDeclareDepth > 0 THEN topLevelRuntimeDeclareDepth = topLevelRuntimeDeclareDepth - 1
-        TopLevelRuntime_ProcessLine$ = lineText
-        EXIT FUNCTION
+    IF LEFT$(upperLine, 4) = "END " THEN
+        IF TopLevelRuntime_IsKeyword%(upperLine, "END SUB") OR TopLevelRuntime_IsKeyword%(upperLine, "END FUNCTION") THEN
+            IF topLevelRuntimeProcDepth > 0 THEN topLevelRuntimeProcDepth = topLevelRuntimeProcDepth - 1
+            TopLevelRuntime_ProcessLine$ = lineText
+            EXIT FUNCTION
+        END IF
+        IF TopLevelRuntime_IsKeyword%(upperLine, "END TYPE") THEN
+            IF topLevelRuntimeTypeDepth > 0 THEN topLevelRuntimeTypeDepth = topLevelRuntimeTypeDepth - 1
+            TopLevelRuntime_ProcessLine$ = lineText
+            EXIT FUNCTION
+        END IF
+        IF TopLevelRuntime_IsKeyword%(upperLine, "END DECLARE") THEN
+            IF topLevelRuntimeDeclareDepth > 0 THEN topLevelRuntimeDeclareDepth = topLevelRuntimeDeclareDepth - 1
+            TopLevelRuntime_ProcessLine$ = lineText
+            EXIT FUNCTION
+        END IF
     END IF
 
-    IF TopLevelRuntime_IsDeclareLibrary%(upperLine) THEN
-        topLevelRuntimeDeclareDepth = topLevelRuntimeDeclareDepth + 1
-        TopLevelRuntime_ProcessLine$ = lineText
-        EXIT FUNCTION
+    IF LEFT$(upperLine, 8) = "DECLARE " THEN
+        IF TopLevelRuntime_IsDeclareLibrary%(upperLine) THEN
+            topLevelRuntimeDeclareDepth = topLevelRuntimeDeclareDepth + 1
+            TopLevelRuntime_ProcessLine$ = lineText
+            EXIT FUNCTION
+        END IF
     END IF
     'SUB/FUNCTION lines inside DECLARE LIBRARY are prototypes, not procedure bodies
     IF topLevelRuntimeDeclareDepth THEN
@@ -366,7 +370,7 @@ FUNCTION ClassSyntax_ConsumeDispatchSegmentStart& (text$, endPos AS LONG)
         previousPos = ClassSyntax_SkipLeftSpaces&(text$, openPos - 1)
         IF previousPos > 0 AND previousPos = openPos - 1 THEN
             currentChar = MID$(text$, previousPos, 1)
-            IF ClassSyntax_IsIdentifierChar%(currentChar) OR ClassSyntax_IsTypeSuffixChar%(currentChar) OR currentChar = ")" THEN
+            IF identOrSuffixChar(ASC(currentChar + CHR$(0))) OR currentChar = ")" THEN
                 startPos = ClassSyntax_ConsumeDispatchSegmentStart&(text$, previousPos)
             END IF
         END IF
@@ -374,11 +378,11 @@ FUNCTION ClassSyntax_ConsumeDispatchSegmentStart& (text$, endPos AS LONG)
         EXIT FUNCTION
     END IF
 
-    IF ClassSyntax_IsIdentifierChar%(currentChar) OR ClassSyntax_IsTypeSuffixChar%(currentChar) THEN
+    IF identOrSuffixChar(ASC(currentChar + CHR$(0))) THEN
         startPos = endPos
         DO WHILE startPos > 1
             currentChar = MID$(text$, startPos - 1, 1)
-            IF ClassSyntax_IsIdentifierChar%(currentChar) OR ClassSyntax_IsTypeSuffixChar%(currentChar) THEN
+            IF identOrSuffixChar(ASC(currentChar + CHR$(0))) THEN
                 startPos = startPos - 1
             ELSE
                 EXIT DO
@@ -775,6 +779,7 @@ FUNCTION ClassSyntax_ProcessLine$ (rawLine$)
     DIM className$
     DIM savedQueue$
     DIM methodHeader$
+    DIM firstChar AS LONG
 
     classSyntaxSourceLine = rawLine$
     IF rawLine$ = CHR$(13) THEN
@@ -787,8 +792,14 @@ FUNCTION ClassSyntax_ProcessLine$ (rawLine$)
     IF classSyntaxActive = 0 THEN
         'x.Method(...) first, so that the call it becomes gets its OPTIONAL defaults; a DIM
         'of the line is known first ("DIM l AS List: PRINT l.Pop$")
-        ClassSyntax_RegisterDeclarationLine rawLine$
-        rawLine$ = ClassSyntax_RewriteDispatch$(rawLine$, "")
+        'ClassSyntax_RegisterDeclarationLine looks at DIM, STATIC and REDIM lines only (their
+        'first letter), ClassSyntax_RewriteDispatch$ at lines with "." once a class or a
+        'variable of a TYPE is known: checked here, before the calls
+        firstChar = 0: trimmedLine$ = LTRIM$(rawLine$): IF LEN(trimmedLine$) THEN firstChar = ASC(trimmedLine$) OR 32
+        IF firstChar = 100 OR firstChar = 115 OR firstChar = 114 THEN ClassSyntax_RegisterDeclarationLine rawLine$
+        IF classSyntaxRegistryCount <> 0 OR classSyntaxTypedVars <> 0 THEN
+            IF INSTR(rawLine$, ".") THEN rawLine$ = ClassSyntax_RewriteDispatch$(rawLine$, "")
+        END IF
         syntaxExtLine$ = SyntaxExt_ProcessLine$(rawLine$)
         IF syntaxExtLine$ <> rawLine$ THEN
             'a rewritten SUB/FUNCTION header (OPTIONAL parameters) still goes through the class scope tracking
@@ -818,10 +829,16 @@ FUNCTION ClassSyntax_ProcessLine$ (rawLine$)
             EXIT FUNCTION
         END IF
 
-        ClassSyntax_RegisterDeclarationLine rawLine$
+        'upperLine$ is the line in capitals without the spaces around it (see above)
+        firstChar = ASC(upperLine$ + " ")
+        IF firstChar = 68 OR firstChar = 83 OR firstChar = 82 THEN ClassSyntax_RegisterDeclarationLine rawLine$ 'D, S, R
 
         IF LEFT$(upperLine$, 6) <> "CLASS " THEN
-            ClassSyntax_ProcessLine$ = ClassSyntax_RewriteDispatch$(rawLine$, "")
+            IF (classSyntaxRegistryCount <> 0 OR classSyntaxTypedVars <> 0) AND INSTR(rawLine$, ".") <> 0 THEN
+                ClassSyntax_ProcessLine$ = ClassSyntax_RewriteDispatch$(rawLine$, "")
+            ELSE
+                ClassSyntax_ProcessLine$ = rawLine$
+            END IF
             EXIT FUNCTION
         END IF
 
@@ -1577,7 +1594,12 @@ SUB ClassSyntax_RegisterDeclarationLine (rawLine$)
     DIM c AS STRING
     DIM partStart AS LONG
 
-    trimmedLine = LTRIM$(RTRIM$(rawLine$))
+    'only DIM, STATIC and REDIM lines declare: a line starting with any other letter is skipped
+    trimmedLine = LTRIM$(rawLine$)
+    IF LEN(trimmedLine) = 0 THEN EXIT SUB
+    i = ASC(trimmedLine) OR 32
+    IF i <> 100 AND i <> 115 AND i <> 114 THEN EXIT SUB 'd, s, r
+    trimmedLine = RTRIM$(trimmedLine)
     upperLine = UCASE$(trimmedLine)
 
     IF LEFT$(upperLine, 11) = "DIM SHARED " THEN
@@ -1710,6 +1732,7 @@ FUNCTION ClassSyntax_RewriteDispatch$ (sourceLine$, selfType$)
     DIM emittedObjectExpr AS STRING
     DIM argsText AS STRING
     DIM hasParen AS LONG
+    DIM nextPos AS LONG
 
     'a dispatch needs "object.method(" with a registered class: skip the character scan
     'of every source line when there is no class or no "."
@@ -1721,6 +1744,16 @@ FUNCTION ClassSyntax_RewriteDispatch$ (sourceLine$, selfType$)
     flushPos = 1
     i = 1
     DO WHILE i <= LEN(sourceLine$)
+        'go straight to the next character that matters: a quote, or outside a string "." or "'"
+        IF inString THEN
+            nextPos = INSTR(i, sourceLine$, CHR$(34))
+        ELSE
+            nextPos = INSTR(i, sourceLine$, ".")
+            j = INSTR(i, sourceLine$, CHR$(34)): IF j > 0 AND (j < nextPos OR nextPos = 0) THEN nextPos = j
+            j = INSTR(i, sourceLine$, "'"): IF j > 0 AND (j < nextPos OR nextPos = 0) THEN nextPos = j
+        END IF
+        IF nextPos = 0 THEN EXIT DO
+        i = nextPos
         currentChar = MID$(sourceLine$, i, 1)
 
         IF currentChar = CHR$(34) THEN
@@ -1746,7 +1779,7 @@ FUNCTION ClassSyntax_RewriteDispatch$ (sourceLine$, selfType$)
 
                 DO WHILE j <= LEN(sourceLine$)
                     currentChar = MID$(sourceLine$, j, 1)
-                    IF ClassSyntax_IsIdentifierChar%(currentChar) OR ClassSyntax_IsTypeSuffixChar%(currentChar) THEN
+                    IF identOrSuffixChar(ASC(currentChar + CHR$(0))) THEN
                         j = j + 1
                     ELSE
                         EXIT DO

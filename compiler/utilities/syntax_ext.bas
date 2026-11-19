@@ -272,17 +272,24 @@ FUNCTION SyntaxExt_CodePart$ (text$, commentPart$)
     DIM inString AS INTEGER
     DIM c AS STRING
 
+    DIM q AS LONG, d AS LONG
+
     commentPart$ = ""
-    IF INSTR(text$, "'") = 0 THEN SyntaxExt_CodePart$ = text$: EXIT FUNCTION 'no comment possible
-    FOR i = 1 TO LEN(text$)
-        c = MID$(text$, i, 1)
-        IF c = CHR$(34) THEN inString = NOT inString
-        IF c = "'" AND inString = 0 THEN
-            commentPart$ = MID$(text$, i)
-            SyntaxExt_CodePart$ = LEFT$(text$, i - 1)
+    'from quote to quote: the first ' outside a string starts the comment
+    i = 1
+    DO
+        q = INSTR(i, text$, "'")
+        IF q = 0 THEN EXIT DO 'no comment
+        d = INSTR(i, text$, CHR$(34))
+        IF d = 0 OR d > q THEN
+            commentPart$ = MID$(text$, q)
+            SyntaxExt_CodePart$ = LEFT$(text$, q - 1)
             EXIT FUNCTION
         END IF
-    NEXT
+        d = INSTR(d + 1, text$, CHR$(34)) 'the end of the string
+        IF d = 0 THEN EXIT DO 'the string runs to the end of the line
+        i = d + 1
+    LOOP
     SyntaxExt_CodePart$ = text$
 END FUNCTION
 
@@ -374,8 +381,6 @@ FUNCTION SyntaxExt_LowerLine$ (rawLine$)
     DIM idxVar AS STRING
     DIM idxList AS STRING
     DIM idxNext AS STRING
-    REDIM stmts(1 TO 16) AS STRING
-    REDIM items(1 TO 16) AS STRING
 
     SyntaxExt_LowerLine$ = rawLine$
     IF rawLine$ = CHR$(13) THEN EXIT FUNCTION
@@ -392,6 +397,7 @@ FUNCTION SyntaxExt_LowerLine$ (rawLine$)
             EXIT FUNCTION
         END IF
         IF LEN(trimmed) = 0 THEN EXIT FUNCTION
+        REDIM items(1 TO 16) AS STRING
         n = SyntaxExt_SplitTop&(trimmed, ",", items())
         FOR k = 1 TO n
             s = LTRIM$(RTRIM$(items(k)))
@@ -485,6 +491,8 @@ FUNCTION SyntaxExt_LowerLine$ (rawLine$)
     IF INSTR(upper, "EACH") = 0 AND LEN(syntaxExtForStack$) = 0 THEN EXIT FUNCTION
     IF INSTR(upper, "FOR") = 0 AND INSTR(upper, "NEXT") = 0 THEN EXIT FUNCTION
 
+    REDIM stmts(1 TO 16) AS STRING
+    REDIM items(1 TO 16) AS STRING
     n = SyntaxExt_SplitTop&(codeText, ":", stmts())
     FOR k = 1 TO n
         s = LTRIM$(RTRIM$(stmts(k)))
@@ -621,6 +629,7 @@ END FUNCTION
 
 SUB SyntaxExt_RecordArrays (codeText$)
     'remember the rank of arrays declared on this line (for FOR EACH over several dimensions)
+    IF INSTR(codeText$, "(") = 0 THEN EXIT SUB 'no array with its bounds
     REDIM stmts(1 TO 16) AS STRING
     REDIM items(1 TO 16) AS STRING
     REDIM dims(1 TO 16) AS STRING
@@ -683,10 +692,12 @@ FUNCTION SyntaxExt_LineHasTry% (rawLine$)
     DIM commentText AS STRING
     DIM n AS LONG
     DIM k AS LONG
-    REDIM stmts(1 TO 16) AS STRING
 
+    'the code part is the start of the line
+    IF INSTR(UCASE$(rawLine$), "TRY") = 0 THEN EXIT FUNCTION
     codeText = SyntaxExt_CodePart$(rawLine$, commentText)
     IF INSTR(UCASE$(codeText), "TRY") = 0 THEN EXIT FUNCTION
+    REDIM stmts(1 TO 16) AS STRING
     n = SyntaxExt_SplitTop&(codeText, ":", stmts())
     FOR k = 1 TO n
         IF UCASE$(LTRIM$(RTRIM$(stmts(k)))) = "TRY" THEN SyntaxExt_LineHasTry% = -1: EXIT FUNCTION
@@ -708,7 +719,6 @@ FUNCTION SyntaxExt_ProcessLine$ (rawLine$)
     DIM k AS LONG
     DIM hit AS INTEGER
     DIM p AS LONG
-    REDIM stmts(1 TO 16) AS STRING
 
     IF rawLine$ = CHR$(13) THEN SyntaxExt_ProcessLine$ = rawLine$: EXIT FUNCTION
 
@@ -719,7 +729,14 @@ FUNCTION SyntaxExt_ProcessLine$ (rawLine$)
 
     'TRY/CATCH/FINALLY/END TRY/ENUM keywords joined with other statements by ':' are lowered
     'one statement at a time
+    'a block word joined to other statements: TRY, CATCH, FINALLY, END TRY, ENUM, END ENUM
+    hit = 0
     IF INSTR(codeText, ":") THEN
+        IF INSTR(upper, "TRY") OR INSTR(upper, "CATCH") OR INSTR(upper, "FINALLY") OR INSTR(upper, "ENUM") THEN hit = 1
+    END IF
+    IF hit THEN
+        hit = 0
+        REDIM stmts(1 TO 16) AS STRING
         n = SyntaxExt_SplitTop&(codeText, ":", stmts())
         IF n > 1 THEN
             FOR k = 1 TO n
@@ -767,8 +784,26 @@ FUNCTION SyntaxExt_ProcessLine$ (rawLine$)
         IF LEN(syntaxExtTryStack$) THEN topEntry = SyntaxExt_TopEntry$(syntaxExtTryStack$): IF LEFT$(topEntry, 1) = CHR$(1) THEN topEntry = MID$(topEntry, 2)
     END IF
     IF INSTR(upper, "DIM") OR INSTR(upper, "STATIC") OR INSTR(upper, "COMMON") THEN SyntaxExt_RecordArrays codeText
-    IF LEN(syntaxExtOptional$) OR INSTR(UCASE$(procLine), "OPTIONAL") THEN procLine = SyntaxExt_Optional$(procLine)
-    SyntaxExt_ProcessLine$ = SyntaxExt_LowerLine$(procLine)
+    'SyntaxExt_Optional$ changes a procedure header or a line with a name that has OPTIONAL
+    'parameters (SyntaxExt_OptNamed%): checked here first
+    IF LEN(syntaxExtOptional$) OR INSTR(UCASE$(procLine), "OPTIONAL") THEN
+        piece = UCASE$(procLine)
+        IF INSTR(piece, "SUB ") <> 0 OR INSTR(piece, "FUNCTION ") <> 0 THEN
+            procLine = SyntaxExt_Optional$(procLine)
+        ELSEIF SyntaxExt_OptNamed%(procLine) THEN
+            procLine = SyntaxExt_Optional$(procLine)
+        END IF
+    END IF
+    'SyntaxExt_LowerLine$ changes only ENUM blocks, TRY, CATCH, FINALLY, END TRY, FOR EACH and
+    'the NEXT (or EXIT FOR) of a FOR EACH: none of these words, no change
+    hit = 0
+    IF syntaxExtEnumActive <> 0 OR LEN(syntaxExtForStack$) <> 0 THEN
+        hit = -1
+    ELSE
+        piece = UCASE$(procLine)
+        IF INSTR(piece, "ENUM") OR INSTR(piece, "TRY") OR INSTR(piece, "CATCH") OR INSTR(piece, "FINALLY") OR INSTR(piece, "EACH") THEN hit = -1
+    END IF
+    IF hit THEN SyntaxExt_ProcessLine$ = SyntaxExt_LowerLine$(procLine) ELSE SyntaxExt_ProcessLine$ = procLine
     IF checkIt THEN ClassSyntax_QueueLine "IF QBNEX_TRYERR THEN GOTO QBNEX_TRY_C" + LTRIM$(STR$(VAL(topEntry)))
 END FUNCTION
 FUNCTION SyntaxExt_InterpEnd& (text$, startPos AS LONG)
@@ -998,6 +1033,54 @@ FUNCTION SyntaxExt_OptCalls$ (codeText$)
     SyntaxExt_OptCalls$ = SyntaxExt_OptCallsIn$(codeText$, 0)
 END FUNCTION
 
+FUNCTION SyntaxExt_OptNamed% (codeText$)
+    'whether the name of a procedure with OPTIONAL parameters (a key of syntaxExtOptional$)
+    'is in codeText$ (or a part of a longer name). The names are grouped by their start up
+    'to the first "_" after the first character: a name is only in a text its start is in.
+    DIM k AS LONG, g AS LONG, p AS LONG, q AS LONG, u AS STRING, pf AS STRING
+
+    IF syntaxExtOptKeysOf <> syntaxExtOptional$ THEN
+        'the names again, after a procedure header changed the list
+        syntaxExtOptKeysOf = syntaxExtOptional$
+        syntaxExtOptKeyCount = 0: syntaxExtOptGroupCount = 0
+        p = 1
+        DO
+            q = INSTR(p + 1, syntaxExtOptional$, CHR$(9))
+            IF q = 0 THEN EXIT DO
+            syntaxExtOptKeyCount = syntaxExtOptKeyCount + 1
+            IF syntaxExtOptKeyCount > UBOUND(syntaxExtOptKeys) THEN
+                REDIM _PRESERVE syntaxExtOptKeys(1 TO syntaxExtOptKeyCount * 2) AS STRING
+                REDIM _PRESERVE syntaxExtOptKeyGroup(1 TO syntaxExtOptKeyCount * 2) AS LONG
+            END IF
+            syntaxExtOptKeys(syntaxExtOptKeyCount) = MID$(syntaxExtOptional$, p + 1, q - p - 1)
+            pf = syntaxExtOptKeys(syntaxExtOptKeyCount)
+            g = INSTR(2, pf, "_"): IF g THEN pf = LEFT$(pf, g)
+            FOR g = 1 TO syntaxExtOptGroupCount
+                IF syntaxExtOptGroups(g) = pf THEN EXIT FOR
+            NEXT
+            IF g > syntaxExtOptGroupCount THEN
+                syntaxExtOptGroupCount = g
+                IF g > UBOUND(syntaxExtOptGroups) THEN REDIM _PRESERVE syntaxExtOptGroups(1 TO g * 2) AS STRING
+                syntaxExtOptGroups(g) = pf
+            END IF
+            syntaxExtOptKeyGroup(syntaxExtOptKeyCount) = g
+            p = INSTR(q, syntaxExtOptional$, CHR$(10))
+            IF p = 0 THEN EXIT DO
+        LOOP
+    END IF
+    IF syntaxExtOptKeyCount = 0 THEN EXIT FUNCTION
+    u = UCASE$(codeText$)
+    FOR g = 1 TO syntaxExtOptGroupCount
+        IF INSTR(u, syntaxExtOptGroups(g)) THEN
+            FOR k = 1 TO syntaxExtOptKeyCount
+                IF syntaxExtOptKeyGroup(k) = g THEN
+                    IF INSTR(u, syntaxExtOptKeys(k)) THEN SyntaxExt_OptNamed% = -1: EXIT FUNCTION
+                END IF
+            NEXT
+        END IF
+    NEXT
+END FUNCTION
+
 FUNCTION SyntaxExt_OptCallsIn$ (codeText$, asExpression AS LONG)
     'append missing defaults to calls of procedures with OPTIONAL parameters; codeText$ is a
     'line of statements, or (asExpression) the arguments of a call, where a name is never
@@ -1015,6 +1098,9 @@ FUNCTION SyntaxExt_OptCallsIn$ (codeText$, asExpression AS LONG)
     DIM given AS LONG
     DIM defs AS STRING
     DIM e AS LONG
+
+    'only a name with OPTIONAL parameters changes the text: without one, it stays as it is
+    IF SyntaxExt_OptNamed%(codeText$) = 0 THEN SyntaxExt_OptCallsIn$ = codeText$: EXIT FUNCTION
     REDIM parts(1 TO 16) AS STRING
 
     IF asExpression THEN stmtStart = 0 ELSE stmtStart = -1
@@ -1031,12 +1117,12 @@ FUNCTION SyntaxExt_OptCallsIn$ (codeText$, asExpression AS LONG)
         END IF
         IF c = ":" AND asExpression = 0 THEN result = result + c: i = i + 1: stmtStart = -1: GOTO optnext
         IF c = " " OR c = CHR$(9) THEN result = result + c: i = i + 1: GOTO optnext
-        IF ClassSyntax_IsIdentifierChar%(c) = 0 OR (c >= "0" AND c <= "9") THEN result = result + c: i = i + 1: stmtStart = 0: GOTO optnext
+        IF identChar(ASC(c + CHR$(0))) = 0 OR (c >= "0" AND c <= "9") THEN result = result + c: i = i + 1: stmtStart = 0: GOTO optnext
         'identifier (with dots) and type suffix
         j = i
         DO WHILE j <= LEN(codeText$)
             c = MID$(codeText$, j, 1)
-            IF ClassSyntax_IsIdentifierChar%(c) = 0 AND c <> "." THEN EXIT DO
+            IF identChar(ASC(c + CHR$(0))) = 0 AND c <> "." THEN EXIT DO
             j = j + 1
         LOOP
         DO WHILE j <= LEN(codeText$)
@@ -1138,6 +1224,11 @@ FUNCTION SyntaxExt_Optional$ (rawLine$)
     DIM upper AS STRING
 
     SyntaxExt_Optional$ = rawLine$
+    'only a procedure header or a call by a name with OPTIONAL parameters changes
+    upper = UCASE$(rawLine$)
+    IF INSTR(upper, "SUB ") = 0 AND INSTR(upper, "FUNCTION ") = 0 THEN
+        IF SyntaxExt_OptNamed%(rawLine$) = 0 THEN EXIT FUNCTION
+    END IF
     codeText = SyntaxExt_CodePart$(rawLine$, commentText)
     upper = UCASE$(LTRIM$(codeText))
     IF LEFT$(upper, 8) = "DECLARE " THEN upper = LTRIM$(MID$(upper, 9))

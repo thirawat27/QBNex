@@ -155,6 +155,8 @@ DIM SHARED PassRule(1 TO OptMax) AS LONG
 DIM SHARED LevelEntered(OptMax) 'up to 64 levels supported
 DIM SHARED separgs(OptMax + 1) AS STRING
 DIM SHARED separgslayout(OptMax + 1) AS STRING
+DIM SHARED idsShareTemp AS LONG: idsShareTemp = -1 'an id may have share bit 2 (temporarily shared) set
+DIM SHARED separgsDirty AS LONG: separgsDirty = OptMax 'seperateargs: the entries to clear
 DIM SHARED separgs_local(OptMax + 1) AS STRING
 DIM SHARED separgslayout_local(OptMax + 1) AS STRING
 DIM SHARED E
@@ -352,7 +354,6 @@ FUNCTION getpid& ()
     DIM SHARED HashListFreeLast AS LONG
     'hash lookup tables
     DIM SHARED hash1char(255) AS INTEGER
-    DIM SHARED hash2char(65535) AS INTEGER
     FOR x = 1 TO 26
         hash1char(64 + x) = x
         hash1char(96 + x) = x
@@ -368,11 +369,7 @@ FUNCTION getpid& ()
     hash1char(55) = 19 '7
     hash1char(56) = 18 '8
     hash1char(57) = 17 '9
-    FOR c1 = 0 TO 255
-        FOR c2 = 0 TO 255
-            hash2char(c1 + c2 * 256) = hash1char(c1) + hash1char(c2) * 32
-        NEXT
-    NEXT
+    c1 = 256: c2 = 256 'as a two-character table, never read, was filled with
     'Use a compact hash table and chaining rather than the historical oversized
     'fixed table. This keeps memory usage predictable without changing behavior.
     CONST HASH_TABLE_SIZE = 65536 '2^16 entries for better cache locality
@@ -714,6 +711,8 @@ DIM SHARED findidMemoHashFlags(1023) AS LONG, findidMemoHashName(1023) AS STRING
 CONST ELEMENTS_MAXPOS = 1024
 DIM SHARED elementsSrc(0 TO 4) AS STRING, elementsKnown(0 TO 4) AS LONG, elementsCount(0 TO 4) AS LONG
 DIM SHARED elementsPos(0 TO 4, 1 TO ELEMENTS_MAXPOS) AS LONG, elementsMru AS LONG, elementsVictim AS LONG
+'the elements of the line in the prepass and in the main pass (splitelements)
+REDIM ppEl(1 TO 64) AS STRING, ppCEl(1 TO 64) AS STRING, mainU(1 TO 64) AS STRING, mainE(1 TO 64) AS STRING, mainCa(1 TO 64) AS STRING
     DIM SHARED linenumber AS LONG, reallinenumber AS LONG, totallinenumber AS LONG, definingtypeerror AS LONG
     DIM SHARED wholeline AS STRING
     DIM SHARED diagnosticSourceLine AS STRING
@@ -737,6 +736,8 @@ DIM SHARED defFnDimTypes AS STRING 'deffn.bas: |NAME=TYPE| of the module's DIM n
 DIM SHARED defFnIncInDef AS LONG 'deffn.bas: inside DEF FN ... END DEF of an included file
 DIM SHARED defFnOnceScanned AS STRING 'deffn.bas: the $INCLUDEONCE files already scanned for DEF FN
 DIM SHARED syntaxExtEnumActive AS LONG, syntaxExtEnumNext AS STRING, syntaxExtForStack AS STRING, syntaxExtTryStack AS STRING, syntaxExtCounter AS LONG, syntaxExtOptional AS STRING, syntaxExtArrays AS STRING, syntaxExtUsesTry AS LONG, syntaxExtLoopStack AS STRING, syntaxExtTryLabels AS STRING, syntaxExtMainPass AS LONG 'syntax_ext.bas
+REDIM SHARED syntaxExtOptKeys(1 TO 16) AS STRING, syntaxExtOptKeyGroup(1 TO 16) AS LONG, syntaxExtOptGroups(1 TO 16) AS STRING 'syntax_ext.bas: names in syntaxExtOptional
+DIM SHARED syntaxExtOptKeyCount AS LONG, syntaxExtOptGroupCount AS LONG, syntaxExtOptKeysOf AS STRING
 DIM SHARED incRangeFrom AS LONG, incRangeTo AS LONG, incRangeSkip AS LONG, incRangeEnd(100) AS LONG 'include of a line range: 'file|from|to'
     DIM SHARED topLevelRuntimeLines AS STRING
     DIM SHARED topLevelRuntimeCallInjected AS LONG
@@ -857,7 +858,8 @@ DIM SHARED incRangeFrom AS LONG, incRangeTo AS LONG, incRangeSkip AS LONG, incRa
     DIM SHARED sfarglist(1000) AS INTEGER
     DIM SHARED sfelelist(1000) AS INTEGER
 
-    gl_scan_header 'OpenGL keyword table from compiler\support\opengl\gl_table.txt (registered when a program declares SUB _GL)
+    'the OpenGL keyword table (compiler\support\opengl\gl_table.txt) is read when a program
+    'declares SUB _GL (gl_include_content)
 
 
     '-----------------------QBNex COMPILER ONCE ONLY SETUP CODE ENDS HERE---------------------------------------
@@ -1501,7 +1503,8 @@ DIM SHARED incRangeFrom AS LONG, incRangeTo AS LONG, incRangeSkip AS LONG, incRa
                             GOTO finishedlinepp 'we don't check for anything inside lines that we've marked for skipping
                         END IF
 
-                        directiveResult = HandlePrepassMetaDirective%(temp$)
+                        'its directives ($ERROR, $LET) start with $
+                        IF LEFT$(temp$, 1) = "$" THEN directiveResult = HandlePrepassMetaDirective%(temp$) ELSE directiveResult = 0
                         IF directiveResult = 1 THEN GOTO finishedlinepp
                         IF directiveResult = 2 THEN a$ = ModuleError$: GOTO errmes
 
@@ -1511,14 +1514,16 @@ DIM SHARED incRangeFrom AS LONG, incRangeTo AS LONG, incRangeSkip AS LONG, incRa
 
 
                         addmetadynamic = 0: addmetastatic = 0
-                        wholelinen = numelements(wholeline$)
+                        'the elements of the line (counted and read below from ppEl)
+                        ppElN = splitelements(wholeline$, ppEl()): ppElOf$ = wholeline$
+                        wholelinen = ppElN
 
                         IF wholelinen THEN
 
                             wholelinei = 1
 
                             'skip line number?
-                            e$ = getelement$(wholeline$, 1)
+                            e$ = ppEl(1)
                             IF (ASC(e$) >= 48 AND ASC(e$) <= 59) OR ASC(e$) = 46 THEN wholelinei = 2: GOTO ppskpl
 
                             'skip 'POSSIBLE' line label?
@@ -1533,7 +1538,8 @@ DIM SHARED incRangeFrom AS LONG, incRangeTo AS LONG, incRangeSkip AS LONG, incRa
                                     IF validlabel(e$) THEN
                                         wholeline$ = RIGHT$(wholeline$, LEN(wholeline$) - x3)
                                         cwholeline$ = RIGHT$(cwholeline$, LEN(wholeline$) - x3)
-                                        wholelinen = numelements(wholeline$)
+                                        ppElN = splitelements(wholeline$, ppEl()): ppElOf$ = wholeline$
+                                        wholelinen = ppElN
                                         GOTO ppskpl
                                     END IF 'valid
                                 END IF 'includes ":"
@@ -1542,11 +1548,14 @@ DIM SHARED incRangeFrom AS LONG, incRangeTo AS LONG, incRangeSkip AS LONG, incRa
                             ppskpl:
                             IF wholelinei <= wholelinen THEN
                                 '----------------------------------------
+                                'the elements of both lines, read in turn below
+                                IF wholeline$ <> ppElOf$ THEN ppElN = splitelements(wholeline$, ppEl()): ppElOf$ = wholeline$
+                                ppCElN = splitelements(cwholeline$, ppCEl())
                                 a$ = ""
                                 ca$ = ""
                                 ppblda:
-                                e$ = getelement$(wholeline$, wholelinei)
-                                ce$ = getelement$(cwholeline$, wholelinei)
+                                IF wholelinei <= ppElN THEN e$ = ppEl(wholelinei) ELSE e$ = ""
+                                IF wholelinei <= ppCElN THEN ce$ = ppCEl(wholelinei) ELSE ce$ = ""
                                 IF e$ = ":" OR e$ = "ELSE" OR e$ = "THEN" OR e$ = "" THEN
                                     IF LEN(a$) THEN
                                         n = numelements(a$)
@@ -2391,21 +2400,8 @@ DIM SHARED incRangeFrom AS LONG, incRangeTo AS LONG, incRangeSkip AS LONG, incRa
                                         wholeline$ = TopLevelRuntime_ProcessLine$(wholeline$)
                                         'create extended error string 'incerror$'
                                         errorLineInInclude = inclinenumber(inclevel)
-                                        e$ = " in line " + str2(inclinenumber(inclevel)) + " of " + IncludeChainName$(CLNG(inclevel)) + " included"
-                                        IF inclevel > 1 THEN
-                                            e$ = e$ + " (through "
-                                            FOR x = 1 TO inclevel - 1 STEP 1
-                                                e$ = e$ + IncludeChainName$(CLNG(x))
-                                                IF x < inclevel - 1 THEN 'a sep is req
-                                                IF x = inclevel - 2 THEN
-                                                    e$ = e$ + " then "
-                                                ELSE
-                                                    e$ = e$ + ", "
-                                                END IF
-                                            END IF
-                                        NEXT
-                                        e$ = e$ + ")"
-                                    END IF
+                                        e$ = " in line " + str2(inclinenumber(inclevel)) + " of " + IncludeChainText$
+                                        IF inclevel > 1 THEN x = inclevel 'as the loop over the chain names left it
                                     incerror$ = e$
                                     linenumber = linenumber - 1 'lower official linenumber to counter later increment
 
@@ -2650,7 +2646,9 @@ DIM SHARED incRangeFrom AS LONG, incRangeTo AS LONG, incRangeSkip AS LONG, incRa
                         i = INSTR(s, u$, "CASE" + sp + "ELSE")
                     LOOP
 
-                    n = numelements(entireline$)
+                    'counted by splitting it: the loop at skipcontinit reads its elements
+                    mainEN = splitelements(entireline$, mainE()): mainEOf$ = entireline$
+                    n = mainEN
 
                     'line number?
                     a = ASC(entireline$)
@@ -2802,6 +2800,9 @@ DIM SHARED incRangeFrom AS LONG, incRangeTo AS LONG, incRangeSkip AS LONG, incRa
     u$ = UCASE$(entireline$)
 
     skipcontinit:
+    'the elements of the line, made again only when it changed
+    IF u$ <> mainUOf$ OR mainUN = 0 THEN mainUOf$ = u$: mainUN = splitelements(u$, mainU())
+    IF entireline$ <> mainEOf$ OR mainEN = 0 THEN mainEOf$ = entireline$: mainEN = splitelements(entireline$, mainE())
 
     'jargon:
     'lineelseused - counts how many line ELSEs can POSSIBLY follow
@@ -2812,7 +2813,7 @@ DIM SHARED incRangeFrom AS LONG, incRangeTo AS LONG, incRangeSkip AS LONG, incRa
     a$ = ""
 
     FOR i = start TO n
-        e$ = getelement(u$, i)
+        IF i <= mainUN THEN e$ = mainU(i) ELSE e$ = ""
 
 
         IF e$ = ":" THEN
@@ -2870,7 +2871,8 @@ DIM SHARED incRangeFrom AS LONG, incRangeTo AS LONG, incRangeSkip AS LONG, incRa
         END IF '"ELSE"
 
 
-        e$ = getelement(entireline$, i): IF a$ = "" THEN a$ = e$ ELSE a$ = a$ + sp + e$
+        IF i <= mainEN THEN e$ = mainE(i) ELSE e$ = ""
+        IF a$ = "" THEN a$ = e$ ELSE a$ = a$ + sp + e$
     NEXT
 
 
@@ -2899,12 +2901,13 @@ DIM SHARED incRangeFrom AS LONG, incRangeTo AS LONG, incRangeSkip AS LONG, incRa
 
     'convert non-UDT dimensioned periods to _046_
     IF INSTR(ca$, sp + "." + sp) THEN
-        a3$ = getelement(ca$, 1)
+        mainCaN = splitelements(ca$, mainCa())
+        a3$ = mainCa(1)
         except = 0
         aa$ = a3$ + sp 'rebuilt a$ (always has a trailing spacer)
         lastfuse = -1
         FOR x = 2 TO n
-            a2$ = getelement(ca$, x)
+            IF x <= mainCaN THEN a2$ = mainCa(x) ELSE a2$ = ""
             IF except = 1 THEN except = 2: GOTO udtperiod 'skip element name
             IF a2$ = "." AND x <> n THEN
                 IF except = 2 THEN except = 1: GOTO udtperiod 'sub-element of UDT
@@ -3886,7 +3889,7 @@ IF n >= 1 THEN
                     nele = nelereq
                     MID$(id2.nele, params, 1) = CHR$(nele)
 
-                    ids(targetid) = id2: idsGen = idsGen + 1
+                    ids(targetid) = id2: idsGen = idsGen + 1: IF id2.share AND 2 THEN idsShareTemp = -1
 
                     ignore = dim2(n2$, t2$, dimmethod, str2$(nele))
                     IF Error_Happened THEN GOTO errmes
@@ -3895,7 +3898,7 @@ IF n >= 1 THEN
                     nele = 1
                     MID$(id2.nele, params, 1) = CHR$(nele)
 
-                    ids(targetid) = id2: idsGen = idsGen + 1
+                    ids(targetid) = id2: idsGen = idsGen + 1: IF id2.share AND 2 THEN idsShareTemp = -1
 
                     ignore = dim2(n2$, t2$, dimmethod, "?")
                     IF Error_Happened THEN GOTO errmes
@@ -4028,9 +4031,12 @@ IF n = 2 THEN
         closedsubfunc = -1
 
         'unshare temp. shared variables
-        FOR i = 1 TO idn
-            IF ids(i).share AND 2 THEN ids(i).share = ids(i).share - 2: idsGen = idsGen + 1
-        NEXT
+        IF idsShareTemp THEN
+            FOR i = 1 TO idn
+                IF ids(i).share AND 2 THEN ids(i).share = ids(i).share - 2: idsGen = idsGen + 1
+            NEXT
+            idsShareTemp = 0
+        END IF
 
         FOR i = 1 TO revertmaymusthaven
             x = revertmaymusthave(i)
@@ -6000,7 +6006,7 @@ IF n >= 1 THEN
                 END IF
             END IF
 
-            ids(currentid).share = ids(currentid).share OR 2: idsGen = idsGen + 1 'set as temporarily shared
+            ids(currentid).share = ids(currentid).share OR 2: idsGen = idsGen + 1: idsShareTemp = -1 'set as temporarily shared
 
             'method must apply to the current sub/function regardless of how the variable was defined in 'main'
             lmay = LEN(RTRIM$(id.mayhave)): lmust = LEN(RTRIM$(id.musthave))
@@ -7791,8 +7797,15 @@ IF n >= 1 THEN
         IF firstelement$ <> "PRINT" AND firstelement$ <> "LPRINT" THEN
             IF getelement$(a$, 2) = "(" THEN
                 B = 1
+                'the elements in turn, along the text (as getelement$ reads them)
+                arrasgp = elementstart(a$, 3)
                 FOR i = 3 TO n
-                    e$ = getelement$(a$, i)
+                    IF arrasgp THEN
+                        arrasgq = INSTR(arrasgp, a$, sp)
+                        IF arrasgq THEN e$ = MID$(a$, arrasgp, arrasgq - arrasgp): arrasgp = arrasgq + 1 ELSE e$ = MID$(a$, arrasgp): arrasgp = 0
+                    ELSE
+                        e$ = ""
+                    END IF
                     IF e$ = "(" THEN B = B + 1
                     IF e$ = ")" THEN
                         B = B - 1
@@ -8725,7 +8738,7 @@ IF separgs_local$(i) <> "N-LL" THEN 'an omitted argument needs no checks
 
             'print rtrim$(id2.n)+">nelereq=";nelereq
 
-            ids(targetid) = id2: idsGen = idsGen + 1
+            ids(targetid) = id2: idsGen = idsGen + 1: IF id2.share AND 2 THEN idsShareTemp = -1
 
         ELSE
 
@@ -8978,7 +8991,14 @@ IF INSTR(declaredsubnames$, sp + firstelement$ + sp) THEN a$ = "Missing subprogr
 a$ = "Syntax error": GOTO errmes
 
 finishedline:
-IrStmtEnd
+'IrStmtEnd lowers the statements of its list; for any other one it only lets a waiting
+'CASE out and forgets the first word
+IF INSTR("|MID$|CALL|ASC|LSET|RSET|SWAP|ERASE|CLOSE|RESET|OPEN|PRINT|WRITE|INPUT|LINE|GET|PUT|SEEK|NAME|DEF|_MEMFILL|_MEMPUT|_MEMGET|_MEMCOPY|_MEMFREE|FIELD|RUN|INTERRUPT|INTERRUPTX|ON|", "|" + UCASE$(IrStmtFirst) + "|") THEN
+    IrStmtEnd
+ELSE
+    IF IrPendCaseOn THEN IrFlushCase
+    IrStmtFirst = ""
+END IF
 THENGOTO = 0
 finishedline2:
 
@@ -9074,21 +9094,8 @@ DO WHILE inclevel
         continuelinefrom = 0
         'create extended error string 'incerror$'
         errorLineInInclude = inclinenumber(inclevel)
-        e$ = " in line " + str2(inclinenumber(inclevel)) + " of " + IncludeChainName$(CLNG(inclevel)) + " included"
-        IF inclevel > 1 THEN
-            e$ = e$ + " (through "
-            FOR x = 1 TO inclevel - 1 STEP 1
-                e$ = e$ + IncludeChainName$(CLNG(x))
-                IF x < inclevel - 1 THEN 'a sep is req
-                IF x = inclevel - 2 THEN
-                    e$ = e$ + " then "
-                ELSE
-                    e$ = e$ + ", "
-                END IF
-            END IF
-        NEXT
-        e$ = e$ + ")"
-    END IF
+        e$ = " in line " + str2(inclinenumber(inclevel)) + " of " + IncludeChainText$
+        IF inclevel > 1 THEN x = inclevel 'as the loop over the chain names left it
     incerror$ = e$
     linenumber = linenumber - 1 'lower official linenumber to counter later increment
     GOTO includeline
@@ -9911,6 +9918,11 @@ IF recompile THEN
     END SUB
 
     FUNCTION str2$ (v AS LONG)
+        IF v >= 0 AND v <= STR2_CACHED THEN
+            IF LEN(str2Cache(v)) = 0 THEN str2Cache(v) = _TRIM$(STR$(v))
+            str2$ = str2Cache(v)
+            EXIT FUNCTION
+        END IF
         str2$ = _TRIM$(STR$(v))
     END FUNCTION
 

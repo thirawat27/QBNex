@@ -88,6 +88,9 @@ FUNCTION StdLib_MetaArgFromLine$ (rawLine$, meta$)
     DIM q1 AS LONG
     DIM q2 AS LONG
 
+    'the argument is between quotes after a ":"
+    IF INSTR(rawLine$, ":") = 0 THEN EXIT FUNCTION
+    IF INSTR(rawLine$, "'") = 0 THEN EXIT FUNCTION
     t = LTRIM$(RTRIM$(rawLine$))
     DO WHILE LEFT$(t, 1) = "'"
         t = LTRIM$(MID$(t, 2))
@@ -297,12 +300,16 @@ SUB StdLib_HoistFile (path$, headText$, bodyText$, depth AS LONG)
         p = nl + 1
         lineNo = lineNo + 1
 
-        depKey = StdLib_MetaArgFromLine$(lineText, "$IMPORT")
+        'a meta command has a $ in it, a TRY statement TRY
+        depKey = "": incName = ""
+        IF INSTR(lineText, "$") THEN depKey = StdLib_MetaArgFromLine$(lineText, "$IMPORT")
         IF LEN(depKey) THEN StdLib_HoistModule depKey, headText$, bodyText$ 'the line itself stays, as a no-op
-        IF SyntaxExt_LineHasTry%(lineText) THEN syntaxExtUsesTry = -1
+        IF INSTR(UCASE$(lineText), "TRY") THEN
+            IF SyntaxExt_LineHasTry%(lineText) THEN syntaxExtUsesTry = -1
+        END IF
 
         incPath = ""
-        incName = StdLib_MetaArgFromLine$(lineText, "$INCLUDE")
+        IF INSTR(lineText, "$") THEN incName = StdLib_MetaArgFromLine$(lineText, "$INCLUDE")
         IF LEN(incName) AND depth < 20 THEN
             'only an include relative to this file is split here; any other one stays in place
             incPath = StdLib_FindInclude$(getfilepath$(path$), incName, fromFolder)
@@ -524,6 +531,44 @@ FUNCTION StdLib_ImportOriginOf$ (path$, modKey$)
     q = INSTR(p, stdlibImportOrigins$, CHR$(0))
     IF q = 0 THEN q = LEN(stdlibImportOrigins$) + 1
     StdLib_ImportOriginOf$ = MID$(stdlibImportOrigins$, p, q - p)
+END FUNCTION
+
+'The end of incerror$, after " of ": the files of the include chain (IncludeChainName$),
+'made again only when one of the things it is made from changed (asked for every line)
+FUNCTION IncludeChainText$
+    STATIC made AS LONG, lastLevel AS LONG, lastHead AS STRING, lastBody AS STRING, lastOrigins AS STRING, lastText AS STRING
+    STATIC lastNames AS STRING, lastGenerated AS LONG
+    DIM e AS STRING, x AS LONG, names AS STRING
+
+    FOR x = 1 TO inclevel
+        names = names + incname$(x) + CHR$(0)
+    NEXT
+    IF made THEN
+        IF inclevel = lastLevel AND names = lastNames AND stdlibHeadFile$ = lastHead AND stdlibBodyFile$ = lastBody THEN
+            'the import origins name only a generated file of the chain (and the QBNex folder,
+            'the working folder: every CHDIR while compiling is undone right away)
+            IF lastGenerated = 0 THEN IncludeChainText$ = lastText: EXIT FUNCTION
+            IF stdlibImportOrigins$ = lastOrigins THEN IncludeChainText$ = lastText: EXIT FUNCTION
+        END IF
+    END IF
+    lastGenerated = 0
+    FOR x = 1 TO inclevel
+        IF StdLib_IsGeneratedFile%(incname$(x)) THEN lastGenerated = -1
+    NEXT
+    e = IncludeChainName$(CLNG(inclevel)) + " included"
+    IF inclevel > 1 THEN
+        e = e + " (through "
+        FOR x = 1 TO inclevel - 1
+            e = e + IncludeChainName$(x)
+            IF x < inclevel - 1 THEN
+                IF x = inclevel - 2 THEN e = e + " then " ELSE e = e + ", "
+            END IF
+        NEXT
+        e = e + ")"
+    END IF
+    made = -1: lastLevel = inclevel: lastNames = names: lastOrigins = stdlibImportOrigins$
+    lastHead = stdlibHeadFile$: lastBody = stdlibBodyFile$: lastText = e
+    IncludeChainText$ = e
 END FUNCTION
 
 'How an include chain names incname$(x): a generated import file by the $IMPORT in the

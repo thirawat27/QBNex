@@ -120,8 +120,15 @@ tlayout$ = l$
 END FUNCTION
 
 SUB assign (a$, n)
+    'the elements in turn, along the text (as getelement$ reads them)
+    asgp = 1
     FOR i = 1 TO n
-        c = ASC(getelement$(a$, i))
+        IF asgp THEN
+            asgq = INSTR(asgp, a$, sp)
+            IF asgq THEN c = ASC(MID$(a$, asgp, asgq - asgp)): asgp = asgq + 1 ELSE c = ASC(MID$(a$, asgp)): asgp = 0
+        ELSE
+            c = ASC("")
+        END IF
         IF c = 40 THEN b = b + 1 '(
         IF c = 41 THEN b = b - 1 ')
         IF c = 61 AND b = 0 THEN '=
@@ -1278,7 +1285,7 @@ SUB regid
         IF dimstatic THEN id.staticscope = 1
     END IF
 
-    ids(idn) = id: idsGen = idsGen + 1
+    ids(idn) = id: idsGen = idsGen + 1: IF id.share AND 2 THEN idsShareTemp = -1
 
     currentid = idn
 

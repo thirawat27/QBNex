@@ -1,5 +1,6 @@
 ' OpenGL keyword table (SUB _GL).
-' gl_scan_header reads compiler\support\opengl\gl_table.txt once at start-up (data converted once
+' gl_scan_header reads compiler\support\opengl\gl_table.txt once, the first time a program
+' declares SUB _GL (data converted once
 ' from QB64's gl.h parsing copy; no header file in the repository): every "const GL_x value" becomes a
 ' _GL_x constant and every "sub|func glX ..." line a _glX SUB/FUNCTION.
 ' gl_include_content registers them (id.ccall = 1, internal) when the program declares SUB _GL.
@@ -116,6 +117,9 @@ SUB gl_include_content
     DIM d AS LONG
     DIM i AS LONG
     DIM c AS LONG
+    STATIC scanned AS LONG
+
+    IF scanned = 0 THEN gl_scan_header: scanned = -1
 
     'add constants (_GL_*, _INTEGER64)
     FOR d = 1 TO GL_DEFINES_LAST

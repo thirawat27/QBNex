@@ -1,5 +1,8 @@
 FUNCTION fixoperationorder$ (savea$)
     STATIC uboundlbound AS _BYTE
+    'the elements of a$ from E on (fooN of them), and the operator level of each found in E
+    REDIM fooel(1 TO 16) AS STRING
+    REDIM fooop(1 TO 16) AS LONG
 
     a$ = savea$
 
@@ -234,17 +237,22 @@ END IF 'quick check
 
 
 '----------------E. Find lowest & highest operator level in bottom bracket level----------------
+'one element: no operators to bracket (E, F and G change nothing)
+IF n = 1 THEN GOTO fooonelement
 NOT_recheck:
+fooN = splitelements(a$, fooel())
+IF n > UBOUND(fooop) THEN REDIM fooop(1 TO n + 16) AS LONG
 lco = 255
 hco = 0
 b = 0
 FOR i = 1 TO n
-    a2$ = getelement(a$, i)
+    IF i <= fooN THEN a2$ = fooel(i) ELSE a2$ = ""
     c = ASC(a2$)
     IF c = 40 OR c = 123 THEN b = b + 1
     IF c = 41 OR c = 125 THEN b = b - 1
     IF b = 0 THEN
-        op = isoperator(a2$)
+        IF opStart(c) THEN op = isoperator(a2$) ELSE op = 0
+        fooop(i) = op
         IF op THEN
             IF op < lco THEN lco = op
             IF op > hco THEN hco = op
@@ -264,7 +272,7 @@ IF lco <> hco THEN
     IF n = 1 THEN Give_Error "Expected NOT ...": EXIT FUNCTION
     b = 0
     FOR i = 1 TO n
-        a2$ = getelement(a$, i)
+        IF i <= fooN THEN a2$ = fooel(i) ELSE a2$ = ""
         c = ASC(a2$)
         IF c = 40 OR c = 123 THEN b = b + 1
         IF c = 41 OR c = 125 THEN b = b - 1
@@ -285,12 +293,12 @@ b = 0
 a3$ = "{"
 n = 1
 FOR i = 1 TO n2
-    a2$ = getelement(a$, i)
+    IF i <= fooN THEN a2$ = fooel(i) ELSE a2$ = ""
     c = ASC(a2$)
     IF c = 40 OR c = 123 THEN b = b + 1
     IF c = 41 OR c = 125 THEN b = b - 1
     IF b = 0 THEN
-        op = isoperator(a2$)
+        op = fooop(i) 'isoperator, found in E (the same elements at the same level)
         IF op = lco THEN
             IF i = 1 THEN
                 a3$ = a2$ + sp + "{"
@@ -334,6 +342,7 @@ END IF 'pownegused
 
 END IF 'lco <> hco
 END IF 'hco <> 0
+fooonelement:
 
 '--------Bracketting of multiple NOT/negation unary operators--------
 IF LEFT$(a$, 4) = CHR$(241) + sp + CHR$(241) + sp THEN
@@ -354,8 +363,11 @@ b = 0
 c = 0
 udtMethodObjectStart = 0
 lastt = 0: lastti = 0
+'the elements in fooel: an element is replaced there (fooreplace), a$ is made again from
+'them (foojoin) before it is read as a whole
+fooN = splitelements(a$, fooel()): foodirty = 0
 FOR i = 1 TO n
-    f2$ = getelement(a$, i)
+    IF i <= fooN THEN f2$ = fooel(i) ELSE f2$ = ""
     lastc = c
     c = ASC(f2$)
 
@@ -427,7 +439,7 @@ IF (c >= 48 AND c <= 57) OR c = 45 THEN
 
     x = INSTR(f2$, ",")
     IF x THEN
-        removeelements a$, i, i, 0: insertelements a$, i - 1, LEFT$(f2$, x - 1)
+        fooval$ = LEFT$(f2$, x - 1): GOSUB fooreplace
         f2$ = RIGHT$(f2$, LEN(f2$) - x)
     END IF
 
@@ -455,20 +467,20 @@ IF (c >= 48 AND c <= 57) OR c = 45 THEN
             IF (f3$ <= "32767" AND LEN(f3$) = 5) OR LEN(f3$) < 5 THEN s$ = "%"
         END IF
         f3$ = f3$ + s$
-        removeelements a$, i, i, 0: insertelements a$, i - 1, f3$
+        fooval$ = f3$: GOSUB fooreplace
     END IF 'x=0
 
     GOTO classdone
 END IF
 
 'operator?
-IF isoperator(f2$) THEN
+IF opStart(c) THEN fooisop = isoperator(f2$) ELSE fooisop = 0
+IF fooisop THEN
     lastt = 3: lastti = i
     IF LEN(f2$) > 1 THEN
         IF f2$ <> SCase2$(f2$) THEN
             f2$ = SCase2$(f2$)
-            removeelements a$, i, i, 0
-            insertelements a$, i - 1, f2$
+            fooval$ = f2$: GOSUB fooreplace
         END IF
     END IF
     'append negation
@@ -479,7 +491,7 @@ END IF
 IF alphanumeric(c) THEN
     lastt = 4: lastti = i
 
-    IF i < n THEN nextc = ASC(getelement(a$, i + 1)) ELSE nextc = 0
+    IF i < n THEN GOSUB foonextc ELSE nextc = 0
 
     ' a constant?
     IF nextc <> 40 THEN '<>"(" (not an array)
@@ -613,8 +625,7 @@ IF alphanumeric(c) THEN
 
             END IF 'not a string
 
-            removeelements a$, i, i, 0
-            insertelements a$, i - 1, e$
+            fooval$ = e$: GOSUB fooreplace
             'alter f2$ here to original casing
             f2$ = constcname(i2) + es$
             GOTO classdone
@@ -632,12 +643,17 @@ u$ = f2$
 try_string$ = f2$
 try_string2$ = try_string$ 'pure version of try_string$
 
+footry4 = 0
 FOR try_method = 1 TO 4
     try_string$ = try_string2$
-    IF try_method = 2 OR try_method = 4 THEN
+    IF try_method = 4 AND footry4 <> 0 THEN
+        'the same name as try 2 made (nothing it is made from has changed)
+        try_string$ = footry4$: dtyp$ = footry4d$: v = footry4v
+    ELSEIF try_method = 2 OR try_method = 4 THEN
         dtyp$ = removesymbol(try_string$)
         IF LEN(dtyp$) = 0 THEN
-            IF isoperator(try_string$) = 0 THEN
+            IF opStart(ASC(try_string$ + CHR$(0))) THEN fooisop = isoperator(try_string$) ELSE fooisop = 0
+            IF fooisop = 0 THEN
                 IF isvalidvariable(try_string$) THEN
                     IF LEFT$(try_string$, 1) = "_" THEN v = 27 ELSE v = ASC(UCASE$(try_string$)) - 64
                     try_string$ = try_string$ + defineextaz(v)
@@ -646,6 +662,7 @@ FOR try_method = 1 TO 4
         ELSE
             try_string$ = try_string2$
         END IF
+        footry4 = -1: footry4$ = try_string$: footry4d$ = dtyp$: footry4v = v
     END IF
     try = findid(try_string$)
     IF Error_Happened THEN EXIT FUNCTION
@@ -673,14 +690,13 @@ FOR try_method = 1 TO 4
                 ELSE
                     f2$ = RTRIM$(id.cn) + s$
                 END IF
-                removeelements a$, i, i, 0
-                insertelements a$, i - 1, UCASE$(f2$)
+                fooval$ = UCASE$(f2$): GOSUB fooreplace
                 f$ = f$ + f2$ + sp + "(" + sp
 
                 'skip (but record with nothing inside them) brackets
                 b2 = 1 'already in first bracket
                 FOR i2 = i + 2 TO n
-                    c2 = ASC(getelement(a$, i2))
+                    IF i2 <= fooN THEN c2 = ASC(fooel(i2)) ELSE c2 = ASC("")
                     IF c2 = 40 THEN b2 = b2 + 1
                     IF c2 = 41 THEN b2 = b2 - 1
                     IF b2 = 0 THEN EXIT FOR 'note: mismatched brackets check ensures this always succeeds
@@ -694,7 +710,7 @@ FOR try_method = 1 TO 4
 
                 'jump to UDT section if array is of UDT type (and elements are referenced)
                 IF id.arraytype AND ISUDT THEN
-                    IF i < n THEN nextc = ASC(getelement(a$, i + 1)) ELSE nextc = 0
+                    IF i < n THEN GOSUB foonextc ELSE nextc = 0
                     IF nextc = 46 THEN udtMethodObjectStart = lastti: t = id.arraytype: GOTO fooudt
                 END IF
 
@@ -717,8 +733,7 @@ FOR try_method = 1 TO 4
                 f2$ = RTRIM$(id.cn) + removesymbol$(f2$)
             END IF
             IF Error_Happened THEN EXIT FUNCTION
-            removeelements a$, i, i, 0
-            insertelements a$, i - 1, UCASE$(f2$)
+            fooval$ = UCASE$(f2$): GOSUB fooreplace
             f$ = f$ + f2$
 
 
@@ -736,7 +751,7 @@ FOR try_method = 1 TO 4
 
             '"." encountered, i must be an element
             IF i > n THEN Give_Error "Expected .element": EXIT FUNCTION
-            f2$ = getelement(a$, i)
+            IF i <= fooN THEN f2$ = fooel(i) ELSE f2$ = ""
             s$ = removesymbol$(f2$)
             IF Error_Happened THEN EXIT FUNCTION
             u$ = UCASE$(f2$) + SPACE$(256 - LEN(f2$)) 'fast scanning
@@ -749,12 +764,11 @@ FOR try_method = 1 TO 4
 
                 'correct name
                 f2$ = RTRIM$(udtecname(E)) + s$
-                removeelements a$, i, i, 0
-                insertelements a$, i - 1, UCASE$(f2$)
+                fooval$ = UCASE$(f2$): GOSUB fooreplace
                 f$ = f$ + f2$
 
                 IF i = n THEN f$ = f$ + sp: GOTO classdone_special
-                nextc = ASC(getelement(a$, i + 1))
+                GOSUB foonextc
                 IF nextc <> 46 THEN f$ = f$ + sp: GOTO classdone_special 'no sub-elements referenced
                 'sub-element exists
                 t = udtetype(E)
@@ -764,10 +778,11 @@ FOR try_method = 1 TO 4
             END IF 'match found
 
             'no, so check next element
-            IF i < n THEN nextc = ASC(getelement(a$, i + 1)) ELSE nextc = 0
+            IF i < n THEN GOSUB foonextc ELSE nextc = 0
             IF nextc = 40 THEN
                 generatedMethod$ = ClassSyntax_FindGeneratedMethod$(RTRIM$(udtxname(t AND 511)), f2$)
                 IF LEN(generatedMethod$) THEN
+                    IF foodirty THEN GOSUB foojoin
                     a$ = ClassSyntax_RewriteMethodCall$(a$, udtMethodObjectStart, i, generatedMethod$)
                     fixoperationorder$ = fixoperationorder$(a$)
                     EXIT FUNCTION
@@ -789,8 +804,7 @@ FOR try_method = 1 TO 4
             f2$ = RTRIM$(id.cn) + s$
         END IF
         'change was is returned to uppercase
-        removeelements a$, i, i, 0
-        insertelements a$, i - 1, UCASE$(f2$)
+        fooval$ = UCASE$(f2$): GOSUB fooreplace
         GOTO CouldNotClassify
     END IF 'id.t
 
@@ -806,6 +820,8 @@ CouldNotClassify:
 'alphanumeric, but item name is unknown... is it an internal type? if so, use capitals
 f3$ = UCASE$(f2$)
 internaltype = 0
+'none of the names below: no need to compare with each
+IF INSTR("|STRING|_UNSIGNED|UNSIGNED|_BIT|BIT|_BYTE|BYTE|INTEGER|LONG|_INTEGER64|INTEGER64|SINGLE|DOUBLE|_FLOAT|FLOAT|_OFFSET|OFFSET|", "|" + f3$ + "|") = 0 THEN GOTO classdone
 IF f3$ = "STRING" THEN internaltype = 1
 IF f3$ = "_UNSIGNED" OR (f3$ = "UNSIGNED" AND qbnexprefix_set = 1) THEN internaltype = 1
 IF f3$ = "_BIT" OR (f3$ = "BIT" AND qbnexprefix_set = 1) THEN internaltype = 1
@@ -819,8 +835,7 @@ IF f3$ = "_FLOAT" OR (f3$ = "FLOAT" AND qbnexprefix_set = 1) THEN internaltype =
 IF f3$ = "_OFFSET" OR (f3$ = "OFFSET" AND qbnexprefix_set = 1) THEN internaltype = 1
 IF internaltype = 1 THEN
     f2$ = SCase2$(f3$)
-    removeelements a$, i, i, 0
-    insertelements a$, i - 1, f3$
+    fooval$ = f3$: GOSUB fooreplace
     GOTO classdone
 END IF
 
@@ -846,12 +861,14 @@ b = 0
 b2 = 0
 p1 = 0 'where level 1 began
 aa$ = ""
-n = numelements(a$)
+IF foodirty THEN GOSUB foojoin
+n = fooN 'numelements(a$): fooel holds the elements of a$
+foosp = 1 'where element i of f$ starts (0: no more elements), read in turn below
 FOR i = 1 TO n
 
     openbracket = 0
 
-    a2$ = getelement(a$, i)
+    a2$ = fooel(i)
 
     c = ASC(a2$)
 
@@ -906,7 +923,19 @@ IF b = 0 THEN aa$ = aa$ + a2$ + sp
 
 foopass:
 
-f2$ = getelementspecial(f$, i)
+'element i of f$ as getelementspecial$ reads it: a quote in it runs to the closing quote
+IF foosp = 0 THEN
+    f2$ = ""
+ELSE
+    foosi = INSTR(foosp, f$, sp)
+    foosq = 0
+    IF foosi THEN foosq = INSTR(MID$(f$, foosp, foosi - foosp), CHR$(34)): IF foosq THEN foosq = foosq + foosp - 1
+    IF foosq < foosi AND foosq <> 0 THEN
+        foosq = INSTR(foosq + 1, f$, CHR$(34)): IF foosq = 0 THEN Give_Error "Expected " + CHR$(34): EXIT FUNCTION
+        foosi = INSTR(foosq, f$, sp)
+    END IF
+    IF foosi THEN f2$ = MID$(f$, foosp, foosi - foosp): foosp = foosi + 1 ELSE f2$ = MID$(f$, foosp): foosp = 0
+END IF
 IF Error_Happened THEN EXIT FUNCTION
 IF LEN(f2$) THEN
 
@@ -924,7 +953,7 @@ IF openbracket THEN
 
     'convert last spacer?
     IF i <> 1 THEN
-        IF isoperator(getelement$(a$, i - 1)) = 0 THEN
+        IF isoperator(fooel(i - 1)) = 0 THEN
             MID$(ff$, LEN(ff$), 1) = sp2
         END IF
     END IF
@@ -946,6 +975,37 @@ tlayout$ = ff$
 fixoperationorder$ = aa$
 
 fooindwel = fooindwel - 1
+EXIT FUNCTION
+
+'element i of a$ becomes fooval$ (as removeelements a$, i, i, 0: insertelements a$, i - 1, fooval$)
+fooreplace:
+IF i <= fooN AND INSTR(fooval$, sp) = 0 THEN
+    fooel(i) = fooval$: foodirty = 1
+ELSE
+    IF foodirty THEN GOSUB foojoin
+    removeelements a$, i, i, 0
+    insertelements a$, i - 1, fooval$
+    fooN = splitelements(a$, fooel())
+END IF
+RETURN
+
+'a$ from the elements in fooel
+foojoin:
+IF fooN = 0 THEN
+    a$ = ""
+ELSE
+    a$ = fooel(1)
+    FOR fooj = 2 TO fooN
+        a$ = a$ + sp + fooel(fooj)
+    NEXT
+END IF
+foodirty = 0
+RETURN
+
+'nextc: the first character of element i + 1
+foonextc:
+IF i + 1 <= fooN THEN nextc = ASC(fooel(i + 1)) ELSE nextc = ASC("")
+RETURN
 END FUNCTION
 
 FUNCTION lineformat$ (a$)
@@ -965,6 +1025,8 @@ FUNCTION lineformat$ (a$)
     IF i >= n THEN GOTO lineformatdone
 
     c = ASC(a$, i)
+    'spacing (also checked below, after the other kinds, which a space is none of)
+    IF c = 32 OR c = 9 THEN i = i + 1: GOTO lineformatnext
     c$ = CHR$(c) '***remove later***
 
     '----------------quoted string----------------
@@ -1955,8 +2017,15 @@ IF Error_Happened THEN EXIT FUNCTION
 'The expression evaluator recurses once per bracket level; thousands of
 'nested brackets overflowed the native stack (crash). Brackets inside quoted
 'text are not counted.
+'Over 255 levels need over 255 opening brackets: count them first.
 lfdepth = 0: lfmaxdepth = 0: lfinquote = 0
-FOR lfi = 1 TO LEN(a2$)
+lfi = INSTR(a2$, "("): lfc = 0
+DO WHILE lfi > 0 AND lfc <= 255
+    lfc = lfc + 1
+    lfi = INSTR(lfi + 1, a2$, "(")
+LOOP
+IF lfc > 255 THEN lfstart = 1 ELSE lfstart = LEN(a2$) + 1
+FOR lfi = lfstart TO LEN(a2$)
     lfc = ASC(a2$, lfi)
     IF lfc = 34 THEN lfinquote = 1 - lfinquote
     IF lfinquote = 0 THEN

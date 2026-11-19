@@ -417,15 +417,28 @@ SUB DefFn_RewriteText (buf AS STRING, defState AS STRING, anyDefType AS LONG)
     DIM body AS STRING, code AS STRING, t AS STRING, kind AS LONG, inDef AS LONG
     DIM p AS LONG, e AS LONG, c13 AS LONG, c10 AS LONG, n AS LONG
     DIM pre AS LONG, cut AS LONG, defText AS STRING, mark AS STRING
+    DIM ub AS STRING, k AS LONG, k1 AS LONG, k2 AS LONG
 
     'after each generated FUNCTION: replaced at the end by the DEFtype lines of the whole file
     mark = CHR$(2)
     n = LEN(buf)
     IF INSTR(UCASE$(buf), "FN") = 0 THEN EXIT SUB
     crlf = CHR$(13) + CHR$(10)
+    'buf in capitals, for the search for the next line with DEF in it (the blanks written
+    'into buf are all before where the search goes on)
+    ub = UCASE$(buf)
     p = 1
     c13 = 0: c10 = 0
     DO WHILE p <= n
+        'outside a multi-line DEF FN, a line without DEF changes nothing: go to the start of
+        'the next line with DEF (after its CR or LF), or to the end
+        IF inDef = 0 THEN
+            k = INSTR(p, ub, "DEF")
+            IF k = 0 THEN EXIT DO
+            k1 = _INSTRREV(k, buf, CHR$(13)): k2 = _INSTRREV(k, buf, CHR$(10))
+            IF k2 > k1 THEN k1 = k2
+            IF k1 + 1 > p THEN p = k1 + 1
+        END IF
         'search again only once p has passed the line end found before (a file with
         'LF line ends has no CR: a search to the end per line was quadratic)
         IF c13 < p THEN c13 = INSTR(p, buf, CHR$(13)): IF c13 = 0 THEN c13 = n + 1
@@ -446,6 +459,8 @@ SUB DefFn_RewriteText (buf AS STRING, defState AS STRING, anyDefType AS LONG)
             END IF
             MID$(buf, p, e - p) = SPACE$(e - p)
         ELSE
+            'a DEFtype line and a DEF FN both have DEF in them
+            IF INSTR(UCASE$(lineText), "DEF") = 0 THEN GOTO deffnnextline
             'DEFINT A-Z and the like: a generated FUNCTION is compiled after the program, so
             'it gets the DEFtype lines that were in force where the DEF FN stands
             t = UCASE$(DefFn_Trim$(lineText))
@@ -492,6 +507,7 @@ SUB DefFn_RewriteText (buf AS STRING, defState AS STRING, anyDefType AS LONG)
                 END IF
             END IF
         END IF
+        deffnnextline:
         p = e + 1
     LOOP
 END SUB
@@ -501,13 +517,18 @@ SUB DefFn_ScanIncludes (text AS STRING, folder AS STRING, depth AS LONG, defStat
     DIM p AS LONG, nl AS LONG, lineText AS STRING, incName AS STRING, incPath AS STRING, incText AS STRING
     DIM fromFolder AS LONG
 
-    IF depth > 20 OR INSTR(UCASE$(text), "$INCLUDE") = 0 THEN EXIT SUB
-    p = 1
-    DO WHILE p <= LEN(text)
-        nl = INSTR(p, text, CHR$(10))
+    DIM ut AS STRING, k AS LONG
+
+    ut = UCASE$(text)
+    IF depth > 20 OR INSTR(ut, "$INCLUDE") = 0 THEN EXIT SUB
+    'the lines (up to each LF) with $INCLUDE in them: only they name a file
+    k = INSTR(ut, "$INCLUDE")
+    DO WHILE k
+        p = _INSTRREV(k, text, CHR$(10)) + 1
+        nl = INSTR(k, text, CHR$(10))
         IF nl = 0 THEN nl = LEN(text) + 1
         lineText = MID$(text, p, nl - p)
-        p = nl + 1
+        k = INSTR(nl + 1, ut, "$INCLUDE")
         incName = StdLib_MetaArgFromLine$(lineText, "$INCLUDE")
         IF LEN(incName) THEN
             incPath = StdLib_FindInclude$(folder, incName, fromFolder)

@@ -51,7 +51,7 @@ END FUNCTION
 SUB IrStmtEnd
     DIM f$, s2$, n AS LONG, i AS LONG, j AS LONG, k AS LONG, t AS LONG, t2 AS LONG, p$, q$, x$, y$, z$, w$, ch$, m$
     DIM mv(1 TO 8) AS STRING
-    IrFlushCase
+    IF IrPendCaseOn THEN IrFlushCase
 
     f$ = UCASE$(IrStmtFirst): IrStmtFirst = ""
     IF f$ = "" OR IrFnCur = 0 THEN EXIT SUB

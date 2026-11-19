@@ -76,7 +76,19 @@ FUNCTION getelement$ (a$, elenum)
 
     IF a$ = "" THEN EXIT FUNCTION 'no elements!
     s = elementsMru
-    IF a$ <> elementsSrc(s) THEN s = elementslot(a$)
+    IF a$ <> elementsSrc(s) THEN
+        'elementslot, written out (the call costs more than the search)
+        FOR s = 1 TO 4
+            IF a$ = elementsSrc(s) THEN EXIT FOR
+        NEXT
+        IF s > 4 THEN
+            elementsVictim = elementsVictim MOD 4 + 1
+            IF elementsVictim = elementsMru THEN elementsVictim = elementsVictim MOD 4 + 1
+            s = elementsVictim
+            elementsSrc(s) = a$: elementsKnown(s) = 1: elementsPos(s, 1) = 1: elementsCount(s) = 0
+        END IF
+        elementsMru = s
+    END IF
     IF elenum < 1 THEN EXIT FUNCTION
 
     k = elementsKnown(s)
@@ -107,6 +119,44 @@ FUNCTION getelement$ (a$, elenum)
         elementsCount(s) = elenum
         getelement$ = MID$(a$, p)
     END IF
+END FUNCTION
+
+FUNCTION elementstart& (a$, elenum)
+    'where element elenum of a$ starts (found the way getelement$ finds it, in the same
+    'element table); 0 when there is no such element
+    DIM s AS LONG, k AS LONG, p AS LONG, i AS LONG
+
+    IF a$ = "" OR elenum < 1 THEN EXIT FUNCTION
+    s = elementsMru
+    IF a$ <> elementsSrc(s) THEN s = elementslot(a$)
+    k = elementsKnown(s)
+    IF elenum <= k THEN elementstart& = elementsPos(s, elenum): EXIT FUNCTION
+    IF elementsCount(s) <> 0 AND elenum > elementsCount(s) THEN EXIT FUNCTION 'no such element
+    p = elementsPos(s, k)
+    DO
+        i = INSTR(p, a$, sp)
+        IF i = 0 THEN elementsCount(s) = k: EXIT FUNCTION 'no more elements!
+        k = k + 1
+        p = i + 1
+        IF k <= ELEMENTS_MAXPOS THEN elementsPos(s, k) = p: elementsKnown(s) = k
+    LOOP UNTIL k = elenum
+    elementstart& = p
+END FUNCTION
+
+FUNCTION splitelements& (a$, el() AS STRING)
+    'the elements of a$ in el(1) to el(n) (as getelement$ reads them); returns n, 0 for ""
+    DIM n AS LONG, p AS LONG, i AS LONG
+    IF a$ = "" THEN EXIT FUNCTION
+    p = 1
+    DO
+        i = INSTR(p, a$, sp)
+        n = n + 1
+        IF n > UBOUND(el) THEN REDIM _PRESERVE el(1 TO n * 2) AS STRING
+        IF i = 0 THEN el(n) = MID$(a$, p): EXIT DO
+        el(n) = MID$(a$, p, i - p)
+        p = i + 1
+    LOOP
+    splitelements& = n
 END FUNCTION
 
 FUNCTION elementslot& (a$)
@@ -212,7 +262,19 @@ FUNCTION numelements (a$)
 
     IF a$ = "" THEN EXIT FUNCTION
     s = elementsMru
-    IF a$ <> elementsSrc(s) THEN s = elementslot(a$)
+    IF a$ <> elementsSrc(s) THEN
+        'elementslot, written out (the call costs more than the search)
+        FOR s = 1 TO 4
+            IF a$ = elementsSrc(s) THEN EXIT FOR
+        NEXT
+        IF s > 4 THEN
+            elementsVictim = elementsVictim MOD 4 + 1
+            IF elementsVictim = elementsMru THEN elementsVictim = elementsVictim MOD 4 + 1
+            s = elementsVictim
+            elementsSrc(s) = a$: elementsKnown(s) = 1: elementsPos(s, 1) = 1: elementsCount(s) = 0
+        END IF
+        elementsMru = s
+    END IF
     IF elementsCount(s) THEN numelements = elementsCount(s): EXIT FUNCTION
     k = elementsKnown(s)
     p = elementsPos(s, k)

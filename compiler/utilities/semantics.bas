@@ -181,7 +181,10 @@ FUNCTION evaluate$ (a2$, typ AS LONG)
     'expressions (about 500 terms) with an internal subscript error. The
     'blocks never outnumber the elements, so a small margin is enough (a
     'margin of 1000 made every call allocate and free three large arrays)
-    evalblockmax = numelements(a2$) + 16
+    'the elements of a$, read below in any order
+    REDIM evalel(1 TO 16) AS STRING
+    evaln = splitelements(a2$, evalel())
+    evalblockmax = evaln + 16
     DIM block(evalblockmax) AS STRING
     DIM evaledblock(evalblockmax) AS INTEGER
     DIM blocktype(evalblockmax) AS LONG
@@ -196,19 +199,19 @@ FUNCTION evaluate$ (a2$, typ AS LONG)
     '''cl$ = classify(a$)
 
     blockn = 0
-    n = numelements(a$)
+    n = evaln
     b = 0 'bracketting level
     FOR i = 1 TO n
 
         reevaluate:
 
 
-        l$ = getelement(a$, i)
+        IF i <= n THEN l$ = evalel(i) ELSE l$ = ""
 
 
 
 
-        IF i <> n THEN nextl$ = getelement(a$, i + 1) ELSE nextl$ = ""
+        IF i < n THEN nextl$ = evalel(i + 1) ELSE nextl$ = ""
 
         '''getclass cl$, i, cli()
 
@@ -216,13 +219,31 @@ FUNCTION evaluate$ (a2$, typ AS LONG)
 
 
         l2$ = l$ 'pure version of l$
+        'an element that does not start with a letter or _ (a number, a string, an operator
+        'or a bracket) names no id: the searches below find nothing, and leave what is set here
+        IF LEN(l$) THEN
+            evalc = ASC(l$)
+            IF evalc <> 95 AND (evalc < 65 OR evalc > 90) AND (evalc < 97 OR evalc > 122) THEN
+                IF evalc <> 34 THEN findidsecondarg = "": findanotherid = 0: findidinternal = 0
+                currentid = -1: try = 0: try_method = 5
+                GOTO evalnoname
+            END IF
+        END IF
+        evaltry4 = 0
         FOR try_method = 1 TO 4
             l$ = l2$
-            IF try_method = 2 OR try_method = 4 THEN
+            IF try_method = 4 AND evaltry4 <> 0 THEN
+                'the same name as try 2 made (nothing it is made from has changed)
                 IF Error_Happened THEN EXIT FUNCTION
-                dtyp$ = removesymbol(l$): IF Error_Happened THEN dtyp$ = "": Error_Happened = 0
+                l$ = evaltry4$: dtyp$ = evaltry4d$: v = evaltry4v
+                IF evaltry4e THEN Error_Message = evaltry4m$
+            ELSEIF try_method = 2 OR try_method = 4 THEN
+                IF Error_Happened THEN EXIT FUNCTION
+                evaltry4e = 0
+                dtyp$ = removesymbol(l$): IF Error_Happened THEN dtyp$ = "": Error_Happened = 0: evaltry4e = -1: evaltry4m$ = Error_Message
                 IF LEN(dtyp$) = 0 THEN
-                    IF isoperator(l$) = 0 THEN
+                    IF opStart(ASC(l$ + CHR$(0))) THEN evalisop = isoperator(l$) ELSE evalisop = 0
+                    IF evalisop = 0 THEN
                         IF isvalidvariable(l$) THEN
                             IF LEFT$(l$, 1) = "_" THEN v = 27 ELSE v = ASC(UCASE$(l$)) - 64
                             l$ = l$ + defineextaz(v)
@@ -231,6 +252,7 @@ FUNCTION evaluate$ (a2$, typ AS LONG)
                 ELSE
                     l$ = l2$
                 END IF
+                evaltry4 = -1: evaltry4$ = l$: evaltry4d$ = dtyp$: evaltry4v = v
             END IF
             try = findid(l$)
             IF Error_Happened THEN EXIT FUNCTION
@@ -246,7 +268,7 @@ FUNCTION evaluate$ (a2$, typ AS LONG)
                             i2 = i + 2
                             b2 = 0
                             evalnextele3:
-                            l2$ = getelement(a$, i2)
+                            IF i2 <= n THEN l2$ = evalel(i2) ELSE l2$ = ""
                             IF l2$ = "(" THEN b2 = b2 + 1
                             IF l2$ = ")" THEN
                                 b2 = b2 - 1
@@ -310,7 +332,7 @@ FUNCTION evaluate$ (a2$, typ AS LONG)
                             b2 = 0
                             i3 = i + 1
                             FOR i2 = i3 TO n
-                                e2$ = getelement(a$, i2)
+                                e2$ = evalel(i2)
                                 IF e2$ = "(" THEN b2 = b2 + 1
                                 IF b2 = 0 THEN
                                     IF e2$ = ")" OR isoperator(e2$) THEN
@@ -342,12 +364,13 @@ FUNCTION evaluate$ (a2$, typ AS LONG)
                 'is l$ a function?
                 IF id.subfunc = 1 THEN
                     constequation = 0
-                    IF getelement(a$, i + 1) = "(" THEN
+                    IF i < n THEN evalnx$ = evalel(i + 1) ELSE evalnx$ = ""
+                    IF evalnx$ = "(" THEN
                         i2 = i + 2
                         b2 = 0
                         args = 1
                         evalnextele:
-                        l2$ = getelement(a$, i2)
+                        IF i2 <= n THEN l2$ = evalel(i2) ELSE l2$ = ""
                         IF l2$ = "(" THEN b2 = b2 + 1
                         IF l2$ = ")" THEN
                             b2 = b2 - 1
@@ -383,7 +406,7 @@ FUNCTION evaluate$ (a2$, typ AS LONG)
         'assume l$ an undefined array?
 
         IF i <> n THEN
-            IF getelement$(a$, i + 1) = "(" THEN
+            IF evalel(i + 1) = "(" THEN
                 IF isoperator(l$) = 0 THEN
                     IF isvalidvariable(l$) THEN
                         dtyp$ = removesymbol(l$)
@@ -392,7 +415,7 @@ FUNCTION evaluate$ (a2$, typ AS LONG)
                         nume = 1
                         b2 = 0
                         FOR i2 = i + 2 TO n
-                            e$ = getelement(a$, i2)
+                            e$ = evalel(i2)
                             IF e$ = "(" THEN b2 = b2 + 1
                             IF b2 = 0 AND e$ = "," THEN nume = nume + 1
                             IF e$ = ")" THEN b2 = b2 - 1
@@ -437,6 +460,7 @@ FUNCTION evaluate$ (a2$, typ AS LONG)
             END IF
         END IF
 
+        evalnoname:
         l$ = l2$ 'restore l$
 
     END IF 'b=0
@@ -476,7 +500,8 @@ r$ = "" 'return value
 
 'identify any referencable values
 FOR i = 1 TO blockn
-    IF isoperator(block(i)) = 0 THEN
+    IF opStart(ASC(block(i) + CHR$(0))) THEN evalisop = isoperator(block(i)) ELSE evalisop = 0
+    IF evalisop = 0 THEN
         IF evaledblock(i) = 0 THEN
 
             'a number?
@@ -1721,7 +1746,7 @@ IF (targettyp AND ISPOINTER) THEN
                 MID$(id2.nelereq, curarg, 1) = CHR$(nelereq)
             END IF
 
-            ids(targetid) = id2: idsGen = idsGen + 1
+            ids(targetid) = id2: idsGen = idsGen + 1: IF id2.share AND 2 THEN idsShareTemp = -1
 
         ELSE
 
@@ -2303,13 +2328,17 @@ END FUNCTION
 FUNCTION seperateargs (a$, ca$, pass&)
     pass& = 0
 
-    FOR i = 1 TO OptMax
+    'the entries the last call could write (separgsDirty) are cleared: every write is to an
+    'entry of the format string or one after it
+    n2 = separgsDirty: IF n2 > OptMax THEN n2 = OptMax
+    separgsDirty = 0
+    FOR i = 1 TO n2
         separgs$(i) = ""
     NEXT
-    FOR i = 1 TO OptMax + 1
+    FOR i = 1 TO n2 + 1
         separgslayout$(i) = ""
     NEXT
-    FOR i = 1 TO OptMax
+    FOR i = 1 TO n2
                 Lev(i) = 0
                 EntryLev(i) = 0
                 DitchLev(i) = 0
@@ -2335,6 +2364,7 @@ FUNCTION seperateargs (a$, ca$, pass&)
                     IF i <> 1 THEN s$ = s$ + ",?" ELSE s$ = "?"
                 NEXT
             END IF
+            separgsDirty = LEN(s$) + 1
 
             'note: dim'd arrays moved to global to prevent high recreation cost
 
