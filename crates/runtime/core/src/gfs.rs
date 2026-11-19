@@ -2206,6 +2206,9 @@ pub(crate) mod tests {
             ra: ReadAhead::default(),
             ident: None,
             locks: Vec::new(),
+            wb: Vec::new(),
+            wb_err: 0,
+            lof_cache: -1,
         };
         assert_eq!(os::setpos(&mut s, 5), -3);
     }
