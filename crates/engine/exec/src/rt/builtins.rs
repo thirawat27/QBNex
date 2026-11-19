@@ -86,7 +86,7 @@ pub(crate) struct RtState<'a> {
     tty_carry: Vec<u8>,
     col: usize,
     pub(crate) rnd: qb_runtime::rnd::RndState,
-    using: Option<Using>,
+    pub(crate) using: Option<super::using::Using>,
     stdin: Reader,
     /// the stdin line the console INPUT statement being run takes its values
     /// from (read by its first item; INPUTPROMPT starts a new statement)
@@ -156,13 +156,6 @@ pub(crate) struct RtState<'a> {
     pub(crate) web_typed_end: usize,
     /// OUT/INP/WAIT ports, BLOAD/BSAVE, VARPTR mirrors, RUN/CLEAR/CHAIN requests
     pub(crate) dos: super::dosx::Dos,
-}
-
-struct Using {
-    ch: i32,
-    fmt: Vec<u8>,
-    pos: usize,
-    used: bool,
 }
 
 impl<'a> RtState<'a> {
@@ -295,7 +288,7 @@ impl<'a> RtState<'a> {
 }
 
 /// True when PRINT to the screen must draw on a page instead of writing stdout.
-fn screen_out(vm: &mut dyn Host<'_>) -> bool {
+pub(crate) fn screen_out(vm: &mut dyn Host<'_>) -> bool {
     let rt = vm.rt();
     if !rt.display.started {
         // PRINT alone starts the screen only in a `$CONSOLE` program (its window page);
@@ -327,7 +320,7 @@ fn str_num(t: Ty, v: &V) -> Vec<u8> {
 /// Argument of SPC / TAB: past the line width QB takes it MOD the width
 /// (stdout: 80 columns, as PRINTZONE); a file has no width: at most 32767
 /// (QBasic's INTEGER argument). Negative = 0.
-fn print_count(ch: i32, n: i64) -> usize {
+pub(crate) fn print_count(ch: i32, n: i64) -> usize {
     let n = n.max(0);
     let n = if ch != 0 {
         n.min(32767)
@@ -339,7 +332,7 @@ fn print_count(ch: i32, n: i64) -> usize {
     n as usize
 }
 
-fn suffix_ty(name: &str) -> Ty {
+pub(crate) fn suffix_ty(name: &str) -> Ty {
     name.rsplit('.').next().and_then(Ty::from_name).unwrap_or(Ty::I64)
 }
 
@@ -595,13 +588,16 @@ pub(crate) fn route(name: &str) -> bool {
     DIRECT.contains(&name)
 }
 
+/// Arguments of a builtin call: most builtins take a few, which then need no allocation.
+pub(crate) type Args = smallvec::SmallVec<[V; 8]>;
+
 /// [`call`] of a builtin in [`DIRECT`]: the same result without the modules' name dispatch.
-pub(crate) fn call_direct<'a>(vm: &mut dyn Host<'a>, name: &'static str, a: Vec<V>) -> R<Option<V>> {
+pub(crate) fn call_direct<'a>(vm: &mut dyn Host<'a>, name: &'static str, id: super::ids::Id, a: Args) -> R<Option<V>> {
     flush_triangles(name);
     if let Some(r) = print_on_screen(vm, name, &a) {
         return r;
     }
-    call_main(vm, name, &a)
+    call_main_id(vm, name, id, &a)
 }
 
 /// Draws the 3D `_MAPTRIANGLE`s queued for the GPU before builtin `name`
@@ -646,7 +642,7 @@ fn print_on_screen<'a>(vm: &mut dyn Host<'a>, name: &str, a: &[V]) -> Option<R<O
 }
 
 pub(crate) fn call<'a>(vm: &mut dyn Host<'a>, name: &'static str, a: Vec<V>) -> R<Option<V>> {
-    call_from(vm, name, a, &mut 0)
+    call_from(vm, name, super::ids::of(name), a.into(), &mut 0)
 }
 
 /// Stage of [`call_from`] after the modules: `call_main` and the cases before it.
@@ -657,7 +653,7 @@ const STAGE_MAIN: u8 = 9;
 /// before the one that answered once never answer it: the VM keeps the stage per
 /// builtin and skips their string matches (hundreds of names) at every later call.
 /// The PRINT cases depend on where output goes, so they are never skipped.
-pub(crate) fn call_from<'a>(vm: &mut dyn Host<'a>, name: &'static str, a: Vec<V>, stage: &mut u8) -> R<Option<V>> {
+pub(crate) fn call_from<'a>(vm: &mut dyn Host<'a>, name: &'static str, id: super::ids::Id, a: Args, stage: &mut u8) -> R<Option<V>> {
     flush_triangles(name);
     let from = *stage;
     let keep = !is_print(name);
@@ -673,7 +669,7 @@ pub(crate) fn call_from<'a>(vm: &mut dyn Host<'a>, name: &'static str, a: Vec<V>
             }
         };
     }
-    stage!(0, super::display::call(vm, name, &a));
+    stage!(0, super::display::call_id(vm, name, id, &a));
     stage!(1, super::dosx::call(vm, name, &a));
     stage!(2, super::winx::call(vm, name, &a));
     stage!(3, print_on_screen(vm, name, &a));
@@ -955,25 +951,30 @@ pub(crate) fn call_from<'a>(vm: &mut dyn Host<'a>, name: &'static str, a: Vec<V>
         r.or_else(e)?;
         return Ok(None);
     }
-    call_main(vm, name, &a)
+    call_main_id(vm, name, id, &a)
 }
 
 /// The builtins of this file (after the modules' dispatch of [`call`]).
-fn call_main<'a>(vm: &mut dyn Host<'a>, name: &'static str, a: &[V]) -> R<Option<V>> {
+/// The builtins no module of `rt` takes; `id` is the number of `name` (`super::ids`),
+/// which the VM keeps per builtin.
+fn call_main_id<'a>(vm: &mut dyn Host<'a>, name: &'static str, id: super::ids::Id, a: &[V]) -> R<Option<V>> {
+    use super::ids;
+    // the name of the cases matched by prefix
+    let n = name;
     let s = |i: usize| a[i].s();
     let i = |k: usize| a[k].i();
     let f = |k: usize| a[k].f();
     let ok = |v: V| Ok(Some(v));
     let (err, erl, errline) = (vm.err(), vm.erl(), vm.errline());
     let rt = vm.rt();
-    match name {
-        "PRINTS" => rt.write(i(0) as i32, s(1))?,
-        n if n.starts_with("PRINTN.") => {
+    match id {
+        ids::PRINTS => rt.write(i(0) as i32, s(1))?,
+        _ if name.starts_with("PRINTN.") => {
             let mut b = str_num(suffix_ty(n), &a[1]);
             b.push(b' ');
             rt.write(i(0) as i32, &b)?
         }
-        "PRINTZONE" => {
+        ids::PRINTZONE => {
             let ch = i(0) as i32;
             if ch == super::lprint::CHANNEL {
                 rt.lprint.zone();
@@ -995,8 +996,8 @@ fn call_main<'a>(vm: &mut dyn Host<'a>, name: &'static str, a: &[V]) -> R<Option
                 rt.write(ch, &vec![b' '; next - col])?
             }
         }
-        "PRINTNL" => rt.nl(i(0) as i32)?,
-        "PRINTTAB" => {
+        ids::PRINTNL => rt.nl(i(0) as i32)?,
+        ids::PRINTTAB => {
             let ch = i(0) as i32;
             let n = print_count(ch, i(1)).max(1);
             // a file has a column too (it was taken as 1: TAB padded from the line start)
@@ -1014,33 +1015,33 @@ fn call_main<'a>(vm: &mut dyn Host<'a>, name: &'static str, a: &[V]) -> R<Option
                 rt.write(ch, &vec![b' '; n - col])?
             }
         }
-        "PRINTSPC" => {
+        ids::PRINTSPC => {
             let ch = i(0) as i32;
             rt.write(ch, &vec![b' '; print_count(ch, i(1))])?
         }
-        "WRITES" => {
+        ids::WRITES => {
             let mut b = vec![b'"'];
             b.extend_from_slice(s(1));
             b.push(b'"');
             rt.write(i(0) as i32, &b)?
         }
-        n if n.starts_with("WRITEN.") => rt.write(i(0) as i32, &write_num(suffix_ty(n), &a[1]))?,
-        "WRITESEP" => rt.write(i(0) as i32, b",")?,
-        "USINGBEGIN" => {
+        _ if name.starts_with("WRITEN.") => rt.write(i(0) as i32, &write_num(suffix_ty(n), &a[1]))?,
+        ids::WRITESEP => rt.write(i(0) as i32, b",")?,
+        ids::USINGBEGIN => {
             if s(1).is_empty() {
                 return e(5);
             }
-            rt.using = Some(Using { ch: i(0) as i32, fmt: s(1).to_vec(), pos: 0, used: false })
+            rt.using = Some(super::using::Using { ch: i(0) as i32, fmt: s(1).to_vec(), pos: 0, used: false })
         }
-        "USINGS" | "USINGEND" => return using(vm, name, a),
-        n if n.starts_with("USINGN.") => return using(vm, name, a),
-        n if n.starts_with("STR$.") => return ok(V::S(str_num(suffix_ty(n), &a[0]))),
-        "VAL" => return ok(V::F(val(s(0)))),
-        "VAL.f80" => {
+        ids::USINGS | ids::USINGEND => return super::using::using(vm, name, a),
+        _ if name.starts_with("USINGN.") => return super::using::using(vm, name, a),
+        _ if name.starts_with("STR$.") => return ok(V::S(str_num(suffix_ty(n), &a[0]))),
+        ids::VAL => return ok(V::F(val(s(0)))),
+        ids::VAL_F80 => {
             let b = qb_runtime::val::val(s(0)).map_err(Stop::Err)?;
             return ok(V::X(qb_float80::F80::from_bytes(b)));
         }
-        "HEX$" | "OCT$" | "BIN$" => {
+        ids::HEX_S | ids::OCT_S | ids::BIN_S => {
             let v = i(0) as u64;
             let t = match name {
                 "HEX$" => format!("{v:X}"),
@@ -1049,54 +1050,54 @@ fn call_main<'a>(vm: &mut dyn Host<'a>, name: &'static str, a: &[V]) -> R<Option
             };
             return ok(V::S(t.into_bytes()));
         }
-        "MKI$" => return ok(V::S((i(0) as i16).to_le_bytes().to_vec())),
-        "MKL$" => return ok(V::S((i(0) as i32).to_le_bytes().to_vec())),
-        "MKS$" => return ok(V::S((f(0) as f32).to_le_bytes().to_vec())),
-        "MKD$" => return ok(V::S(f(0).to_le_bytes().to_vec())),
-        "CVI" => return ok(V::I(i16::from_le_bytes(fixed(s(0))?).into())),
-        "CVL" => return ok(V::I(i32::from_le_bytes(fixed(s(0))?).into())),
-        "CVS" => return ok(V::F(f32::from_le_bytes(fixed(s(0))?).into())),
-        "CVD" => return ok(V::F(f64::from_le_bytes(fixed(s(0))?))),
-        "MKSMBF$" => {
+        ids::MKI_S => return ok(V::S((i(0) as i16).to_le_bytes().to_vec())),
+        ids::MKL_S => return ok(V::S((i(0) as i32).to_le_bytes().to_vec())),
+        ids::MKS_S => return ok(V::S((f(0) as f32).to_le_bytes().to_vec())),
+        ids::MKD_S => return ok(V::S(f(0).to_le_bytes().to_vec())),
+        ids::CVI => return ok(V::I(i16::from_le_bytes(fixed(s(0))?).into())),
+        ids::CVL => return ok(V::I(i32::from_le_bytes(fixed(s(0))?).into())),
+        ids::CVS => return ok(V::F(f32::from_le_bytes(fixed(s(0))?).into())),
+        ids::CVD => return ok(V::F(f64::from_le_bytes(fixed(s(0))?))),
+        ids::MKSMBF_S => {
             let b = qb_runtime::mbf::fieee_to_msbin((f(0) as f32).to_le_bytes()).map_err(|_| Stop::Err(5))?;
             return ok(V::S(b.to_vec()));
         }
-        "MKDMBF$" => {
+        ids::MKDMBF_S => {
             let b = qb_runtime::mbf::dieee_to_msbin(f(0).to_le_bytes()).map_err(|_| Stop::Err(5))?;
             return ok(V::S(b.to_vec()));
         }
-        "CVSMBF" => {
+        ids::CVSMBF => {
             let b = qb_runtime::mbf::fmsbin_to_ieee(fixed(s(0))?).map_err(|_| Stop::Err(5))?;
             return ok(V::F(f32::from_le_bytes(b).into()));
         }
-        "CVDMBF" => {
+        ids::CVDMBF => {
             let b = qb_runtime::mbf::dmsbin_to_ieee(fixed(s(0))?).map_err(|_| Stop::Err(5))?;
             return ok(V::F(f64::from_le_bytes(b)));
         }
-        "LEN" => return ok(V::I(s(0).len() as i64)),
+        ids::LEN => return ok(V::I(s(0).len() as i64)),
         // qbs_left / qbs_right: the count is clamped to 0..LEN
-        "LEFT$" => {
+        ids::LEFT_S => {
             let n = i(1).clamp(0, s(0).len() as i64) as usize;
             return ok(V::S(s(0)[..n].to_vec()));
         }
-        "RIGHT$" => {
+        ids::RIGHT_S => {
             let t = s(0);
             let n = i(1).clamp(0, t.len() as i64) as usize;
             return ok(V::S(t[t.len() - n..].to_vec()));
         }
-        "MID$" => return ok(V::S(mid(s(0), i(1), None)?)),
-        "MID$.n" => return ok(V::S(mid(s(0), i(1), Some(i(2)))?)),
-        "MIDSET" => return ok(V::S(midset(s(0), i(1), None, s(2))?)),
-        "MIDSET.n" => return ok(V::S(midset(s(0), i(1), Some(i(2)), s(3))?)),
-        "CHR$" => {
+        ids::MID_S => return ok(V::S(mid(s(0), i(1), None)?)),
+        ids::MID_S_N => return ok(V::S(mid(s(0), i(1), Some(i(2)))?)),
+        ids::MIDSET => return ok(V::S(midset(s(0), i(1), None, s(2))?)),
+        ids::MIDSET_N => return ok(V::S(midset(s(0), i(1), Some(i(2)), s(3))?)),
+        ids::CHR_S => {
             let c = i(0);
             if !(0..=255).contains(&c) {
                 return e(5);
             }
             return ok(V::S(vec![c as u8]));
         }
-        "ASC" => return ok(V::I(i64::from(*s(0).first().ok_or(Stop::Err(5))?))),
-        "ASC.n" => {
+        ids::ASC => return ok(V::I(i64::from(*s(0).first().ok_or(Stop::Err(5))?))),
+        ids::ASC_N => {
             let k = i(1);
             if k < 1 {
                 return e(5);
@@ -1105,45 +1106,45 @@ fn call_main<'a>(vm: &mut dyn Host<'a>, name: &'static str, a: &[V]) -> R<Option
             return ok(V::I(i64::from(*s(0).get(k as usize - 1).ok_or(Stop::Err(5))?)));
         }
         // qb_func_instr / qb_func__instrrev semantics (start < 1 is allowed)
-        "INSTR" => return ok(V::I(qb_instr(1, s(0), s(1), false).into())),
-        "INSTR.n" => return ok(V::I(qb_instr(i(0) as i32, s(1), s(2), true).into())),
-        "_INSTRREV" => return ok(V::I(qb_instrrev(0, s(0), s(1), false).into())),
-        "_INSTRREV.n" => return ok(V::I(qb_instrrev(i(0) as i32, s(1), s(2), true).into())),
-        "UCASE$" => return ok(V::S(s(0).to_ascii_uppercase())),
-        "LCASE$" => return ok(V::S(s(0).to_ascii_lowercase())),
-        "LTRIM$" => return ok(V::S(trim_l(s(0)))),
-        "RTRIM$" => return ok(V::S(trim_r(s(0)))),
-        "_TRIM$" => return ok(V::S(trim_l(&trim_r(s(0))))),
-        "SPACE$" => return ok(V::S(repeat(b' ', count(&a[0])?)?)),
-        "STRING$" => {
+        ids::INSTR => return ok(V::I(qb_instr(1, s(0), s(1), false).into())),
+        ids::INSTR_N => return ok(V::I(qb_instr(i(0) as i32, s(1), s(2), true).into())),
+        ids::INSTRREV => return ok(V::I(qb_instrrev(0, s(0), s(1), false).into())),
+        ids::INSTRREV_N => return ok(V::I(qb_instrrev(i(0) as i32, s(1), s(2), true).into())),
+        ids::UCASE_S => return ok(V::S(s(0).to_ascii_uppercase())),
+        ids::LCASE_S => return ok(V::S(s(0).to_ascii_lowercase())),
+        ids::LTRIM_S => return ok(V::S(trim_l(s(0)))),
+        ids::RTRIM_S => return ok(V::S(trim_r(s(0)))),
+        ids::TRIM_S => return ok(V::S(trim_l(&trim_r(s(0))))),
+        ids::SPACE_S => return ok(V::S(repeat(b' ', count(&a[0])?)?)),
+        ids::STRING_S => {
             let c = i(1);
             if !(0..=255).contains(&c) {
                 return e(5);
             }
             return ok(V::S(repeat(c as u8, count(&a[0])?)?));
         }
-        "STRING$.s" => {
+        ids::STRING_S_S => {
             let c = *s(1).first().ok_or(Stop::Err(5))?;
             return ok(V::S(repeat(c, count(&a[0])?)?));
         }
-        "LSET" => {
+        ids::LSET => {
             let n = s(0).len();
             let mut r = s(1)[..s(1).len().min(n)].to_vec();
             r.resize(n, b' ');
             return ok(V::S(r));
         }
-        "RSET" => {
+        ids::RSET => {
             let n = s(0).len();
             let src = &s(1)[..s(1).len().min(n)];
             let mut r = vec![b' '; n - src.len()];
             r.extend_from_slice(src);
             return ok(V::S(r));
         }
-        "ABS.i64" => return ok(V::I(i(0).wrapping_abs())),
-        "ABS.f32" | "ABS.f64" => return ok(V::F(f(0).abs())),
-        "ABS.f80" => return ok(V::X(a[0].x().abs())),
-        "SGN.i64" => return ok(V::I(i(0).signum())),
-        "SGN.f80" => {
+        ids::ABS_I64 => return ok(V::I(i(0).wrapping_abs())),
+        ids::ABS_F32 | ids::ABS_F64 => return ok(V::F(f(0).abs())),
+        ids::ABS_F80 => return ok(V::X(a[0].x().abs())),
+        ids::SGN_I64 => return ok(V::I(i(0).signum())),
+        ids::SGN_F80 => {
             use std::cmp::Ordering::*;
             let z = qb_float80::F80::from_i64(0);
             return ok(V::I(match a[0].x().compare(z) {
@@ -1152,67 +1153,67 @@ fn call_main<'a>(vm: &mut dyn Host<'a>, name: &'static str, a: &[V]) -> R<Option
                 _ => 0,
             }));
         }
-        "SGN.f64" => {
+        ids::SGN_F64 => {
             let x = f(0);
             return ok(V::I(if x > 0.0 { 1 } else if x < 0.0 { -1 } else { 0 }));
         }
-        "INT.f32" => return ok(V::F(f64::from((f(0) as f32).floor()))),
-        "INT.f64" => return ok(float1(&a[0], f64::floor)),
-        "FIX.f32" | "FIX.f64" => return ok(float1(&a[0], f64::trunc)),
-        "INT.f80" => return ok(V::X(qb_float80::qb::int_float(a[0].x()))),
-        "FIX.f80" => return ok(V::X(qb_float80::qb::fix_float(a[0].x()))),
-        "SQR" => {
+        ids::INT_F32 => return ok(V::F(f64::from((f(0) as f32).floor()))),
+        ids::INT_F64 => return ok(float1(&a[0], f64::floor)),
+        ids::FIX_F32 | ids::FIX_F64 => return ok(float1(&a[0], f64::trunc)),
+        ids::INT_F80 => return ok(V::X(qb_float80::qb::int_float(a[0].x()))),
+        ids::FIX_F80 => return ok(V::X(qb_float80::qb::fix_float(a[0].x()))),
+        ids::SQR => {
             if f(0) < 0.0 {
                 return e(5);
             }
             return ok(float1(&a[0], f64::sqrt));
         }
-        "SIN" => return ok(float1(&a[0], f64::sin)),
-        "COS" => return ok(float1(&a[0], f64::cos)),
-        "TAN" => return ok(float1(&a[0], f64::tan)),
-        "ATN" => return ok(float1(&a[0], f64::atan)),
-        "LOG" => {
+        ids::SIN => return ok(float1(&a[0], f64::sin)),
+        ids::COS => return ok(float1(&a[0], f64::cos)),
+        ids::TAN => return ok(float1(&a[0], f64::tan)),
+        ids::ATN => return ok(float1(&a[0], f64::atan)),
+        ids::LOG => {
             if f(0) <= 0.0 {
                 return e(5);
             }
             return ok(float1(&a[0], f64::ln));
         }
-        "EXP.s" => return match qb_runtime::mathfn::exp_single(f(0)) {
+        ids::EXP_S => return match qb_runtime::mathfn::exp_single(f(0)) {
             Ok(v) => ok(V::F(v)),
             Err(c) => e(c),
         },
-        "EXP" => {
+        ids::EXP => {
             let r = f(0).exp();
             if r.is_infinite() {
                 return e(6);
             }
             return ok(V::F(r));
         }
-        "_ROUND.f64" => return ok(cvt(Ty::I64, Ty::F64, &a[0], true)),
-        "RND" => return ok(V::F(f64::from(rt.rnd.rnd(None)))),
-        "RND.n" => return ok(V::F(f64::from(rt.rnd.rnd(Some(f(0) as f32))))),
-        "RANDOMIZE" => rt.rnd.randomize(f(0)),
-        "RANDOMIZEUSING" => rt.rnd.randomize_using(f(0)),
-        "TIMER.n" => {
+        ids::ROUND_F64 => return ok(cvt(Ty::I64, Ty::F64, &a[0], true)),
+        ids::RND => return ok(V::F(f64::from(rt.rnd.rnd(None)))),
+        ids::RND_N => return ok(V::F(f64::from(rt.rnd.rnd(Some(f(0) as f32))))),
+        ids::RANDOMIZE => rt.rnd.randomize(f(0)),
+        ids::RANDOMIZEUSING => rt.rnd.randomize_using(f(0)),
+        ids::TIMER_N => {
             let (first, day) = timer_origin();
             return match qb_runtime::timer::timer(qb_runtime::systime::ticks() as u32, first, day, Some(f(0))) {
                 Ok(v) => ok(V::F(v)),
                 Err(c) => e(c),
             };
         }
-        "TIMER" => {
+        ids::TIMER => {
             // 18.2 steps per second as a SINGLE, like QBasic and QB64: programs that time
             // a short loop with plain TIMER depend on it.
             let (first, day) = timer_origin();
             let v = qb_runtime::timer::timer(qb_runtime::systime::ticks() as u32, first, day, None).unwrap_or(0.0);
             return ok(V::F(v));
         }
-        "ERR" => return ok(V::I(err.into())),
-        "ERL" => return ok(V::I(erl.into())),
-        "_ERRORLINE" => return ok(V::I(errline.into())),
-        "_INCLERRORLINE" => return ok(V::I(vm.inclerr().0.into())),
-        "_INCLERRORFILE$" => return ok(V::S(vm.inclerr().1)),
-        "LINEINPUT" => {
+        ids::ERR => return ok(V::I(err.into())),
+        ids::ERL => return ok(V::I(erl.into())),
+        ids::ERRORLINE => return ok(V::I(errline.into())),
+        ids::INCLERRORLINE => return ok(V::I(vm.inclerr().0.into())),
+        ids::INCLERRORFILE_S => return ok(V::S(vm.inclerr().1)),
+        ids::LINEINPUT => {
             if !rt.window {
                 fill(rt, None);
             }
@@ -1223,7 +1224,7 @@ fn call_main<'a>(vm: &mut dyn Host<'a>, name: &'static str, a: &[V]) -> R<Option
             echo_input(vm, start, true)?;
             return ok(V::S(line));
         }
-        "INPUT$" => {
+        ids::INPUT_S => {
             // INPUT$(n) from the keyboard: keys of the window, or stdin bytes on the
             // console (none left at its end: what was read, like INPUT's empty line)
             let n = i(0);
@@ -1280,7 +1281,7 @@ fn call_main<'a>(vm: &mut dyn Host<'a>, name: &'static str, a: &[V]) -> R<Option
             s.rpos = end;
             return ok(V::S(got));
         }
-        "INPUTPROMPT" | "INPUTPROMPT.t" => {
+        ids::INPUTPROMPT | ids::INPUTPROMPT_T => {
             if i(1) == 0 {
                 rt.input_line = None;
                 rt.input_prompt = s(0).to_vec();
@@ -1288,7 +1289,7 @@ fn call_main<'a>(vm: &mut dyn Host<'a>, name: &'static str, a: &[V]) -> R<Option
                 input_text(vm, s(0), false)?;
             }
         }
-        "INPUTITEM.s" | "INPUTITEM.n" | "INPUTITEM.i" | "INPUTITEM.x" => {
+        ids::INPUTITEM_S | ids::INPUTITEM_N | ids::INPUTITEM_I | ids::INPUTITEM_X => {
             let numeric = name != "INPUTITEM.s";
             if vm.rt().input_line.is_none() {
                 // first item: the statement reads one line; its values come from
@@ -1343,9 +1344,9 @@ fn call_main<'a>(vm: &mut dyn Host<'a>, name: &'static str, a: &[V]) -> R<Option
             }
             return ok(V::F(val(&item)));
         }
-        "KILL" => {
+        ids::KILL => {
             let spec = os_path(s(0));
-            let files = glob_files(&spec);
+            let files = super::glob::glob_files(&spec);
             if files.is_empty() {
                 return e(53);
             }
@@ -1355,7 +1356,7 @@ fn call_main<'a>(vm: &mut dyn Host<'a>, name: &'static str, a: &[V]) -> R<Option
                 }
             }
         }
-        "NAME" => {
+        ids::NAME => {
             let (from, to) = (os_path(s(0)), os_path(s(1)));
             if std::fs::symlink_metadata(&from).is_err() {
                 return e(53);
@@ -1370,44 +1371,44 @@ fn call_main<'a>(vm: &mut dyn Host<'a>, name: &'static str, a: &[V]) -> R<Option
                 return e(53);
             }
         }
-        "MKDIR" => {
+        ids::MKDIR => {
             if std::fs::create_dir(os_path(s(0))).is_err() {
                 return e(75);
             }
         }
-        "RMDIR" => {
+        ids::RMDIR => {
             if std::fs::remove_dir(os_path(s(0))).is_err() {
                 return e(75);
             }
         }
-        "CHDIR" => {
+        ids::CHDIR => {
             if std::env::set_current_dir(os_path(s(0))).is_err() {
                 return e(76);
             }
         }
-        "_FILEEXISTS" => {
+        ids::FILEEXISTS => {
             return ok(V::I(if std::path::Path::new(&os_path(s(0))).is_file() { -1 } else { 0 }))
         }
-        "_DIREXISTS" => {
+        ids::DIREXISTS => {
             return ok(V::I(if std::path::Path::new(&os_path(s(0))).is_dir() { -1 } else { 0 }))
         }
-        "POS" => return ok(V::I(rt.col as i64)),
-        "func_lpos" => return ok(V::I(rt.lprint.pos() as i64)),
-        "CSRLIN" => return ok(V::I(1)),
+        ids::POS => return ok(V::I(rt.col as i64)),
+        ids::FUNC_LPOS => return ok(V::I(rt.lprint.pos() as i64)),
+        ids::CSRLIN => return ok(V::I(1)),
         // _ECHO text: a line on the console (stdout), also from a window program
-        "sub__echo" => {
+        ids::SUB_ECHO => {
             rt.write(0, s(0))?;
             rt.nl(0)?;
         }
         // _STDERR ON | OFF: what the program writes to standard output (PRINT, COLOR, LOCATE)
         // goes to standard error until OFF; `qb run` keeps its own messages apart from the
         // program's output this way
-        "sub__stderr" => {
+        ids::SUB_STDERR => {
             rt.flush();
             qb_runtime::console::stdio::stdout_to_stderr(i(0) == 1);
             rt.stdout_changed();
         }
-        "SLEEP" => {
+        ids::SLEEP => {
             // with a window: n seconds or until a key is pressed (no time: until a key)
             #[cfg(not(target_arch = "wasm32"))]
             if rt.window {
@@ -1438,7 +1439,7 @@ fn call_main<'a>(vm: &mut dyn Host<'a>, name: &'static str, a: &[V]) -> R<Option
                 qb_runtime::systime::sleep_ms((a[0].f() * 1000.0).min(86_400_000.0) as u64);
             }
         }
-        "ASCSET" => {
+        ids::ASCSET => {
             let mut t = s(0).to_vec();
             let p = i(1);
             if p < 1 || p as usize > t.len() {
@@ -1447,18 +1448,18 @@ fn call_main<'a>(vm: &mut dyn Host<'a>, name: &'static str, a: &[V]) -> R<Option
             t[p as usize - 1] = i(2) as u8;
             return ok(V::S(t));
         }
-        "COMMAND$" => return ok(V::S(program_args()[1..].join(&b' '))),
-        "COMMAND$.n" => {
+        ids::COMMAND_S => return ok(V::S(program_args()[1..].join(&b' '))),
+        ids::COMMAND_S_N => {
             // COMMAND$(n): argument n (0 = the program), "" out of range
             let a = program_args();
             let n = i(0);
             return ok(V::S(if n >= 0 && (n as usize) < a.len() { a[n as usize].clone() } else { vec![] }));
         }
-        "ENVIRON$" => {
+        ids::ENVIRON_S => {
             use qb_runtime::osstr::{bytes_of, os_string};
             return ok(V::S(std::env::var_os(os_string(s(0))).map(|v| bytes_of(&v)).unwrap_or_default()));
         }
-        "ENVIRON$.n" => {
+        ids::ENVIRON_S_N => {
             let k = i(0);
             // vars() panics on a variable that is not Unicode
             let v = std::env::vars_os().nth((k - 1).max(0) as usize).map(|(a, b)| {
@@ -1469,7 +1470,7 @@ fn call_main<'a>(vm: &mut dyn Host<'a>, name: &'static str, a: &[V]) -> R<Option
             });
             return ok(V::S(v.unwrap_or_default()));
         }
-        "ENVIRON" => {
+        ids::ENVIRON => {
             let t = String::from_utf8_lossy(s(0)).into_owned();
             let lead = t.len() - t.trim_start().len();
             let split = t.find('=').or_else(|| t[lead..].find(' ').map(|p| p + lead));
@@ -1491,20 +1492,20 @@ fn call_main<'a>(vm: &mut dyn Host<'a>, name: &'static str, a: &[V]) -> R<Option
                 }
             }
         }
-        "SHELL" => {
+        ids::SHELL => {
             rt.flush();
             let st = shell_command(s(0)).status();
             return ok(V::I(st.ok().and_then(|s| s.code()).unwrap_or(-1).into()));
         }
-        "DATE$" => return ok(V::S(qb_runtime::systime::date_string().into_bytes())),
-        "TIME$" => return ok(V::S(qb_runtime::systime::time_string().into_bytes())),
+        ids::DATE_S => return ok(V::S(qb_runtime::systime::date_string().into_bytes())),
+        ids::TIME_S => return ok(V::S(qb_runtime::systime::time_string().into_bytes())),
         // TIME$ = / DATE$ =: a program-local clock offset (the OS clock is not set)
-        "TIME$.set" => return qb_runtime::systime::set_time(s(0)).map(|()| None).map_err(Stop::Err),
-        "DATE$.set" => return qb_runtime::systime::set_date(s(0)).map(|()| None).map_err(Stop::Err),
-        "_DEFLATE$" => {
+        ids::TIME_S_SET => return qb_runtime::systime::set_time(s(0)).map(|()| None).map_err(Stop::Err),
+        ids::DATE_S_SET => return qb_runtime::systime::set_date(s(0)).map(|()| None).map_err(Stop::Err),
+        ids::DEFLATE_S => {
             return ok(V::S(qb_runtime::compress::deflate(s(0))));
         }
-        "_INFLATE$" | "_INFLATE$.n" => {
+        ids::INFLATE_S | ids::INFLATE_S_N => {
             // a given size is used as is, otherwise the buffer grows in 10 MB steps;
             // more than 512 MiB of output (a zip bomb) is error 7 instead of exhausting memory
             const INFLATE_CAP: u64 = 512 << 20;
@@ -1526,10 +1527,10 @@ fn call_main<'a>(vm: &mut dyn Host<'a>, name: &'static str, a: &[V]) -> R<Option
                 return ok(V::S(dst));
             }
         }
-        "VARSEG" => return ok(V::I(0x1000)),
-        "DEFSEG" => rt.def_seg = Some((i(0) as u16 as usize) * 16),
-        "DEFSEG.d" => rt.def_seg = None,
-        "PEEK" | "POKE" => {
+        ids::VARSEG => return ok(V::I(0x1000)),
+        ids::DEFSEG => rt.def_seg = Some((i(0) as u16 as usize) * 16),
+        ids::DEFSEG_D => rt.def_seg = None,
+        ids::PEEK | ids::POKE => {
             let at = rt.def_seg.unwrap_or(DBLOCK) + (i(0) as u16 as usize);
             let at = at % rt.cmem.len();
             if name == "POKE" {
@@ -1538,13 +1539,13 @@ fn call_main<'a>(vm: &mut dyn Host<'a>, name: &'static str, a: &[V]) -> R<Option
                 return ok(V::I(rt.cmem[at].into()));
             }
         }
-        "_STRCMP" | "_STRICMP" => return ok(V::I(str_compare(s(0), s(1), name == "_STRICMP"))),
-        "_CWD$" => {
+        ids::STRCMP | ids::STRICMP => return ok(V::I(str_compare(s(0), s(1), name == "_STRICMP"))),
+        ids::CWD_S => {
             // the system's bytes: CHDIR _CWD$ works in a folder whose name is not UTF-8
             let d = std::env::current_dir().map(|p| qb_runtime::osstr::bytes_of(p.as_os_str())).unwrap_or_default();
             return ok(V::S(d));
         }
-        "_STARTDIR$" => return ok(V::S(start_dir().to_vec())),
+        ids::STARTDIR_S => return ok(V::S(start_dir().to_vec())),
         _ => return e(73),
     }
     Ok(None)
@@ -1559,73 +1560,6 @@ fn os_path(b: &[u8]) -> std::path::PathBuf {
     let mut v = b.to_vec();
     qb_runtime::gfs::fixdir(&mut v);
     qb_runtime::gfs::os_path(&v)
-}
-
-/// Files matching a DOS pattern (`*`, `?` in the last component), as Windows and DOS
-/// match them: `?` is one letter (a Thai letter is one, not three bytes), `*.*` and
-/// `name.*` also take a name without an extension, and letter case counts where the
-/// file system tells cases apart (Linux): there `KILL "notes.*"` also deleted NOTES.TXT.
-fn glob_files(spec: &std::path::Path) -> Vec<std::path::PathBuf> {
-    if !spec.as_os_str().as_encoded_bytes().iter().any(|c| matches!(c, b'*' | b'?')) {
-        return if spec.is_file() { vec![spec.to_path_buf()] } else { vec![] };
-    }
-    let fold = |s: &str| -> Vec<char> { if cfg!(any(windows, target_os = "macos")) { s.to_lowercase().chars().collect() } else { s.chars().collect() } };
-    let path = spec;
-    let dir = path.parent().filter(|d| !d.as_os_str().is_empty()).unwrap_or(std::path::Path::new("."));
-    let pat = fold(&path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default());
-    // "name.*": the name alone too
-    let bare = pat.strip_suffix(&['.', '*']).map(<[char]>::to_vec);
-    let mut out = Vec::new();
-    if let Ok(rd) = std::fs::read_dir(dir) {
-        for e in rd.flatten() {
-            let name = fold(&e.file_name().to_string_lossy());
-            let hit = dos_match(&pat, &name) || bare.as_ref().is_some_and(|b| !name.contains(&'.') && dos_match(b, &name));
-            if hit && e.path().is_file() {
-                out.push(e.path());
-            }
-        }
-    }
-    out
-}
-
-/// `*` any run of letters, `?` one letter, anything else itself.
-fn dos_match(p: &[char], t: &[char]) -> bool {
-    match (p.first(), t.first()) {
-        (None, None) => true,
-        (Some('*'), _) => dos_match(&p[1..], t) || (!t.is_empty() && dos_match(p, &t[1..])),
-        (Some('?'), Some(_)) => dos_match(&p[1..], &t[1..]),
-        (Some(a), Some(b)) if a == b => dos_match(&p[1..], &t[1..]),
-        _ => false,
-    }
-}
-
-#[cfg(test)]
-mod glob_tests {
-    #[test]
-    fn dos_patterns() {
-        let d = std::env::temp_dir().join(format!("qb_test_{}_glob", std::process::id()));
-        let _ = std::fs::remove_dir_all(&d);
-        std::fs::create_dir_all(&d).unwrap();
-        for f in ["README", "notes.txt", "ก.txt", "ab.txt"] {
-            std::fs::write(d.join(f), b"").unwrap();
-        }
-        let names = |pat: &str| {
-            let mut v: Vec<String> = super::glob_files(&d.join(pat)).iter().map(|p| p.file_name().unwrap().to_string_lossy().into_owned()).collect();
-            v.sort();
-            v
-        };
-        // *.* takes a name without an extension too
-        assert_eq!(names("*.*").len(), 4);
-        assert_eq!(names("README.*"), ["README"]);
-        // ? is one letter, also a Thai one
-        assert_eq!(names("?.txt"), ["ก.txt"]);
-        assert_eq!(names("??.txt"), ["ab.txt"]);
-        if cfg!(target_os = "linux") {
-            std::fs::write(d.join("NOTES.TXT"), b"").unwrap();
-            assert_eq!(names("notes.*"), ["notes.txt"]);
-        }
-        let _ = std::fs::remove_dir_all(&d);
-    }
 }
 
 /// Browser runner: draws the stdin bytes INPUT consumed since `start` on the
@@ -2148,61 +2082,6 @@ fn read_item(f: &mut Reader, numeric: bool) -> R<Vec<u8>> {
     Ok(item)
 }
 
-/// Minimal PRINT USING: literal text, `&`, `!`, `\ \`, and numeric fields `#.#`, `+`, `-`, `$$`, `**`, `,`, `^^^^`.
-fn using<'a>(vm: &mut dyn Host<'a>, name: &str, a: &[V]) -> R<Option<V>> {
-    let Some(mut u) = vm.rt().using.take() else { return e(5) };
-    let ch = u.ch;
-    let mut out = Vec::new();
-    if name == "USINGEND" {
-        // literal text up to the next field (or the end)
-        let (lit, _) = scan_literal(&u.fmt, u.pos);
-        out.extend_from_slice(&lit);
-        using_out(vm, ch, out)?;
-        return Ok(None);
-    }
-    let mut wrapped = false;
-    let field = loop {
-        let (lit, next) = scan_literal(&u.fmt, u.pos);
-        out.extend_from_slice(&lit);
-        u.pos = next;
-        if u.pos >= u.fmt.len() {
-            if wrapped || !u.used && u.pos == 0 {
-                return e(5);
-            }
-            wrapped = true;
-            u.pos = 0;
-            continue;
-        }
-        break field_at(&u.fmt, u.pos);
-    };
-    let (kind, len) = field;
-    u.used = true;
-    let fmt = u.fmt[u.pos..u.pos + len].to_vec();
-    u.pos += len;
-    match (kind, name) {
-        (b'S', "USINGS") => {
-            let s = a[0].s();
-            match fmt[0] {
-                b'!' => out.push(*s.first().unwrap_or(&b' ')),
-                b'&' => out.extend_from_slice(s),
-                _ => {
-                    let n = fmt.len();
-                    let mut t = s[..s.len().min(n)].to_vec();
-                    t.resize(n, b' ');
-                    out.extend_from_slice(&t);
-                }
-            }
-        }
-        (b'N', n) if n.starts_with("USINGN.") => {
-            out.extend_from_slice(&format_num(&fmt, &a[0], suffix_ty(n)));
-        }
-        _ => return e(13),
-    }
-    using_out(vm, ch, out)?;
-    vm.rt().using = Some(u);
-    Ok(None)
-}
-
 /// INT 33h of CALL ABSOLUTE: a minimal DOS mouse driver (AX 0 reset:
 /// AX=-1, BX=2 buttons; 3 status: BX buttons, CX/DX position; 1, 2, 7, 8 and
 /// the rest do nothing). `mouse`: latest (x, y, buttons) in page pixels;
@@ -2235,207 +2114,6 @@ fn int33(reg: &mut [u32; 8], mouse: (i32, i32, u32), page: Option<(bool, u16, i3
         }
         _ => {}
     }
-}
-
-/// PRINT USING text: the screen page when it is the destination (as PRINT), else stdout or the file.
-fn using_out(vm: &mut dyn Host<'_>, ch: i32, out: Vec<u8>) -> R<()> {
-    if ch == 0 && screen_out(vm)
-        && let Some(r) = super::display::call(vm, "SCREENPRINT", &[V::S(out.clone())]) {
-            return r.map(|_| ());
-        }
-    vm.rt().write(ch, &out)
-}
-
-fn is_num_start(f: &[u8], p: usize) -> bool {
-    let c = f[p];
-    let n = f.get(p + 1).copied().unwrap_or(0);
-    let n2 = f.get(p + 2).copied().unwrap_or(0);
-    c == b'#'
-        || (c == b'.' && n == b'#')
-        || (c == b'+' && (n == b'#' || (n == b'.' && n2 == b'#') || n == b'$' || n == b'*'))
-        || (c == b'$' && n == b'$')
-        || (c == b'*' && n == b'*')
-}
-
-/// Returns (literal bytes, position of next field or end).
-fn scan_literal(f: &[u8], mut p: usize) -> (Vec<u8>, usize) {
-    let mut lit = Vec::new();
-    while p < f.len() {
-        let c = f[p];
-        if c == b'_' && p + 1 < f.len() {
-            lit.push(f[p + 1]);
-            p += 2;
-            continue;
-        }
-        if c == b'!' || c == b'&' || is_num_start(f, p) {
-            break;
-        }
-        if c == b'\\'
-            && let Some(k) = f[p + 1..].iter().position(|x| *x == b'\\')
-                && f[p + 1..p + 1 + k].iter().all(|x| *x == b' ') {
-                    break;
-                }
-        lit.push(c);
-        p += 1;
-    }
-    (lit, p)
-}
-
-fn field_at(f: &[u8], p: usize) -> (u8, usize) {
-    match f[p] {
-        b'!' | b'&' => (b'S', 1),
-        b'\\' => (b'S', f[p + 1..].iter().position(|x| *x == b'\\').unwrap() + 2),
-        _ => {
-            let mut q = p;
-            if f[q] == b'+' {
-                q += 1;
-            }
-            if f[q..].starts_with(b"**$") {
-                q += 3;
-            } else if f[q..].starts_with(b"**") || f[q..].starts_with(b"$$") {
-                q += 2;
-            }
-            while q < f.len() && (f[q] == b'#' || f[q] == b',') {
-                q += 1;
-            }
-            if q < f.len() && f[q] == b'.' {
-                q += 1;
-                while q < f.len() && f[q] == b'#' {
-                    q += 1;
-                }
-            }
-            if f[q..].starts_with(b"^^^^^") {
-                q += 5;
-            } else if f[q..].starts_with(b"^^^^") {
-                q += 4;
-            }
-            if q < f.len() && (f[q] == b'+' || f[q] == b'-') && f[p] != b'+' {
-                q += 1;
-            }
-            (b'N', q - p)
-        }
-    }
-}
-
-fn format_num(fmt: &[u8], val: &V, t: Ty) -> Vec<u8> {
-    let v = val.f();
-    let x80 = (t == Ty::F80).then(|| val.x().abs());
-    let lead_plus = fmt[0] == b'+';
-    let trail = match fmt.last() {
-        Some(b'+') if !lead_plus => Some(b'+'),
-        Some(b'-') => Some(b'-'),
-        _ => None,
-    };
-    let body: &[u8] = &fmt[usize::from(lead_plus)..fmt.len() - usize::from(trail.is_some())];
-    let stars = body.starts_with(b"**");
-    let dollar = body.starts_with(b"$$") || body.starts_with(b"**$");
-    let comma = body.contains(&b',');
-    let exp = body.iter().filter(|c| **c == b'^').count();
-    let dot = body.iter().position(|c| *c == b'.');
-    let int_w = dot.unwrap_or(body.len() - exp);
-    let int_w = body[..int_w].iter().filter(|c| matches!(c, b'#' | b'*' | b'$' | b',')).count();
-    let dec = dot.map_or(0, |d| body[d + 1..].iter().filter(|c| **c == b'#').count());
-    let neg = v < 0.0;
-    let a = v.abs();
-    let a = if t == Ty::F32 { f64::from(a as f32) } else { a };
-    // Infinity and NaN fit no field: the overflow mark `%` (as for a number too
-    // wide for its field), the sign and INF / NAN
-    let (special, nan) = match x80 {
-        Some(x) => (x.exp() == 0x7FFF, x.mant << 1 != 0),
-        None => (!a.is_finite(), a.is_nan()),
-    };
-    if special {
-        let mut o = vec![b'%'];
-        if neg && !nan {
-            o.push(b'-');
-        } else if lead_plus && !nan {
-            o.push(b'+');
-        }
-        o.extend_from_slice(if nan { b"NAN" } else { b"INF" });
-        return o;
-    }
-    let mut digits;
-    if exp > 0 {
-        let p = int_w.saturating_sub(usize::from(!lead_plus && trail.is_none())).max(1);
-        let s = match x80 {
-            Some(x) => qb_float80::dec::format_e(x, p - 1 + dec),
-            None => format!("{:.*e}", p - 1 + dec, a),
-        };
-        let Some((m, ex)) = s.split_once('e') else { return vec![b'%'] };
-        let ex: i32 = ex.parse().unwrap_or(0) - (p as i32 - 1);
-        let m: String = m.chars().filter(|c| *c != '.').collect();
-        let (ip, fp) = m.split_at(p.min(m.len()));
-        digits = ip.to_string();
-        if dot.is_some() {
-            digits.push('.');
-            digits.push_str(fp);
-        }
-        let w = if exp >= 5 { 3 } else { 2 };
-        let letter = match t {
-            Ty::F32 => 'E',
-            Ty::F80 => 'F',
-            _ => 'D',
-        };
-        digits.push_str(&format!("{letter}{}{:0w$}", if ex < 0 { '-' } else { '+' }, ex.abs(), w = w));
-    } else {
-        digits = match x80 {
-            Some(x) => qb_float80::dec::format_f(x, dec),
-            None => format!("{:.*}", dec, a),
-        };
-        if dec == 0 && dot.is_some() {
-            digits.push('.');
-        }
-        if digits.starts_with("0.") && int_w == 0 {
-            digits.remove(0);
-        }
-        if comma {
-            let (ip, rest) = digits.split_at(digits.find('.').unwrap_or(digits.len()));
-            let mut g = String::new();
-            for (k, c) in ip.chars().enumerate() {
-                if k > 0 && (ip.len() - k) % 3 == 0 {
-                    g.push(',');
-                }
-                g.push(c);
-            }
-            digits = g + rest;
-        }
-    }
-    let mut s = String::new();
-    if dollar {
-        s.push('$');
-    }
-    s.push_str(&digits);
-    if lead_plus {
-        // the sign takes the first column of the field; the number is right-aligned after it
-        let width = fmt.len() - 1;
-        let body = s.into_bytes();
-        let mut r = vec![if neg { b'-' } else { b'+' }];
-        if body.len() > width {
-            let mut o = vec![b'%'];
-            o.extend_from_slice(&r);
-            o.extend_from_slice(&body);
-            return o;
-        }
-        r.extend(std::iter::repeat_n(if stars { b'*' } else { b' ' }, width - body.len()));
-        r.extend_from_slice(&body);
-        return r;
-    } else if neg && trail.is_none() {
-        s.insert(0, '-');
-    }
-    if let Some(tc) = trail {
-        s.push(if neg { '-' } else if tc == b'+' { '+' } else { ' ' });
-    }
-    let width = fmt.len();
-    let mut out = s.into_bytes();
-    if out.len() > width {
-        let mut o = vec![b'%'];
-        o.extend_from_slice(&out);
-        return o;
-    }
-    let fillc = if stars { b'*' } else { b' ' };
-    let mut r = vec![fillc; width - out.len()];
-    r.append(&mut out);
-    r
 }
 
 /// Keyboard, mouse and frame-rate builtins (rt/input.rs).
@@ -2939,39 +2617,6 @@ mod shell_tests {
 }
 
 #[cfg(test)]
-mod using_tests {
-    use super::{format_num, print_count, V};
-    use qb_ir::Ty;
-
-    #[test]
-    fn spc_and_tab_counts_stay_bounded() {
-        // stdout: MOD the 80-column width past it; files: at most 32767
-        assert_eq!(print_count(0, 1_000_000_000_000), (1_000_000_000_000i64 % 80) as usize);
-        assert_eq!(print_count(0, 80), 80);
-        assert_eq!(print_count(0, 85), 5);
-        assert_eq!(print_count(0, -3), 0);
-        assert_eq!(print_count(1, 1_000_000_000_000), 32767);
-        assert_eq!(print_count(1, 100), 100);
-    }
-
-    #[test]
-    fn print_using_infinity_and_nan_get_the_overflow_mark() {
-        for f in [&b"#.##^^^^"[..], b"##.##", b"+#.##^^^^^"] {
-            let plus = f[0] == b'+';
-            let pos: &[u8] = if plus { b"%+INF" } else { b"%INF" };
-            assert_eq!(format_num(f, &V::F(f64::INFINITY), Ty::F64), pos);
-            assert_eq!(format_num(f, &V::F(f64::NEG_INFINITY), Ty::F64), b"%-INF");
-            assert_eq!(format_num(f, &V::F(f64::NAN), Ty::F32), b"%NAN");
-            let x = V::X(qb_float80::F80::from_f64(f64::INFINITY));
-            assert_eq!(format_num(f, &x, Ty::F80), pos);
-        }
-        // finite values still go through the exponent format
-        let f = String::from_utf8(format_num(b"#.##^^^^", &V::F(1234.5), Ty::F64)).unwrap();
-        assert!(f.contains("1.23D+03") && !f.starts_with('%'), "{f}");
-    }
-}
-
-#[cfg(test)]
 mod route_tests {
     use super::{pure, Pure, DIRECT};
 
@@ -3000,10 +2645,20 @@ mod route_tests {
         for n in names {
             assert!(matches!(pure(n), Some(Pure::Num(_))), "{n} is not a pure numeric builtin");
             let lit = format!("\"{n}\"");
-            assert!(modules.iter().all(|m| !m.contains(&lit)), "{n} is handled by an rt module");
+            assert!(modules.iter().all(|m| !m.contains(&lit) && !has_id_case(m, n)), "{n} is handled by an rt module");
             assert!(!chain.contains(&lit), "{n} is handled before call_main");
-            assert!(me[main_at..].contains(&lit), "{n} is not a case of call_main");
+            assert!(me[main_at..].contains(&lit) || has_id_case(&me[main_at..], n), "{n} is not a case of call_main");
         }
+    }
+
+    /// `src` matches builtin `n` by its number (`ids::<CONST>`, a whole identifier).
+    fn has_id_case(src: &str, n: &str) -> bool {
+        let id = super::super::ids::of(n);
+        if id == super::super::ids::NONE {
+            return false;
+        }
+        let pat = format!("ids::{}", super::super::ids::CONSTS[id as usize]);
+        src.match_indices(&pat).any(|(at, _)| !src[at + pat.len()..].starts_with(|c: char| c.is_ascii_alphanumeric() || c == '_'))
     }
 
     /// Every name of [`DIRECT`] is a case of `call_main` and of no module that
@@ -3037,13 +2692,14 @@ mod route_tests {
                 for case in [format!("{lit} =>"), format!("{lit} |"), format!("| {lit}"), format!("{lit} if")] {
                     assert!(!m.contains(&case), "{n} is a case of an rt module");
                 }
+                assert!(!has_id_case(m, n), "{n} is a case of an rt module");
             }
             assert!(!chain.contains(&lit) && !input.contains(&lit), "{n} is handled before call_main");
             if n.starts_with("PRINTN.") {
                 assert!(main.contains("starts_with(\"PRINTN.\")"));
                 assert!(modules.iter().all(|m| !m.contains("\"PRINTN.")));
             } else {
-                assert!(main.contains(&lit), "{n} is not a case of call_main");
+                assert!(main.contains(&lit) || has_id_case(main, n), "{n} is not a case of call_main");
             }
         }
     }

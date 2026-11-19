@@ -41,3 +41,5 @@ qb-ffi = { path = "../ffi" }
 qb-ext = { path = "../../runtime/ext" }
 # INSTR / _INSTRREV substring search
 memchr = "2.8"
+# builtin call arguments without an allocation per call
+smallvec = "1.16"

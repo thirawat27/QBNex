@@ -10,7 +10,7 @@
     "url": "https://github.com/thirawat27/QBNex"
   },
   "engines": {
-    "vscode": "^1.91.0"
+    "vscode": "^1.146.0"
   },
   "categories": [
     "Programming Languages",
@@ -151,7 +151,8 @@
           }
         ]
       }
-    ],    "commands": [
+    ],
+    "commands": [
       {
         "command": "qbnex.run",
         "title": "QBNex: Run",

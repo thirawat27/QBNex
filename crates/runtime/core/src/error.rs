@@ -221,6 +221,22 @@ pub fn end_prompt_wanted() -> bool {
     end_prompt_policy(env.as_deref(), false, stream_state(0), stream_state(1))
 }
 
+/// Report of a fault inside QBNex itself (a Rust panic), in the form of the error
+/// reports: "Internal Error - <program>: <what> (<where>)". The program ends after it.
+pub fn internal_error_line(command0: &[u8], what: &str, at: &str) -> Vec<u8> {
+    let mut line = b"Internal Error - ".to_vec();
+    line.extend_from_slice(binary_name(command0));
+    line.extend_from_slice(b": ");
+    line.extend_from_slice(what.as_bytes());
+    if !at.is_empty() {
+        line.extend_from_slice(b" (");
+        line.extend_from_slice(at.as_bytes());
+        line.push(b')');
+    }
+    line.extend_from_slice(b": this is a fault in QBNex, not in the program; please report it with the program");
+    line
+}
+
 /// One-line form of a dialog: "<title>: <body lines joined with ': '>",
 /// without the "Continue?" question.
 pub fn report_line(title: &[u8], body: &[u8]) -> Vec<u8> {
@@ -236,6 +252,15 @@ pub fn report_line(title: &[u8], body: &[u8]) -> Vec<u8> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn internal_error_report() {
+        let l = internal_error_line(b"C:\\games\\demo.exe", "index out of bounds", "src/x.rs:9");
+        let l = String::from_utf8(l).unwrap();
+        assert!(l.starts_with("Internal Error - "), "{l}");
+        assert!(l.contains("index out of bounds (src/x.rs:9)"), "{l}");
+        assert!(!internal_error_line(b"p", "x", "").windows(2).any(|w| w == b"()"));
+    }
 
     #[test]
     fn messages() {

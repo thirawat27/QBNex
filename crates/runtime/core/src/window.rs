@@ -132,6 +132,8 @@ static POS_Y: AtomicI32 = AtomicI32::new(0);
 static DESK_W: AtomicI32 = AtomicI32::new(0);
 static DESK_H: AtomicI32 = AtomicI32::new(0);
 static MINIMIZED: AtomicBool = AtomicBool::new(false);
+/// The user maximized the window (its maximize button, a double click on the title bar).
+static MAXIMIZED: AtomicBool = AtomicBool::new(false);
 
 fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
     m.lock().unwrap_or_else(|e| e.into_inner())
@@ -490,6 +492,10 @@ impl App {
         if w == 0 || h == 0 {
             return; // minimised
         }
+        // (before the callback: it decides whether the window snaps back to the page's size)
+        if let Some(win) = &self.win {
+            MAXIMIZED.store(win.window.is_maximized(), Ordering::SeqCst);
+        }
         let changed = (WIN_W.swap(w as i32, Ordering::SeqCst) != w as i32)
             | (WIN_H.swap(h as i32, Ordering::SeqCst) != h as i32);
         if changed
@@ -503,6 +509,7 @@ impl App {
     }
 
     fn redraw(&mut self) {
+        let resizable = self.resizable;
         let Some(win) = &mut self.win else { return };
         if crate::gl::presenting() {
             // SUB _GL: the program thread draws and swaps through OpenGL (crate::gl)
@@ -530,7 +537,7 @@ impl App {
                         frame.h as i32,
                         size.width as i32,
                         size.height as i32,
-                        frame.full_screen,
+                        shown_full_screen(frame.full_screen, resizable),
                         frame.fullscreen_smooth,
                         frame.resize_auto,
                     );
@@ -562,7 +569,7 @@ impl App {
             frame.h as i32,
             size.width as i32,
             size.height as i32,
-            frame.full_screen,
+            shown_full_screen(frame.full_screen, resizable),
             frame.fullscreen_smooth,
             frame.resize_auto,
         );
@@ -1057,6 +1064,22 @@ pub fn qb_window_minimize() {
 
 pub fn qb_window_minimized() -> i32 {
     MINIMIZED.load(Ordering::SeqCst) as i32
+}
+
+/// 1 while the window is maximized.
+pub fn qb_window_maximized() -> i32 {
+    MAXIMIZED.load(Ordering::SeqCst) as i32
+}
+
+/// The full screen mode a frame is laid out with (see `raster::layout`): a
+/// maximized window the program may not resize shows its page scaled with
+/// square pixels, as a full screen would, instead of at its own size in a corner.
+pub fn shown_full_screen(full_screen: i32, resizable: bool) -> i32 {
+    if full_screen == 0 && !resizable && MAXIMIZED.load(Ordering::SeqCst) {
+        2
+    } else {
+        full_screen
+    }
 }
 
 pub fn qb_window_set_cursor(style: i32) {

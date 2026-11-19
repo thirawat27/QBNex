@@ -683,4 +683,58 @@ mod tests {
         assert_eq!(load_file(&p, 48000).expect("decode").frames, 192);
         std::fs::remove_file(p).ok();
     }
+
+    /// `_SNDOPEN` of a damaged or foreign file must fail (handle 0), never panic: a
+    /// panic aborts the program instead of letting it go on without the sound.
+    #[test]
+    fn damaged_sound_files_never_panic() {
+        let mut seed: u64 = 0x5EED_AD10_0000_0001;
+        let mut next = move || {
+            seed ^= seed << 13;
+            seed ^= seed >> 7;
+            seed ^= seed << 17;
+            seed
+        };
+        let samples: Vec<u8> = (0..400u32).map(|i| (i * 37 % 256) as u8).collect();
+        let bases = [wav(22050, 1, 8, &samples), wav(44100, 2, 16, &samples), wav(8000, 1, 16, &samples[..2])];
+        let runs = if cfg!(debug_assertions) { 60 } else { 300 };
+        let mut bad = Vec::new();
+        for k in 0..runs {
+            let mut v = bases[k % bases.len()].clone();
+            for _ in 0..1 + next() % 4 {
+                let i = (next() % v.len() as u64) as usize;
+                match next() % 4 {
+                    0 => v[i] ^= 1 << (next() % 8),
+                    1 => v[i] = [0, 0xFF, 0x7F, 0x80][(next() % 4) as usize],
+                    2 => v.truncate(i),
+                    _ if i + 4 <= v.len() => v[i..i + 4].copy_from_slice(&[0xFF, 0xFF, 0xFF, 0x7F]),
+                    _ => {}
+                }
+                if v.is_empty() {
+                    break;
+                }
+            }
+            // the same bytes as a sound file and as a tracker module (other decoder)
+            for ext in ["wav", "mod", "xm", "s3m"] {
+                let p = tmp(&format!("fuzz{k}.{ext}"), &v);
+                let r = std::panic::catch_unwind(|| {
+                    let _ = load_file(&p, 48000);
+                });
+                std::fs::remove_file(&p).ok();
+                if r.is_err() {
+                    bad.push(format!("{k}.{ext} len {}", v.len()));
+                }
+            }
+        }
+        for k in 0..runs {
+            let n = (next() % 64) as usize;
+            let input: Vec<f32> = (0..n).map(|_| f32::from_bits(next() as u32)).collect();
+            let ch = (next() % 9) as usize;
+            let (from, to) = ((next() % 200_000) as u32, (next() % 200_000) as u32);
+            if std::panic::catch_unwind(|| resample(&input, ch, from, to)).is_err() {
+                bad.push(format!("resample {k}: {n} samples, {ch} channels, {from} -> {to}"));
+            }
+        }
+        assert!(bad.is_empty(), "{} panics: {:?}", bad.len(), &bad[..bad.len().min(10)]);
+    }
 }

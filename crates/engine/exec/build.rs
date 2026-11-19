@@ -28,4 +28,33 @@ fn main() {
     out.push_str("        _ => return None,\n    })\n}\n");
     let dest = std::path::Path::new(&std::env::var("OUT_DIR").unwrap_or_default()).join("ext_symbols.rs");
     let _ = std::fs::write(dest, out);
+    delay_load();
+}
+
+/// Windows (MSVC): the system libraries that only some programs use (OpenGL, sound,
+/// COM, printing, network, the window theme) are loaded at their first call instead
+/// of before `main`. Loading them all made every program, even `PRINT "hi"` in a
+/// console, start about 60 ms later. The shell (`shell32.dll`) stays: SHELL through
+/// `ShellExecuteExW` crashed when the library came late.
+fn delay_load() {
+    let windows_msvc = std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows")
+        && std::env::var("CARGO_CFG_TARGET_ENV").as_deref() == Ok("msvc");
+    if !windows_msvc {
+        return;
+    }
+    const LATE: &[&str] = &[
+        "opengl32.dll",
+        "winspool.drv",
+        "ole32.dll",
+        "oleaut32.dll",
+        "mmdevapi.dll",
+        "dwmapi.dll",
+        "uxtheme.dll",
+        "imm32.dll",
+        "ws2_32.dll",
+    ];
+    for dll in LATE {
+        println!("cargo:rustc-link-arg-bins=/DELAYLOAD:{dll}");
+    }
+    println!("cargo:rustc-link-arg-bins=delayimp.lib");
 }

@@ -30,6 +30,22 @@ mod platform {
     use windows_sys::Win32::System::Memory::*;
     use windows_sys::Win32::System::Ole::{CF_BITMAP, CF_TEXT, CF_UNICODETEXT};
 
+    /// Opens the clipboard, waiting up to about 100 ms while another program has it
+    /// open: clipboard history and clipboard tools open it right after every change,
+    /// and a single try lost the program's `_CLIPBOARD$ =` text now and then.
+    fn open() -> bool {
+        for k in 0..20 {
+            // SAFETY: plain call; no owner window.
+            if unsafe { OpenClipboard(null_mut()) } != 0 {
+                return true;
+            }
+            if k < 19 {
+                std::thread::sleep(std::time::Duration::from_millis(5));
+            }
+        }
+        false
+    }
+
     /// Puts `text` on the clipboard (legacy `sub__clipboard`): UTF-8 text with
     /// letters outside ASCII as `CF_UNICODETEXT`, as the rest of the runtime reads
     /// text (as `CF_TEXT` it was read in the ANSI code page, so สวัสดี pasted as
@@ -40,7 +56,7 @@ mod platform {
         // SAFETY: the global block is allocated with room for the text and a
         // NUL, filled while locked and handed to the clipboard.
         unsafe {
-            if OpenClipboard(null_mut()) == 0 {
+            if !open() {
                 return;
             }
             EmptyClipboard();
@@ -73,7 +89,7 @@ mod platform {
         // SAFETY: the clipboard block is only read while locked; CF_TEXT data
         // is NUL-terminated, CF_UNICODETEXT data NUL-terminated in u16 units.
         unsafe {
-            if OpenClipboard(null_mut()) == 0 {
+            if !open() {
                 return out;
             }
             // formats come in the order they were put; the ones Windows makes from
@@ -159,7 +175,7 @@ mod platform {
             DeleteDC(src);
             ReleaseDC(null_mut(), hdc);
             DeleteObject(dib);
-            if OpenClipboard(null_mut()) != 0 {
+            if open() {
                 EmptyClipboard();
                 if SetClipboardData(u32::from(CF_BITMAP), copy).is_null() {
                     DeleteObject(copy);
@@ -177,7 +193,7 @@ mod platform {
         // SAFETY: the clipboard-owned bitmap is only read while the clipboard
         // is open; GetDIBits writes at most w*h pixels.
         unsafe {
-            if OpenClipboard(null_mut()) == 0 {
+            if !open() {
                 return None;
             }
             let mut result = None;

@@ -3,12 +3,8 @@
 // What the .vsix ships is audited separately at every level (npm audit --omit=dev).
 import { execSync } from "node:child_process";
 
-const ACCEPTED = {
-  // picomatch ReDoS through repeated extglobs. Only @vscode/vsce reaches it, with
-  // the patterns of our own .vscodeignore, when the .vsix is packed; every picomatch
-  // release is affected, and npm's only fix is @vscode/vsce 3.9.2, a breaking change.
-  "GHSA-fc5q-39xc-vjpf": "picomatch ReDoS: build tool only, trusted patterns, no fixed release",
-};
+// (none at present: the picomatch advisory is gone since the dependency update)
+const ACCEPTED = {};
 
 let out;
 try {

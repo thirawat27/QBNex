@@ -3850,6 +3850,7 @@ dependencies = [
  "qb-link",
  "qb-payload",
  "qb-runtime",
+ "smallvec",
 ]
 
 [[package]]

@@ -115,6 +115,11 @@ struct Slot {
     /// Error of a write [`Table::flush_all`] did on its own: the next operation on
     /// this file number reports it.
     wb_err: i32,
+    /// LOF of a file no other program may write to (opened with LOCK WRITE or LOCK
+    /// READ WRITE, which Windows enforces): only this file number changes its size, so
+    /// the size is asked once and again only after its own bytes reach the file
+    /// (EOF and LOF made a system call each time). -1 = not known.
+    lof_cache: i64,
 }
 
 /// Size at which [`Slot::wb`] is written out.
@@ -134,25 +139,18 @@ pub fn flush_pending() {
     }
 }
 
-/// Makes a panic write the files' pending bytes before the process ends (the
-/// builds abort on panic, so nothing is dropped). Installed once.
-pub fn flush_files_on_panic() {
-    static ONCE: std::sync::Once = std::sync::Once::new();
-    ONCE.call_once(|| {
-        let prev = std::panic::take_hook();
-        std::panic::set_hook(Box::new(move |info| {
-            // try_lock: the panic may have happened while the table was locked
-            let t = match TABLE.try_lock() {
-                Ok(t) => Some(t),
-                Err(std::sync::TryLockError::Poisoned(p)) => Some(p.into_inner()),
-                Err(std::sync::TryLockError::WouldBlock) => None,
-            };
-            if let Some(mut t) = t {
-                t.flush_all();
-            }
-            prev(info);
-        }));
-    });
+/// Writes the files' pending bytes from a panic hook (the builds abort on panic,
+/// so nothing is dropped): without waiting, since the panic may have happened
+/// while the table was locked.
+pub fn flush_for_panic() {
+    let t = match TABLE.try_lock() {
+        Ok(t) => Some(t),
+        Err(std::sync::TryLockError::Poisoned(p)) => Some(p.into_inner()),
+        Err(std::sync::TryLockError::WouldBlock) => None,
+    };
+    if let Some(mut t) = t {
+        t.flush_all();
+    }
 }
 
 /// Starts the thread that writes pending bytes out every [`FLUSH_EVERY`].
@@ -255,6 +253,7 @@ impl Table {
                 locks: Vec::new(),
                 wb: Vec::new(),
                 wb_err: 0,
+                lof_cache: -1,
             });
             self.slots.len() as i32 - 1
         };
@@ -269,6 +268,7 @@ impl Table {
         s.locks.clear();
         s.wb.clear();
         s.wb_err = 0;
+        s.lof_cache = -1;
         s.file.id = id;
         i
     }
@@ -281,6 +281,7 @@ impl Table {
             return std::mem::take(&mut s.wb_err);
         }
         let wb = std::mem::take(&mut s.wb);
+        s.lof_cache = -1;
         let e = os::write_raw(s, &wb);
         // the buffer keeps its capacity for the next writes
         s.wb = wb;
@@ -446,7 +447,15 @@ impl Table {
         // the file is known without writing them out (EOF asks for it once per line)
         self.flush_others(i);
         let s = &mut self.slots[i as usize];
-        let n = os::lof(s);
+        let n = if s.lof_cache >= 0 {
+            s.lof_cache
+        } else {
+            let n = os::lof(s);
+            if cfg!(windows) && s.file.lock_write != 0 && n >= 0 {
+                s.lof_cache = n;
+            }
+            n
+        };
         if n >= 0 && !s.wb.is_empty() { n.max(s.file.pos) } else { n }
     }
 
@@ -539,6 +548,7 @@ impl Table {
         let s = &mut self.slots[i as usize];
         // only a regular file waits: a device, pipe or COM port gets its bytes at once
         if s.ident.is_none() || s.file.scrn != 0 {
+            s.lof_cache = -1;
             return os::write(s, data);
         }
         if s.wb_err != 0 {
@@ -551,6 +561,7 @@ impl Table {
             }
             let s = &mut self.slots[i as usize];
             if data.len() >= WRITE_BEHIND_MAX {
+                s.lof_cache = -1;
                 return os::write(s, data);
             }
         }
@@ -1902,6 +1913,27 @@ pub(crate) mod tests {
         assert_eq!(t.close(w), 0);
         drop(t);
         assert_eq!(std::fs::read(super::os_path(&name)).unwrap(), b"aXYdefghijk");
+    }
+
+    #[test]
+    fn lof_of_a_write_locked_file_follows_its_own_writes() {
+        let d = tmp("lofc");
+        let mut t = table();
+        // LOCK WRITE: the size is kept between LOFs (Windows)
+        let i = t.open(&p(&d, "l.bin"), 3, 2, 2);
+        assert!(i >= 0);
+        assert_eq!(t.lof(i), 0);
+        assert_eq!(t.lof(i), 0);
+        assert_eq!(t.write(i, -1, b"12345"), 0);
+        assert_eq!(t.lof(i), 5);
+        assert_eq!(t.setpos(i, 0), 0);
+        assert_eq!(t.lof(i), 5);
+        assert_eq!(t.write(i, 8, b"xy"), 0);
+        assert_eq!(t.lof(i), 10);
+        assert_eq!(t.eof_reached(i), 1);
+        assert_eq!(t.setpos(i, 2), 0);
+        assert_eq!(t.eof_reached(i), 0);
+        assert_eq!(t.close(i), 0);
     }
 
     #[test]

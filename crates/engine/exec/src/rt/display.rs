@@ -1772,6 +1772,13 @@ fn gerr(d: &mut Display, err: i32) {
 
 /// Handles graphics/console builtins (registry callnames); `None` otherwise.
 pub(crate) fn call(vm: &mut dyn VmIface<'_>, name: &str, a: &[V]) -> Option<R<Option<V>>> {
+    call_id(vm, name, super::ids::of(name), a)
+}
+
+/// [`call`] with the name's number already known (`super::ids`): the VM keeps it per
+/// builtin, so the hot drawing statements skip the name lookups.
+pub(crate) fn call_id(vm: &mut dyn VmIface<'_>, name: &str, id: super::ids::Id, a: &[V]) -> Option<R<Option<V>>> {
+    use super::ids;
     if name == "sub__maptriangle" {
         let rt = vm.rt();
         let cmem = rt.cmem.as_mut_ptr();
@@ -1787,22 +1794,22 @@ pub(crate) fn call(vm: &mut dyn VmIface<'_>, name: &str, a: &[V]) -> Option<R<Op
     let f32_ = |k: usize| a[k].f() as f32;
     let f = |k: usize| a[k].f();
     let known = matches!(
-        name,
-        "qbg_screen" | "sub_pset" | "sub_preset" | "sub_line" | "sub_circle" | "sub_paint" | "sub_paint.s" | "qbg_palette" | "qbg_sub_color"
-            | "qbg_sub_view" | "qbg_sub_view_print" | "qbg_sub_window" | "func_pmap" | "func_point" | "sub_pcopy" | "sub_draw"
-            | "sub_cls" | "qbg_sub_locate" | "sub__dest" | "sub__source" | "func__dest" | "func__source" | "func__display"
-            | "func__console" | "func__newimage" | "sub__freeimage" | "sub__printimage" | "func__copyimage" | "sub__display" | "func__width"
-            | "func__height" | "func__pixelsize" | "func__rgb" | "func__rgba" | "func__red" | "func__green" | "func__blue"
-            | "func__alpha" | "func__rgb32" | "func__rgba32" | "func__red32" | "func__green32" | "func__blue32"
-            | "func__alpha32" | "func__palettecolor" | "sub__palettecolor" | "sub_graphics_get" | "sub_graphics_put" | "sub_paletteusing"
-            | "sub__font" | "func__font" | "func__fontwidth" | "func__fontheight" | "sub__autodisplay" | "func__autodisplay"
-            | "SCREENPRINT" | "SCREENNL" | "SCREENZONE" | "SCREENTAB" | "SCREENSPC" | "func_screen" 
-            | "sub__delay" | "sub__title" | "func_csrlin" | "func_pos" | "qbsub_width" | "sub__setalpha" | "sub__clearcolor"
-            | "func__clearcolor" | "sub__putimage" | "sub__maptriangle" | "func__loadfont" | "sub__freefont"
-            | "func__printwidth" | "func__loadimage" | "func__title" | "sub__blend" | "sub__dontblend" | "sub__glrender" | "sub__displayorder" | "sub__depthbuffer"
-            | "func__blend" | "func__defaultcolor" | "func__backgroundcolor" | "func__printmode" | "sub__printmode" | "sub__copypalette"
-            | "sub__blink" | "func__blink" | "sub__controlchr" | "func__controlchr" | "func__clipboardimage" | "sub__clipboardimage"
-            | "sub__printstring" | "sub__icon" | "func__screenimage" | "sub__mousemove"
+        id,
+        ids::QBG_SCREEN | ids::SUB_PSET | ids::SUB_PRESET | ids::SUB_LINE | ids::SUB_CIRCLE | ids::SUB_PAINT | ids::SUB_PAINT_S | ids::QBG_PALETTE | ids::QBG_SUB_COLOR
+            | ids::QBG_SUB_VIEW | ids::QBG_SUB_VIEW_PRINT | ids::QBG_SUB_WINDOW | ids::FUNC_PMAP | ids::FUNC_POINT | ids::SUB_PCOPY | ids::SUB_DRAW
+            | ids::SUB_CLS | ids::QBG_SUB_LOCATE | ids::SUB_DEST | ids::SUB_SOURCE | ids::FUNC_DEST | ids::FUNC_SOURCE | ids::FUNC_DISPLAY
+            | ids::FUNC_CONSOLE | ids::FUNC_NEWIMAGE | ids::SUB_FREEIMAGE | ids::SUB_PRINTIMAGE | ids::FUNC_COPYIMAGE | ids::SUB_DISPLAY | ids::FUNC_WIDTH
+            | ids::FUNC_HEIGHT | ids::FUNC_PIXELSIZE | ids::FUNC_RGB | ids::FUNC_RGBA | ids::FUNC_RED | ids::FUNC_GREEN | ids::FUNC_BLUE
+            | ids::FUNC_ALPHA | ids::FUNC_RGB32 | ids::FUNC_RGBA32 | ids::FUNC_RED32 | ids::FUNC_GREEN32 | ids::FUNC_BLUE32
+            | ids::FUNC_ALPHA32 | ids::FUNC_PALETTECOLOR | ids::SUB_PALETTECOLOR | ids::SUB_GRAPHICS_GET | ids::SUB_GRAPHICS_PUT | ids::SUB_PALETTEUSING
+            | ids::SUB_FONT | ids::FUNC_FONT | ids::FUNC_FONTWIDTH | ids::FUNC_FONTHEIGHT | ids::SUB_AUTODISPLAY | ids::FUNC_AUTODISPLAY
+            | ids::SCREENPRINT | ids::SCREENNL | ids::SCREENZONE | ids::SCREENTAB | ids::SCREENSPC | ids::FUNC_SCREEN 
+            | ids::SUB_DELAY | ids::SUB_TITLE | ids::FUNC_CSRLIN | ids::FUNC_POS | ids::QBSUB_WIDTH | ids::SUB_SETALPHA | ids::SUB_CLEARCOLOR
+            | ids::FUNC_CLEARCOLOR | ids::SUB_PUTIMAGE | ids::SUB_MAPTRIANGLE | ids::FUNC_LOADFONT | ids::SUB_FREEFONT
+            | ids::FUNC_PRINTWIDTH | ids::FUNC_LOADIMAGE | ids::FUNC_TITLE | ids::SUB_BLEND | ids::SUB_DONTBLEND | ids::SUB_GLRENDER | ids::SUB_DISPLAYORDER | ids::SUB_DEPTHBUFFER
+            | ids::FUNC_BLEND | ids::FUNC_DEFAULTCOLOR | ids::FUNC_BACKGROUNDCOLOR | ids::FUNC_PRINTMODE | ids::SUB_PRINTMODE | ids::SUB_COPYPALETTE
+            | ids::SUB_BLINK | ids::FUNC_BLINK | ids::SUB_CONTROLCHR | ids::FUNC_CONTROLCHR | ids::FUNC_CLIPBOARDIMAGE | ids::SUB_CLIPBOARDIMAGE
+            | ids::SUB_PRINTSTRING | ids::SUB_ICON | ids::FUNC_SCREENIMAGE | ids::SUB_MOUSEMOVE
     );
     if !known {
         return None;
@@ -1832,14 +1839,14 @@ pub(crate) fn call(vm: &mut dyn VmIface<'_>, name: &str, a: &[V]) -> Option<R<Op
     let mut out: Option<V> = None;
     // SAFETY (all gfx calls): `wp`/`rp` and resolved surfaces are valid registry entries.
     unsafe {
-        match name {
-            "qbg_screen" => d.screen(cmem, i(0), i(1), i(2), i(3), i(4), i(5)),
-            "sub_pset" => gerr(d, gfx::point::qb_gfx_pset_stmt(wp, f32_(0), f32_(1), u(2), i(3))),
-            "sub_preset" => gerr(d, gfx::point::qb_gfx_preset_stmt(wp, f32_(0), f32_(1), u(2), i(3))),
-            "sub_line" => gerr(d, gfx::line::qb_gfx_line(wp, f32_(0), f32_(1), f32_(2), f32_(3), u(4), i(5), u(6), i(7))),
-            "sub_circle" => gerr(d, gfx::circle::qb_gfx_circle(wp, f(0), f(1), f(2), u(3), f(4), f(5), f(6), i(7))),
-            "sub_paint" => gerr(d, gfx::paint::qb_gfx_paint(wp, f32_(0), f32_(1), u(2), u(3), i(5))),
-            "sub_paint.s" => {
+        match id {
+            ids::QBG_SCREEN => d.screen(cmem, i(0), i(1), i(2), i(3), i(4), i(5)),
+            ids::SUB_PSET => gerr(d, gfx::point::qb_gfx_pset_stmt(wp, f32_(0), f32_(1), u(2), i(3))),
+            ids::SUB_PRESET => gerr(d, gfx::point::qb_gfx_preset_stmt(wp, f32_(0), f32_(1), u(2), i(3))),
+            ids::SUB_LINE => gerr(d, gfx::line::qb_gfx_line(wp, f32_(0), f32_(1), f32_(2), f32_(3), u(4), i(5), u(6), i(7))),
+            ids::SUB_CIRCLE => gerr(d, gfx::circle::qb_gfx_circle(wp, f(0), f(1), f(2), u(3), f(4), f(5), f(6), i(7))),
+            ids::SUB_PAINT => gerr(d, gfx::paint::qb_gfx_paint(wp, f32_(0), f32_(1), u(2), u(3), i(5))),
+            ids::SUB_PAINT_S => {
                 if (*wp).text != 0 {
                     gerr(d, 5);
                 } else {
@@ -1847,8 +1854,8 @@ pub(crate) fn call(vm: &mut dyn VmIface<'_>, name: &str, a: &[V]) -> Option<R<Op
                     gerr(d, gfx::paint::qb_gfx_paint_tile(wp, f32_(0), f32_(1), s.as_ptr(), s.len() as i32, u(3), i(5)));
                 }
             }
-            "qbg_palette" => gerr(d, gfx::palette::qb_gfx_palette(wp, u(0), u(1), i(2))),
-            "qbg_sub_color" => {
+            ids::QBG_PALETTE => gerr(d, gfx::palette::qb_gfx_palette(wp, u(0), u(1), i(2))),
+            ids::QBG_SUB_COLOR => {
                 let passed = i(3);
                 if passed != 0 {
                     let r = if (*wp).console != 0 {
@@ -1859,70 +1866,70 @@ pub(crate) fn call(vm: &mut dyn VmIface<'_>, name: &str, a: &[V]) -> Option<R<Op
                     gerr(d, r);
                 }
             }
-            "qbg_sub_view" => gerr(d, gfx::view::qb_gfx_view(wp, i(0), i(1), i(2), i(3), i(4), i(5), i(6))),
-            "qbg_sub_view_print" => {
+            ids::QBG_SUB_VIEW => gerr(d, gfx::view::qb_gfx_view(wp, i(0), i(1), i(2), i(3), i(4), i(5), i(6))),
+            ids::QBG_SUB_VIEW_PRINT => {
                 let mut h = VmHost { d, cmem };
                 console::text::view_print(&mut h, i(0), i(1), i(2));
             }
-            "qbg_sub_window" => gerr(d, gfx::view::qb_gfx_window(wp, f32_(0), f32_(1), f32_(2), f32_(3), i(4))),
-            "func_pmap" => {
+            ids::QBG_SUB_WINDOW => gerr(d, gfx::view::qb_gfx_window(wp, f32_(0), f32_(1), f32_(2), f32_(3), i(4))),
+            ids::FUNC_PMAP => {
                 let mut err = 0;
                 let v = gfx::view::qb_gfx_pmap(wp, f32_(0), i(1), &mut err);
                 gerr(d, err);
                 out = Some(V::F(f64::from(v)));
             }
-            "func_point" => {
+            ids::FUNC_POINT => {
                 let mut err = 0;
                 let v = gfx::point::qb_gfx_point(wp, d.rp(), f32_(0), f32_(1), i(2), &mut err);
                 gerr(d, err);
                 out = Some(V::F(v));
             }
-            "sub_pcopy" => d.pcopy(i(0), i(1)),
-            "sub_draw" => {
+            ids::SUB_PCOPY => d.pcopy(i(0), i(1)),
+            ids::SUB_DRAW => {
                 let s = a[0].s();
                 // DRAW reads VARPTR$ offsets at cmem + 1280 (where QB64 keeps DBLOCK); the VM's DBLOCK is elsewhere
                 let base = cmem.wrapping_add(super::builtins::DBLOCK - 1280);
                 gerr(d, gfx::draw::qb_gfx_draw(wp, s.as_ptr(), s.len() as i32, base));
             }
-            "sub_cls" => {
+            ids::SUB_CLS => {
                 let mut h = VmHost { d, cmem };
                 console::text::cls(&mut h, i(0), u(1), i(2));
             }
-            "qbg_sub_locate" => {
+            ids::QBG_SUB_LOCATE => {
                 let mut h = VmHost { d, cmem };
                 console::text::locate(&mut h, i(0), i(1), i(2), i(3), i(4), i(5));
             }
-            "func_csrlin" => {
+            ids::FUNC_CSRLIN => {
                 let mut h = VmHost { d, cmem };
                 out = Some(V::I(console::text::csrlin(&mut h).into()));
             }
-            "func_pos" => {
+            ids::FUNC_POS => {
                 let mut h = VmHost { d, cmem };
                 out = Some(V::I(console::text::pos(&mut h).into()));
             }
-            "func_screen" => {
+            ids::FUNC_SCREEN => {
                 let mut h = VmHost { d, cmem };
                 out = Some(V::I(console::text::screen(&mut h, i(0), i(1), i(2), i(3)).into()));
             }
-            "sub__dest" => {
+            ids::SUB_DEST => {
                 if let Some(x) = d.resolve(i(0)) {
                     d.write_index = x;
                 }
             }
-            "sub__source" => {
+            ids::SUB_SOURCE => {
                 if let Some(x) = d.resolve(i(0)) {
                     d.read_index = x;
                 }
             }
-            "func__dest" => out = Some(V::I(-(d.write_index as i64))),
-            "func__source" => out = Some(V::I(-(d.read_index as i64))),
-            "func__display" => out = Some(V::I(-(d.display_index as i64))),
-            "func__console" => out = Some(V::I(d.console_image.into())),
-            "func__newimage" => out = Some(V::I(d.newimage(i(0), i(1), i(2), i(3)).into())),
-            "sub__freeimage" => d.freeimage(i(0), i(1)),
-            "sub__printstring" => d.printstring(cmem, f32_(0), f32_(1), a[2].s(), i(3), i(4)),
+            ids::FUNC_DEST => out = Some(V::I(-(d.write_index as i64))),
+            ids::FUNC_SOURCE => out = Some(V::I(-(d.read_index as i64))),
+            ids::FUNC_DISPLAY => out = Some(V::I(-(d.display_index as i64))),
+            ids::FUNC_CONSOLE => out = Some(V::I(d.console_image.into())),
+            ids::FUNC_NEWIMAGE => out = Some(V::I(d.newimage(i(0), i(1), i(2), i(3)).into())),
+            ids::SUB_FREEIMAGE => d.freeimage(i(0), i(1)),
+            ids::SUB_PRINTSTRING => d.printstring(cmem, f32_(0), f32_(1), a[2].s(), i(3), i(4)),
             // _ICON [image[, small image]]: the window's icon; without an image the default stays
-            "sub__icon" => {
+            ids::SUB_ICON => {
                 if i(2) & 1 != 0
                     && let Some((w, h, px)) = d.printimage_pixels(i(0))
                 {
@@ -1937,7 +1944,7 @@ pub(crate) fn call(vm: &mut dyn VmIface<'_>, name: &str, a: &[V]) -> Option<R<Op
             }
             // _SCREENIMAGE[(x1, y1, x2, y2)]: a 32-bit image of the desktop (blank where the
             // system gives no access to it)
-            "func__screenimage" => {
+            ids::FUNC_SCREENIMAGE => {
                 let (w, h, px) = qb_runtime::screen::qb_screenimage(i(0), i(1), i(2), i(3), i(4));
                 let handle = if px.is_none() && w > 0 && h > 0 {
                     let (dw, dh) = qb_runtime::screen::desktop();
@@ -1954,7 +1961,7 @@ pub(crate) fn call(vm: &mut dyn VmIface<'_>, name: &str, a: &[V]) -> Option<R<Op
                 out = Some(V::I(handle.into()));
             }
             // _MOUSEMOVE x, y: puts the pointer on a pixel of the screen (a cell of a text screen)
-            "sub__mousemove" => {
+            ids::SUB_MOUSEMOVE => {
                 let p = &*d.dp();
                 let (x, y) = (f32_(0), f32_(1));
                 let q = |v: f32| qb_runtime::round::qb_qbr_f64(f64::from(v)) as i32;
@@ -1978,13 +1985,13 @@ pub(crate) fn call(vm: &mut dyn VmIface<'_>, name: &str, a: &[V]) -> Option<R<Op
                     }
                 }
             }
-            "func__copyimage" => out = Some(V::I(d.copyimage(i(0), i(1), i(2)).into())),
-            "sub__printimage" => {
+            ids::FUNC_COPYIMAGE => out = Some(V::I(d.copyimage(i(0), i(1), i(2)).into())),
+            ids::SUB_PRINTIMAGE => {
                 if let Some((w, h, px)) = d.printimage_pixels(i(0)) {
                     super::lprint::print_image(w, h, &px);
                 }
             }
-            "sub__display" => {
+            ids::SUB_DISPLAY => {
                 d.capture(gfx::capture::KIND_DISPLAY);
                 #[cfg(not(target_arch = "wasm32"))]
                 if d.window {
@@ -1995,9 +2002,9 @@ pub(crate) fn call(vm: &mut dyn VmIface<'_>, name: &str, a: &[V]) -> Option<R<Op
                     d.autodisplay = 0;
                 }
             }
-            "sub__autodisplay" => d.autodisplay = 1,
-            "func__autodisplay" => out = Some(V::I(if d.autodisplay != 0 { -1 } else { 0 })),
-            "func__width" | "func__height" | "func__pixelsize" => {
+            ids::SUB_AUTODISPLAY => d.autodisplay = 1,
+            ids::FUNC_AUTODISPLAY => out = Some(V::I(if d.autodisplay != 0 { -1 } else { 0 })),
+            ids::FUNC_WIDTH | ids::FUNC_HEIGHT | ids::FUNC_PIXELSIZE => {
                 let passed = i(1);
                 let idx = if passed != 0 { d.resolve(i(0)) } else { Some(d.write_index) };
                 let v = match idx {
@@ -2017,7 +2024,7 @@ pub(crate) fn call(vm: &mut dyn VmIface<'_>, name: &str, a: &[V]) -> Option<R<Op
                 };
                 out = Some(V::I(v));
             }
-            "func__rgb" | "func__rgba" => {
+            ids::FUNC_RGB | ids::FUNC_RGBA => {
                 let (n, passed) = if name == "func__rgb" { (3, i(4)) } else { (4, i(5)) };
                 let target = if passed != 0 { d.resolve(i(n)).map(im) } else { Some(wp) };
                 out = Some(V::I(match target {
@@ -2026,7 +2033,7 @@ pub(crate) fn call(vm: &mut dyn VmIface<'_>, name: &str, a: &[V]) -> Option<R<Op
                     Some(t) => i64::from(gfx::imgops::qb_gfx_rgba(t, i(0), i(1), i(2), i(3))),
                 }));
             }
-            "func__red" | "func__green" | "func__blue" | "func__alpha" => {
+            ids::FUNC_RED | ids::FUNC_GREEN | ids::FUNC_BLUE | ids::FUNC_ALPHA => {
                 let comp = match name {
                     "func__red" => 0,
                     "func__green" => 1,
@@ -2045,7 +2052,7 @@ pub(crate) fn call(vm: &mut dyn VmIface<'_>, name: &str, a: &[V]) -> Option<R<Op
                 };
                 out = Some(V::I(v.into()));
             }
-            "func__rgb32" => {
+            ids::FUNC_RGB32 => {
                 // overloads by argument count: (i) (i,a) (r,g,b) (r,g,b,a); components clamp to 0..255
                 let c = |k: usize| i(k).clamp(0, 255) as u32;
                 let v = match i(4) {
@@ -2056,15 +2063,15 @@ pub(crate) fn call(vm: &mut dyn VmIface<'_>, name: &str, a: &[V]) -> Option<R<Op
                 };
                 out = Some(V::I(i64::from(v)));
             }
-            "func__rgba32" => {
+            ids::FUNC_RGBA32 => {
                 let c = |k: usize| i(k).clamp(0, 255) as u32;
                 out = Some(V::I(i64::from((c(3) << 24) | (c(0) << 16) | (c(1) << 8) | c(2))));
             }
-            "func__red32" => out = Some(V::I(i64::from((u(0) >> 16) & 255))),
-            "func__green32" => out = Some(V::I(i64::from((u(0) >> 8) & 255))),
-            "func__blue32" => out = Some(V::I(i64::from(u(0) & 255))),
-            "func__alpha32" => out = Some(V::I(i64::from(u(0) >> 24))),
-            "func__palettecolor" => {
+            ids::FUNC_RED32 => out = Some(V::I(i64::from((u(0) >> 16) & 255))),
+            ids::FUNC_GREEN32 => out = Some(V::I(i64::from((u(0) >> 8) & 255))),
+            ids::FUNC_BLUE32 => out = Some(V::I(i64::from(u(0) & 255))),
+            ids::FUNC_ALPHA32 => out = Some(V::I(i64::from(u(0) >> 24))),
+            ids::FUNC_PALETTECOLOR => {
                 let idx = if i(2) != 0 { d.resolve(i(1)) } else { Some(d.write_index) };
                 let v = match idx {
                     None => 0,
@@ -2077,14 +2084,14 @@ pub(crate) fn call(vm: &mut dyn VmIface<'_>, name: &str, a: &[V]) -> Option<R<Op
                 };
                 out = Some(V::I(i64::from(v)));
             }
-            "sub__glrender" => {
+            ids::SUB_GLRENDER => {
                 #[cfg(not(target_arch = "wasm32"))]
                 qb_runtime::gl::set_render(i(0));
             }
             // the layer order of software, hardware images and GL: one software screen and
             // the _GLRENDER mode here, so the order is accepted and has no further effect
-            "sub__displayorder" => {}
-            "sub__blend" | "sub__dontblend" => {
+            ids::SUB_DISPLAYORDER => {}
+            ids::SUB_BLEND | ids::SUB_DONTBLEND => {
                 // _BLEND / _DONTBLEND [image]: alpha blending of a 32-bit image
                 let idx = if i(1) != 0 { d.resolve(i(0)) } else { Some(d.write_index) };
                 if let Some(x) = idx {
@@ -2097,7 +2104,7 @@ pub(crate) fn call(vm: &mut dyn VmIface<'_>, name: &str, a: &[V]) -> Option<R<Op
             }
             // _BLEND, _DEFAULTCOLOR, _BACKGROUNDCOLOR, _PRINTMODE [(image)]: state of an
             // image or page, the write page without an argument
-            "func__blend" | "func__defaultcolor" | "func__backgroundcolor" | "func__printmode" => {
+            ids::FUNC_BLEND | ids::FUNC_DEFAULTCOLOR | ids::FUNC_BACKGROUNDCOLOR | ids::FUNC_PRINTMODE => {
                 let idx = if i(1) != 0 { d.resolve(i(0)) } else { Some(d.write_index) };
                 let v = idx.map_or(0, |x| {
                     let p = &*im(x);
@@ -2112,7 +2119,7 @@ pub(crate) fn call(vm: &mut dyn VmIface<'_>, name: &str, a: &[V]) -> Option<R<Op
             }
             // _PRINTMODE {_FILLBACKGROUND|_KEEPBACKGROUND|_ONLYBACKGROUND}[, image]:
             // a text page only fills its background
-            "sub__printmode" => {
+            ids::SUB_PRINTMODE => {
                 let idx = if i(2) != 0 { d.resolve(i(1)) } else { Some(d.write_index) };
                 if let Some(x) = idx {
                     let mode = i(0);
@@ -2124,7 +2131,7 @@ pub(crate) fn call(vm: &mut dyn VmIface<'_>, name: &str, a: &[V]) -> Option<R<Op
                 }
             }
             // _COPYPALETTE [source][, destination]: the read page to the write page by default
-            "sub__copypalette" => {
+            ids::SUB_COPYPALETTE => {
                 let passed = i(2);
                 let src = if passed & 1 != 0 { d.resolve(i(0)) } else { Some(d.read_index) };
                 if let Some(s) = src {
@@ -2142,13 +2149,13 @@ pub(crate) fn call(vm: &mut dyn VmIface<'_>, name: &str, a: &[V]) -> Option<R<Op
                     }
                 }
             }
-            "sub__blink" => BLINK.store(i(0) == 1, Ordering::Relaxed),
-            "func__blink" => out = Some(V::I(-i64::from(BLINK.load(Ordering::Relaxed)))),
+            ids::SUB_BLINK => BLINK.store(i(0) == 1, Ordering::Relaxed),
+            ids::FUNC_BLINK => out = Some(V::I(-i64::from(BLINK.load(Ordering::Relaxed)))),
             // _CONTROLCHR OFF: PRINT shows characters 0-31 as glyphs instead of acting on them
-            "sub__controlchr" => console::no_control_characters2 = i32::from(i(0) == 2),
-            "func__controlchr" => out = Some(V::I(-i64::from(console::no_control_characters2))),
+            ids::SUB_CONTROLCHR => console::no_control_characters2 = i32::from(i(0) == 2),
+            ids::FUNC_CONTROLCHR => out = Some(V::I(-i64::from(console::no_control_characters2))),
             // _CLIPBOARDIMAGE: a new 32-bit image of the clipboard's picture, -1 without one
-            "func__clipboardimage" => {
+            ids::FUNC_CLIPBOARDIMAGE => {
                 let h = match qb_runtime::clipboard::get_image() {
                     Some(img) if img.width > 0 && img.height > 0 => {
                         let h = d.newimage(img.width, img.height, 32, 1);
@@ -2164,7 +2171,7 @@ pub(crate) fn call(vm: &mut dyn VmIface<'_>, name: &str, a: &[V]) -> Option<R<Op
                 out = Some(V::I(h.into()));
             }
             // _CLIPBOARDIMAGE = image: a text page has no picture
-            "sub__clipboardimage" => {
+            ids::SUB_CLIPBOARDIMAGE => {
                 if let Some(x) = d.resolve(i(0)) {
                     let p = &*im(x);
                     if p.text != 0 {
@@ -2180,13 +2187,13 @@ pub(crate) fn call(vm: &mut dyn VmIface<'_>, name: &str, a: &[V]) -> Option<R<Op
                     }
                 }
             }
-            "sub__palettecolor" => {
+            ids::SUB_PALETTECOLOR => {
                 let idx = if i(3) != 0 { d.resolve(i(2)) } else { Some(d.write_index) };
                 if let Some(x) = idx {
                     gerr(d, gfx::imgops::qb_gfx_palettecolor_set(im(x), i(0), u(1)));
                 }
             }
-            "sub_paletteusing" => {
+            ids::SUB_PALETTEUSING => {
                 // (element address or the array itself, array, bits an element): one
                 // PALETTE a attribute of the screen mode; an element of -1 leaves its
                 // attribute as it is
@@ -2219,7 +2226,7 @@ pub(crate) fn call(vm: &mut dyn VmIface<'_>, name: &str, a: &[V]) -> Option<R<Op
                     None => d.err(5),
                 }
             }
-            "sub_graphics_get" | "sub_graphics_put" => {
+            ids::SUB_GRAPHICS_GET | ids::SUB_GRAPHICS_PUT => {
                 // element address and the bytes from there to the end of its array
                 let ep = if name == "sub_graphics_get" { 4 } else { 2 };
                 let elem = a[ep].p();
@@ -2237,12 +2244,12 @@ pub(crate) fn call(vm: &mut dyn VmIface<'_>, name: &str, a: &[V]) -> Option<R<Op
                     gerr(d, gfx::getput::qb_gfx_put(wp, f32_(0), f32_(1), elem as *const u8, len, i(4), u(5), i(6)));
                 }
             }
-            "sub__font" => d.font(i(0), i(1), i(2)),
-            "func__font" => {
+            ids::SUB_FONT => d.font(i(0), i(1), i(2)),
+            ids::FUNC_FONT => {
                 let idx = if i(1) != 0 { d.resolve(i(0)) } else { Some(d.write_index) };
                 out = Some(V::I(idx.map_or(0, |x| i64::from((*im(x)).font))));
             }
-            "func__fontwidth" | "func__fontheight" => {
+            ids::FUNC_FONTWIDTH | ids::FUNC_FONTHEIGHT => {
                 let height = name == "func__fontheight";
                 let v = if i(1) != 0 {
                     d.font_metric(i(0), height)
@@ -2252,35 +2259,35 @@ pub(crate) fn call(vm: &mut dyn VmIface<'_>, name: &str, a: &[V]) -> Option<R<Op
                 };
                 out = Some(V::I(v.into()));
             }
-            "func__loadfont" => {
+            ids::FUNC_LOADFONT => {
                 // size: a DOUBLE argument truncated to int32, as QB64 passes it
                 let v = d.loadfont(a[0].s(), f(1) as i32, a[2].s(), i(3));
                 out = Some(V::I(v.into()));
             }
-            "sub__freefont" => d.freefont(i(0)),
-            "func__loadimage" => {
+            ids::SUB_FREEFONT => d.freefont(i(0)),
+            ids::FUNC_LOADIMAGE => {
                 let v = d.loadimage(a[0].s(), i(1), i(2));
                 out = Some(V::I(v.into()));
             }
-            "func__printwidth" => {
+            ids::FUNC_PRINTWIDTH => {
                 let v = d.printwidth(cmem, a[0].s(), i(1), i(2));
                 out = Some(V::I(v.into()));
             }
-            "SCREENPRINT" => {
+            ids::SCREENPRINT => {
                 // one PRINT item: makefit (new line first when it does not fit), then print
                 let mut h = VmHost { d, cmem };
                 console::text::makefit(&mut h, a[0].s());
                 console::text::print(&mut h, a[0].s(), false);
             }
-            "SCREENNL" => {
+            ids::SCREENNL => {
                 let mut h = VmHost { d, cmem };
                 console::text::print(&mut h, b"", true);
             }
-            "SCREENZONE" => {
+            ids::SCREENZONE => {
                 let mut h = VmHost { d, cmem };
                 console::text::tab(&mut h);
             }
-            "SCREENTAB" | "SCREENSPC" => {
+            ids::SCREENTAB | ids::SCREENSPC => {
                 // As on stdout: past the line width of a text page QB takes the count MOD
                 // the width; a graphics page has no column count here, so at most 32767
                 // (QBasic's INTEGER argument). Unbounded, SPC(2000000000) printed for minutes.
@@ -2303,21 +2310,21 @@ pub(crate) fn call(vm: &mut dyn VmIface<'_>, name: &str, a: &[V]) -> Option<R<Op
                     }
                 }
             }
-            "sub__setalpha" => {
+            ids::SUB_SETALPHA => {
                 // (a, c, c2, image, passed): image passed = 2
                 let t = if i(4) & 2 != 0 { d.resolve(i(3)) } else { Some(d.write_index) };
                 if let Some(x) = t {
                     gerr(d, gfx::imgops::qb_gfx_setalpha(im(x), i(0), u(1), u(2), i(4)));
                 }
             }
-            "sub__clearcolor" => {
+            ids::SUB_CLEARCOLOR => {
                 // (c, image, passed): _NONE = 1, colour = 2, image = 4
                 let t = if i(2) & 4 != 0 { d.resolve(i(1)) } else { Some(d.write_index) };
                 if let Some(x) = t {
                     gerr(d, gfx::imgops::qb_gfx_clearcolor(im(x), u(0), i(2)));
                 }
             }
-            "func__clearcolor" => {
+            ids::FUNC_CLEARCOLOR => {
                 let t = if i(1) != 0 { d.resolve(i(0)) } else { Some(d.write_index) };
                 out = Some(V::I(match t {
                     None => 0,
@@ -2333,7 +2340,7 @@ pub(crate) fn call(vm: &mut dyn VmIface<'_>, name: &str, a: &[V]) -> Option<R<Op
                     }
                 }));
             }
-            "sub__putimage" => {
+            ids::SUB_PUTIMAGE => {
                 // (dx1, dy1, dx2, dy2, src, dst, sx1, sy1, sx2, sy2, passed); software surfaces only
                 let mut passed = i(10);
                 let s = if passed & 8 != 0 { d.resolve(i(4)) } else { Some(d.read_index) };
@@ -2367,7 +2374,7 @@ pub(crate) fn call(vm: &mut dyn VmIface<'_>, name: &str, a: &[V]) -> Option<R<Op
                     }
                 }
             }
-            "sub__depthbuffer" => {
+            ids::SUB_DEPTHBUFFER => {
                 // (option 1 ON / 2 OFF / 3 LOCK / 4 _CLEAR, handle, passed): the depth
                 // buffer the 3D form of _MAPTRIANGLE uses on that image (default: the
                 // write page); 0/1 as in QB64 stand for the screen
@@ -2405,22 +2412,22 @@ pub(crate) fn call(vm: &mut dyn VmIface<'_>, name: &str, a: &[V]) -> Option<R<Op
                     }
                 }
             }
-            "qbsub_width" => {
+            ids::QBSUB_WIDTH => {
                 d.width(cmem, i(0), i(1), i(2), i(3), i(4), i(5));
                 // WIDTH LPRINT n (checked by width)
                 if i(0) == 2 && i(5) == 1 && (1..=255).contains(&i(1)) {
                     rt.lprint.width = i(1) as usize;
                 }
             }
-            "sub__title" => {
+            ids::SUB_TITLE => {
                 d.title = a[0].s().to_vec();
                 #[cfg(not(target_arch = "wasm32"))]
                 if d.window {
                     super::window::set_title(&d.title);
                 }
             }
-            "func__title" => out = Some(V::S(d.title.clone())),
-            "sub__delay" => {}
+            ids::FUNC_TITLE => out = Some(V::S(d.title.clone())),
+            ids::SUB_DELAY => {}
             _ => {}
         }
     }

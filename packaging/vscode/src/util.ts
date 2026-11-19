@@ -8,7 +8,7 @@ export function exeExtension(platform: string): string {
 }
 
 /** Path functions of the given platform, so the helpers can be tested for every OS on any OS. */
-function pathFor(platform: string): path.PlatformPath {
+function pathFor(platform: string): typeof path.posix {
     return platform === 'win32' ? path.win32 : path.posix;
 }
 

@@ -118,6 +118,34 @@ impl std::fmt::Debug for ArrBox {
     }
 }
 
+/// A fault inside QBNex (a Rust panic; the builds abort on it) writes the files'
+/// pending bytes and reports itself like the program's own errors, instead of
+/// Rust's "thread 'main' panicked" text. Installed once.
+#[cfg(not(target_arch = "wasm32"))]
+fn install_panic_report() {
+    static ONCE: std::sync::Once = std::sync::Once::new();
+    ONCE.call_once(|| {
+        std::panic::set_hook(Box::new(|info| {
+            qb_runtime::gfs::flush_for_panic();
+            let what = if let Some(s) = info.payload().downcast_ref::<&str>() {
+                (*s).to_string()
+            } else if let Some(s) = info.payload().downcast_ref::<String>() {
+                s.clone()
+            } else {
+                "unexpected failure".to_string()
+            };
+            let at = info.location().map(|l| format!("{}:{}", l.file(), l.line())).unwrap_or_default();
+            let cmd0 = crate::rt::builtins::program_args().first().cloned().unwrap_or_default();
+            let line = qb_runtime::error::internal_error_line(&cmd0, &what, &at);
+            use std::io::Write;
+            let mut e = std::io::stderr().lock();
+            let _ = e.write_all(&line);
+            let _ = e.write_all(b"\n");
+            let _ = e.flush();
+        }));
+    });
+}
+
 /// `n` copies of `v`, or error 7 (out of memory) when the system has not the room:
 /// `vec![v; n]` ends the process instead (DIM a#(400000000) on a small machine).
 fn filled<T: Clone>(n: usize, v: T) -> Result<Vec<T>, i32> {
@@ -596,6 +624,8 @@ pub struct Vm<'m, 'o> {
     /// per `Module::rtfns` entry: the module of the runtime's dispatch that answered
     /// it (`rt::builtins::call_from`), learned at its first call
     stage: Vec<u8>,
+    /// per `Module::rtfns` entry: the number of its name (`rt::ids`), looked up once here
+    ids: Vec<rt::ids::Id>,
     /// native -> VM -> native nesting of such calls
     jit_nest: u32,
     /// addressable memory (QIR TYPE / STRING * n / pointers)
@@ -783,6 +813,7 @@ impl<'m, 'o> Vm<'m, 'o> {
             pure: m.rtfns.iter().map(|(n, _)| rt::builtins::pure(n)).collect(),
             direct: m.rtfns.iter().map(|(n, _)| rt::builtins::route(n)).collect(),
             stage: vec![0; m.rtfns.len()],
+            ids: m.rtfns.iter().map(|(n, _)| rt::ids::of(n)).collect(),
             jit_nest: 0,
             mem: {
                 let mut mem = crate::mem::Mem::new();
@@ -997,7 +1028,7 @@ impl<'m, 'o> Vm<'m, 'o> {
     /// Runs the program; returns its exit code (`SYSTEM n`).
     pub fn run_status(&mut self) -> Result<i32, RunError> {
         #[cfg(not(target_arch = "wasm32"))]
-        qb_runtime::gfs::flush_files_on_panic();
+        install_panic_report();
         self.start_profile();
         let mut pc = self.m.funcs[0].entry;
         let r = loop {
@@ -1240,12 +1271,13 @@ impl<'m, 'o> Vm<'m, 'o> {
             (Some(p), &[(r, Ty::Str)]) => rt::builtins::pure_call(p, self.sget(r), &V::I(0)).map(Some),
             (Some(p), &[(r, ty)]) => rt::builtins::pure_call(p, b"", &self.rt_arg(r, ty)).map(Some),
             _ => {
-                let vals: Vec<V> = a.iter().map(|&(r, ty)| self.rt_arg(r, ty)).collect();
+                let vals: rt::builtins::Args = a.iter().map(|&(r, ty)| self.rt_arg(r, ty)).collect();
+                let id = self.ids.get(f as usize).copied().unwrap_or(rt::ids::NONE);
                 if self.direct.get(f as usize).copied().unwrap_or(false) {
-                    rt::builtins::call_direct(self, name, vals)
+                    rt::builtins::call_direct(self, name, id, vals)
                 } else {
                     let mut stage = self.stage.get(f as usize).copied().unwrap_or(0);
-                    let r = rt::builtins::call_from(self, name, vals, &mut stage);
+                    let r = rt::builtins::call_from(self, name, id, vals, &mut stage);
                     if let Some(s) = self.stage.get_mut(f as usize) {
                         *s = stage;
                     }

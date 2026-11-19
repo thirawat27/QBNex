@@ -168,6 +168,13 @@ pub(crate) fn fullscreen() -> (i32, bool) {
     (FULL_SCREEN.load(Ordering::Relaxed), SMOOTH.load(Ordering::Relaxed))
 }
 
+/// The full screen mode the page is laid out with: as `_FULLSCREEN`, except
+/// that a maximized window the program may not resize scales its page.
+fn shown_fullscreen() -> (i32, bool) {
+    let (mode, smooth) = fullscreen();
+    (qb_runtime::window::shown_full_screen(mode, RESIZE_ALLOWED.load(Ordering::Relaxed)), smooth)
+}
+
 /// `_SCALEDWIDTH`, `_SCALEDHEIGHT`: the size the page is shown at inside the window.
 pub(crate) fn scaled_size() -> (i32, i32) {
     let (fw, fh) = (FRAME_W.load(Ordering::Relaxed), FRAME_H.load(Ordering::Relaxed));
@@ -175,7 +182,7 @@ pub(crate) fn scaled_size() -> (i32, i32) {
     if ww <= 0 || wh <= 0 {
         return (fw, fh);
     }
-    let (mode, smooth) = fullscreen();
+    let (mode, smooth) = shown_fullscreen();
     let l = qb_runtime::raster::layout(fw, fh, ww, wh, mode, smooth, RESIZE_SCALE.load(Ordering::Relaxed));
     (l.scaled_w, l.scaled_h)
 }
@@ -277,7 +284,7 @@ fn to_frame(x: i32, y: i32) -> (i32, i32) {
     if ww <= 0 || wh <= 0 || (ww == fw && wh == fh) {
         return (x, y);
     }
-    let (mode, smooth) = fullscreen();
+    let (mode, smooth) = shown_fullscreen();
     let l = qb_runtime::raster::layout(fw, fh, ww, wh, mode, smooth, RESIZE_SCALE.load(Ordering::Relaxed));
     let (x1, y1, x2, y2) = (l.x1, l.y1, l.x2, l.y2);
     let map = |v: i32, a: i32, b: i32, n: i32| if b > a { ((v - a) as i64 * n as i64 / (b - a + 1) as i64) as i32 } else { v };
@@ -293,7 +300,7 @@ pub(crate) fn warp_mouse(x: i32, y: i32) {
     }
     let (fw, fh) = (FRAME_W.load(Ordering::Relaxed), FRAME_H.load(Ordering::Relaxed));
     let (ww, wh) = qb_runtime::window::qb_window_size();
-    let (mode, smooth) = fullscreen();
+    let (mode, smooth) = shown_fullscreen();
     let l = qb_runtime::raster::layout(fw, fh, ww, wh, mode, smooth, RESIZE_SCALE.load(Ordering::Relaxed));
     qb_runtime::window::qb_window_warp_mouse((x as f32 * l.x_scale) as i32 + l.x1, (y as f32 * l.y_scale) as i32 + l.y1);
 }
@@ -315,9 +322,11 @@ fn cb_resize(w: i32, h: i32) {
     RESIZE_W.store(w, Ordering::Relaxed);
     RESIZE_H.store(h, Ordering::Relaxed);
     RESIZE_EVENT.store(true, Ordering::Relaxed);
-    // a window the user may not resize goes back to the size of the page
+    // a window the user may not resize goes back to the size of the page,
+    // unless it was maximized: it then shows the page scaled until restored
     let (fw, fh) = (FRAME_W.load(Ordering::Relaxed), FRAME_H.load(Ordering::Relaxed));
-    if !RESIZE_ALLOWED.load(Ordering::Relaxed) && FULL_SCREEN.load(Ordering::Relaxed) == 0 && SIZED.load(Ordering::Relaxed) && (w, h) != (fw, fh) {
+    let maximized = qb_runtime::window::qb_window_maximized() != 0;
+    if !RESIZE_ALLOWED.load(Ordering::Relaxed) && !maximized && FULL_SCREEN.load(Ordering::Relaxed) == 0 && SIZED.load(Ordering::Relaxed) && (w, h) != (fw, fh) {
         qb_runtime::window::qb_window_set_size(fw, fh);
     }
 }
@@ -367,10 +376,11 @@ fn frame_size(w: usize, h: usize) {
     let (w, h) = (w as i32, h as i32);
     let old = (FRAME_W.swap(w, Ordering::Relaxed), FRAME_H.swap(h, Ordering::Relaxed));
     let first = !SIZED.swap(true, Ordering::Relaxed);
-    // (a fullscreen window keeps its size and scales the page)
+    // (a fullscreen or maximized window keeps its size and scales the page;
+    // restoring the maximized one sizes it to the page)
     if first || old != (w, h) {
         super::input::set_page_size(w, h);
-        if FULL_SCREEN.load(Ordering::Relaxed) == 0 {
+        if FULL_SCREEN.load(Ordering::Relaxed) == 0 && qb_runtime::window::qb_window_maximized() == 0 {
             qb_runtime::window::qb_window_set_size(w, h);
         }
     }
