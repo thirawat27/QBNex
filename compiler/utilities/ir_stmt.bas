@@ -346,7 +346,11 @@ END SUB
 SUB IrPrintValue (ch$, e$)
     DIM r$, t AS LONG, sx$, u$
     u$ = UCASE$(getelement$(e$, 1))
-    IF (u$ = "TAB" OR u$ = "SPC") AND getelement$(e$, 2) = "(" THEN
+    'TAB/SPC first: the second element is read only then
+    t = 0
+    IF u$ = "TAB" OR u$ = "SPC" THEN IF getelement$(e$, 2) = "(" THEN t = -1
+    IF t THEN
+        t = 0
         r$ = IrEval$(getelements$(e$, 3, numelements(e$) - 1), t)
         r$ = IrCvt$(r$, IrT, "i64")
         IrE "rt PRINT" + u$ + " " + ch$ + " " + r$

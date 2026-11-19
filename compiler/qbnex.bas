@@ -4477,6 +4477,7 @@ IF n >= 1 THEN
         'calculate start
         e$ = fixoperationorder$(startvalue$)
         IF Error_Happened THEN GOTO errmes
+        IrFixKeep startvalue$, e$
         l$ = l$ + sp + "=" + sp + tlayout$
         e$ = evaluatetotyp$(e$, ctyp)
         IF Error_Happened THEN GOTO errmes
@@ -4484,6 +4485,7 @@ IF n >= 1 THEN
         'final
         e$ = fixoperationorder$(p2$)
         IF Error_Happened THEN GOTO errmes
+        IrFixKeep p2$, e$
         l$ = l$ + sp + SCase$("To") + sp + tlayout$
         e$ = evaluatetotyp(e$, ctyp)
         IF Error_Happened THEN GOTO errmes
@@ -4491,6 +4493,7 @@ IF n >= 1 THEN
         'step
         e$ = fixoperationorder$(p3$)
         IF Error_Happened THEN GOTO errmes
+        IrFixKeep p3$, e$
         IF stepused = 1 THEN l$ = l$ + sp + SCase$("Step") + sp + tlayout$
         e$ = evaluatetotyp(e$, ctyp)
         IF Error_Happened THEN GOTO errmes
@@ -4637,8 +4640,9 @@ IF n >= 3 THEN
 END IF
 END IF
 
-'ENDIF
-IF n = 1 AND getelement(a$, 1) = "ENDIF" THEN
+'ENDIF (the element is read only for a statement of one element)
+isendif = 0: IF n = 1 THEN IF getelement(a$, 1) = "ENDIF" THEN isendif = 1
+IF isendif THEN
     IF controltype(controllevel) <> 1 THEN a$ = "END IF without IF": GOTO errmes
     layoutdone = 1
     IF impliedendif = 0 THEN
@@ -8445,6 +8449,7 @@ IF usecall = 0 THEN
 END IF
 END IF
 
+IrArgCall = IrArgCall + 1 'the arguments fixed below are kept for IrSubCall (IrArgKeep)
 FOR i = 1 TO id2.args
     targettyp = CVL(MID$(id2.arg, -3 + i * 4, 4))
     nele = ASC(MID$(id2.nele, i, 1))
@@ -8648,6 +8653,7 @@ IF separgs_local$(i) <> "N-LL" THEN 'an omitted argument needs no checks
 
     e2$ = fixoperationorder$(separgs_local$(i))
     IF Error_Happened THEN GOTO errmes
+    IrArgKeep i, separgs_local$(i), e2$
     IF convertspacing = 1 AND addlayout = 1 THEN l$ = LEFT$(l$, LEN(l$) - 1) + sp
     IF addlayout THEN l$ = l$ + tlayout$: addedlayout = 1
 
@@ -9684,7 +9690,15 @@ IF recompile THEN
             ELSE
                 idnumber = VAL(a$)
             END IF
-            getid idnumber
+            'getid idnumber, written out
+            IF idnumber = -1 THEN
+                Give_Error "-1 passed to getid!"
+            ELSEIF idnumber < LBOUND(ids) OR idnumber > UBOUND(ids) OR idnumber < 1 THEN
+                Give_Error "User defined types in expressions are invalid"
+            ELSE
+                id = ids(idnumber)
+                currentid = idnumber
+            END IF
             IF Error_Happened THEN EXIT FUNCTION
 
             'UDT?

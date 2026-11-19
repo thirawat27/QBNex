@@ -41,6 +41,12 @@ DIM SHARED IrSrcFiles AS STRING, IrSrcFileN AS LONG, IrSrcLastName AS STRING, Ir
 'reused by IrAssign while IrSymState$ is unchanged: fixing the same expression twice per
 'assignment was a large part of the compile time
 DIM SHARED IrRhsSrc AS STRING, IrRhsFixed AS STRING, IrRhsLayout AS STRING, IrRhsState AS STRING
+'the same for the arguments of a SUB call: fixed by the call's checks, reused by IrSubCall
+'while IrSymState$ is unchanged (IrArgKeep); IrArgCall tells the calls apart
+DIM SHARED IrArgCall AS LONG
+'the last expressions a statement's checks fixed (IrFixKeep), for IrFixOf$
+DIM SHARED IrFixSrc(1 TO 4) AS STRING, IrFixFixed(1 TO 4) AS STRING, IrFixLayout(1 TO 4) AS STRING, IrFixState(1 TO 4) AS STRING, IrFixNext AS LONG
+REDIM SHARED IrArgTag(1 TO 16) AS LONG, IrArgSrc(1 TO 16) AS STRING, IrArgFixed(1 TO 16) AS STRING, IrArgLayout(1 TO 16) AS STRING, IrArgState(1 TO 16) AS STRING
 'IrAssign asks IrElemPlace$ to hold back the "aaddr" of the element being assigned
 '(IrAaddrLater) and emits the held line (IrAaddrHeld) after the right side
 DIM SHARED IrAaddrLater AS LONG, IrAaddrHeld AS STRING

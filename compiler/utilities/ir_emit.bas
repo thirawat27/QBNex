@@ -546,7 +546,15 @@ FUNCTION IrPart$ (p$, k AS LONG)
 END FUNCTION
 
 FUNCTION IrPlaceSTy$ (p$)
-    IF LEFT$(p$, 1) = "V" THEN IrPlaceSTy$ = IrPart$(p$, 3) ELSE IrPlaceSTy$ = IrPart$(p$, 4)
+    'IrPart$(p$, 3) of a "V" place, else IrPart$(p$, 4), written out
+    DIM i AS LONG, j AS LONG, n AS LONG, k AS LONG
+    IF LEFT$(p$, 1) = "V" THEN k = 3 ELSE k = 4
+    i = 1
+    FOR n = 1 TO k - 1
+        i = INSTR(i, p$, CHR$(2)) + 1
+    NEXT
+    j = INSTR(i, p$, CHR$(2)): IF j = 0 THEN j = LEN(p$) + 1
+    IrPlaceSTy$ = MID$(p$, i, j - i)
 END FUNCTION
 
 'register type used for the value of a storage type
@@ -746,9 +754,19 @@ END FUNCTION
 'lvalue at elements i.. of a$; advances i. Returns "" (IrQuiet) or fails if not a variable.
 FUNCTION IrPlaceAt$ (a$, i AS LONG, n AS LONG, typ AS LONG)
     DIM l$, l2$, nextl$, dtyp$, try AS LONG, try_method AS LONG, v AS LONG, j AS LONG, p$, idn AS LONG, hit AS LONG
-    DIM try4 AS LONG, try4$, try4d$, try4v AS LONG, try4e AS LONG, try4m$, isop AS LONG
+    DIM try4 AS LONG, try4$, try4d$, try4v AS LONG, try4e AS LONG, try4m$, isop AS LONG, c AS LONG
     l2$ = getelement$(a$, i)
     IF i < n THEN nextl$ = getelement$(a$, i + 1) ELSE nextl$ = ""
+    'a name starts with a letter or _: for anything else the searches below find nothing
+    '(and leave what is set here)
+    IF LEN(l2$) THEN
+        c = ASC(l2$)
+        IF c <> 95 AND (c < 65 OR c > 90) AND (c < 97 OR c > 122) THEN
+            IF c <> 34 THEN findidsecondarg = "": findanotherid = 0: findidinternal = 0
+            currentid = -1
+            GOTO irplacenone
+        END IF
+    END IF
     FOR try_method = 1 TO 4
         l$ = l2$
         IF try_method = 4 AND try4 <> 0 THEN
@@ -783,6 +801,7 @@ FUNCTION IrPlaceAt$ (a$, i AS LONG, n AS LONG, typ AS LONG)
             IF Error_Happened THEN Error_Happened = 0: try = 0
         LOOP
     NEXT
+    irplacenone:
     IF IrQuiet = 0 THEN IrNotSup "not a variable: " + l2$
     IrPlaceAt$ = ""
 END FUNCTION
@@ -1011,17 +1030,19 @@ FUNCTION IrEval$ (a2$, typ AS LONG)
     DIM n AS LONG, i AS LONG, j AS LONG, nb AS LONG, l$, t AS LONG, r$
     'A block takes at least one element; the fixed 200 stopped long
     'expressions (about 100 terms) with an internal subscript error
-    n = numelements(a2$) + 1
+    'the elements of a2$, read below
+    REDIM evalels(1 TO 16) AS STRING
+    n = splitelements(a2$, evalels()) + 1
     DIM blk(1 TO n) AS STRING, bty(1 TO n) AS LONG, bq(1 TO n) AS STRING, bop(1 TO n) AS INTEGER
     DIM o$, u AS LONG, info$, lhs AS LONG, rhs AS LONG, result AS LONG, isop AS LONG
     DIM oldtyp AS LONG, newtyp AS LONG, lr$, lq$, rr$, rq$, b AS LONG, b2 AS LONG, b3 AS LONG, s1 AS LONG, s2 AS LONG
     DIM saveid AS idstruct, savecur AS LONG, unary AS LONG, d$, op$, irisop AS LONG
     saveid = id: savecur = currentid
     IF IrExtShortCircuit%(a2$, typ, r$) THEN IrEval$ = r$: EXIT FUNCTION '_ANDALSO/_ORELSE (ir_ext.bas)
-    n = numelements(a2$)
+    n = n - 1 'numelements(a2$)
     i = 1: nb = 0
     DO WHILE i <= n
-        l$ = getelement$(a2$, i)
+        l$ = evalels(i)
         nb = nb + 1
         IF opStart(ASC(l$ + CHR$(0))) THEN irisop = isoperator(l$) ELSE irisop = 0
         IF l$ = "(" OR l$ = "{" THEN
@@ -2100,6 +2121,45 @@ FUNCTION IrSymState$
     IrSymState$ = MKL$(idn) + MKL$(HashListNext) + MKL$(subfuncn) + MKL$(constlast) + MKL$(lasttype) + MKL$(linenumber)
 END FUNCTION
 
+'src$ fixed as fixed$ by a statement's checks (tlayout$ is the layout they made)
+SUB IrFixKeep (src$, fixed$)
+    IrFixNext = IrFixNext MOD 4 + 1
+    IrFixSrc(IrFixNext) = src$: IrFixFixed(IrFixNext) = fixed$: IrFixLayout(IrFixNext) = tlayout$: IrFixState(IrFixNext) = IrSymState$
+END SUB
+
+'fixoperationorder$(src$), from IrFixKeep while nothing it depends on was declared since
+FUNCTION IrFixOf$ (src$)
+    DIM k AS LONG, st$
+    FOR k = 1 TO 4
+        IF IrFixSrc(k) = src$ AND LEN(IrFixState(k)) <> 0 THEN
+            IF LEN(st$) = 0 THEN st$ = IrSymState$
+            IF IrFixState(k) = st$ THEN IrFixOf$ = IrFixFixed(k): tlayout$ = IrFixLayout(k): EXIT FUNCTION
+        END IF
+    NEXT
+    IrFixOf$ = fixoperationorder$(src$)
+END FUNCTION
+
+'argument k of the SUB call being checked: its source, its fixed form and the layout
+'fixoperationorder$ left
+SUB IrArgKeep (k AS LONG, src$, fixed$)
+    IF k > UBOUND(IrArgTag) THEN
+        REDIM _PRESERVE IrArgTag(1 TO k * 2) AS LONG
+        REDIM _PRESERVE IrArgSrc(1 TO k * 2) AS STRING
+        REDIM _PRESERVE IrArgFixed(1 TO k * 2) AS STRING
+        REDIM _PRESERVE IrArgLayout(1 TO k * 2) AS STRING
+        REDIM _PRESERVE IrArgState(1 TO k * 2) AS STRING
+    END IF
+    IrArgTag(k) = IrArgCall: IrArgSrc(k) = src$: IrArgFixed(k) = fixed$: IrArgLayout(k) = tlayout$: IrArgState(k) = IrSymState$
+END SUB
+
+'IrArgs(k) was fixed by IrArgKeep for this call, and what that depends on is unchanged
+FUNCTION IrArgKept% (k AS LONG)
+    IF k > UBOUND(IrArgTag) THEN EXIT FUNCTION
+    IF IrArgTag(k) <> IrArgCall OR IrArgCall = 0 THEN EXIT FUNCTION
+    IF IrArgSrc(k) <> IrArgs(k) THEN EXIT FUNCTION
+    IF IrArgState(k) = IrSymState$ THEN IrArgKept% = -1
+END FUNCTION
+
 SUB IrAssign (lhs$, rhs$)
     DIM p$, t AS LONG, r$, e$, st$, t2 AS LONG, q$, held$
     'a(i) = f(): the address of a(i) is taken after f has run. Taken before, it pointed
@@ -2183,7 +2243,13 @@ END FUNCTION
 SUB IrPrintStr (ch$, e$)
     DIM r$, u$, t AS LONG
     u$ = UCASE$(getelement$(e$, 1))
-    IF (u$ = "TAB" OR u$ = "SPC") AND getelement$(e$, 2) = "(" AND getelement$(e$, numelements(e$)) = ")" THEN
+    'TAB/SPC first: the other elements are read only then
+    t = 0
+    IF u$ = "TAB" OR u$ = "SPC" THEN
+        IF getelement$(e$, 2) = "(" THEN IF getelement$(e$, numelements(e$)) = ")" THEN t = -1
+    END IF
+    IF t THEN
+        t = 0
         'TAB(n) / SPC(n): position-dependent, not a string value
         r$ = IrEval$(getelements$(e$, 3, numelements(e$) - 1), t)
         r$ = IrCvt$(r$, IrT, "i64")
@@ -2364,7 +2430,16 @@ SUB IrSubCall (idn AS LONG, nargs AS LONG, passed AS LONG)
     DIM k AS LONG, nm$, x$, y$
     DIM sv(1 TO 100) AS STRING
     FOR k = 1 TO nargs
-        IF LEN(IrArgs(k)) AND IrArgs(k) <> "N-LL" THEN sv(k) = fixoperationorder$(IrArgs(k)) ELSE sv(k) = ""
+        IF LEN(IrArgs(k)) AND IrArgs(k) <> "N-LL" THEN
+            'fixed already by the checks of this call, with nothing declared since
+            IF IrArgKept%(k) THEN
+                sv(k) = IrArgFixed(k): tlayout$ = IrArgLayout(k)
+            ELSE
+                sv(k) = fixoperationorder$(IrArgs(k))
+            END IF
+        ELSE
+            sv(k) = ""
+        END IF
     NEXT
     IF ids(idn).internal_subfunc = 0 THEN
         FOR k = 1 TO nargs: IrArgs(k) = sv(k): NEXT
@@ -2566,9 +2641,9 @@ SUB IrFor (cid AS LONG, var$, ctyp AS LONG, st$, fi$, sp$)
     n$ = str2$(cid)
     vv$ = IrTemp$(ct$): ff$ = IrTemp$(ct$): ss$ = IrTemp$(ct$)
     IrCtlVar(controllevel) = p$ + CHR$(3) + vv$ + CHR$(3) + ff$ + CHR$(3) + ss$ + CHR$(3) + ct$
-    r$ = IrEvalTo$(fixoperationorder$(st$), ctyp): IrE "store." + ct$ + " " + vv$ + " " + r$
-    r$ = IrEvalTo$(fixoperationorder$(fi$), ctyp): IrE "store." + ct$ + " " + ff$ + " " + r$
-    r$ = IrEvalTo$(fixoperationorder$(sp$), ctyp): IrE "store." + ct$ + " " + ss$ + " " + r$
+    r$ = IrEvalTo$(IrFixOf$(st$), ctyp): IrE "store." + ct$ + " " + vv$ + " " + r$
+    r$ = IrEvalTo$(IrFixOf$(fi$), ctyp): IrE "store." + ct$ + " " + ff$ + " " + r$
+    r$ = IrEvalTo$(IrFixOf$(sp$), ctyp): IrE "store." + ct$ + " " + ss$ + " " + r$
     IrE "jmp ~F" + n$ + ".E"
     IrE "label ~F" + n$ + ".T"
     x$ = IrLoad$(p$)

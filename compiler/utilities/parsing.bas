@@ -8,7 +8,8 @@ FUNCTION fixoperationorder$ (savea$)
 
     fooindwel = fooindwel + 1
 
-    n = numelements(a$) 'n is maintained throughout function
+    'n is maintained throughout function; fooel holds the elements of fooelOf$
+    n = splitelements(a$, fooel()): fooN = n: fooelOf$ = a$
 
     IF fooindwel = 1 THEN 'actions to take on initial call only
     uboundlbound = 0
@@ -240,7 +241,7 @@ END IF 'quick check
 'one element: no operators to bracket (E, F and G change nothing)
 IF n = 1 THEN GOTO fooonelement
 NOT_recheck:
-fooN = splitelements(a$, fooel())
+IF a$ <> fooelOf$ THEN fooN = splitelements(a$, fooel()): fooelOf$ = a$
 IF n > UBOUND(fooop) THEN REDIM fooop(1 TO n + 16) AS LONG
 lco = 255
 hco = 0
@@ -365,7 +366,8 @@ udtMethodObjectStart = 0
 lastt = 0: lastti = 0
 'the elements in fooel: an element is replaced there (fooreplace), a$ is made again from
 'them (foojoin) before it is read as a whole
-fooN = splitelements(a$, fooel()): foodirty = 0
+IF a$ <> fooelOf$ THEN fooN = splitelements(a$, fooel()): fooelOf$ = a$
+foodirty = 0
 FOR i = 1 TO n
     IF i <= fooN THEN f2$ = fooel(i) ELSE f2$ = ""
     lastc = c
@@ -985,7 +987,7 @@ ELSE
     IF foodirty THEN GOSUB foojoin
     removeelements a$, i, i, 0
     insertelements a$, i - 1, fooval$
-    fooN = splitelements(a$, fooel())
+    fooN = splitelements(a$, fooel()): fooelOf$ = a$
 END IF
 RETURN
 
@@ -999,7 +1001,7 @@ ELSE
         a$ = a$ + sp + fooel(fooj)
     NEXT
 END IF
-foodirty = 0
+foodirty = 0: fooelOf$ = a$
 RETURN
 
 'nextc: the first character of element i + 1
