@@ -363,6 +363,7 @@ impl Mem {
     }
 
     /// `ldfs` into `dst`, reusing its buffer (no allocation per load of a `STRING * n`).
+    #[inline(never)]
     pub(crate) fn ldfs_into(&mut self, p: u64, len: u32, dst: &mut Vec<u8>) -> R<()> {
         let b = self.bytes(p, len as usize)?;
         dst.clear();

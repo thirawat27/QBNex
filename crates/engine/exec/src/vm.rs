@@ -1214,6 +1214,8 @@ impl<'m, 'o> Vm<'m, 'o> {
     }
 
     /// Module-level string `g` = g + a [+ bb] (`Ins::AppGS`), in its own buffer.
+    // (out of the interpreter loop: inlined, these helpers slowed down its dispatch)
+    #[inline(never)]
     fn app_gs(&mut self, g: R, a: R, bb: R) -> Result<(), i32> {
         let g = g as usize;
         let la = self.sget(a).len();
@@ -1730,8 +1732,15 @@ impl<'m, 'o> Vm<'m, 'o> {
         }
     }
 
-    /// Frees the window of `fr`, the frame just removed from `frames`.
-    #[inline]
+    /// Storage of the variable group `g` (`Ins::NewVA`), owned by the current frame.
+    #[inline(never)]
+    fn new_frame(&mut self, g: u32) -> u64 {
+        let (p, id) = self.mem.new_frame(g, self.m.vgroups[g as usize].size);
+        self.owned.push(id);
+        self.vbase = p;
+        p
+    }
+
     /// String registers for a new frame of `n` registers, after `str_top` (empty: the
     /// registers of returned frames were emptied by `drop_window`).
     fn push_strs(&mut self, n: u32) {
@@ -1742,6 +1751,7 @@ impl<'m, 'o> Vm<'m, 'o> {
         self.str_top = end;
     }
 
+    /// Frees the window of `fr`, the frame just removed from `frames`.
     fn drop_window(&mut self, fr: &Frame) {
         self.nums.truncate(fr.nb);
         // the registers stay, emptied, with their buffers for the registers of later calls
@@ -2840,9 +2850,7 @@ impl<'m, 'o> Vm<'m, 'o> {
                     seti!(d, w.wrap(n))
                 }
                 Ins::NewVA { d, g } => {
-                    let (p, id) = self.mem.new_frame(g, m.vgroups[g as usize].size);
-                    self.owned.push(id);
-                    self.vbase = p;
+                    let p = self.new_frame(g);
                     set!(d, p)
                 }
                 Ins::NewVO { d, off } => set!(d, self.vbase.wrapping_add(u64::from(off))),
