@@ -521,6 +521,50 @@ pub(crate) fn pure(name: &str) -> Option<Pure> {
     })
 }
 
+/// The part of `s` that a string [`Pure`] builtin of one string argument keeps
+/// (UCASE$ / LCASE$ keep all of it, the TRIMs cut spaces), `None` for the others.
+fn pure_str_range(p: Pure, s: &[u8]) -> Option<(usize, usize)> {
+    let left = |s: &[u8], end: usize| s[..end].iter().position(|c| *c != b' ').unwrap_or(end);
+    let right = |s: &[u8]| s.iter().rposition(|c| *c != b' ').map_or(0, |p| p + 1);
+    Some(match p {
+        Pure::UCase | Pure::LCase => (0, s.len()),
+        Pure::LTrim => (left(s, s.len()), s.len()),
+        Pure::RTrim => (0, right(s)),
+        Pure::Trim => {
+            let r = right(s);
+            (left(s, r), r)
+        }
+        _ => return None,
+    })
+}
+
+fn pure_str_case(p: Pure, v: &mut [u8]) {
+    match p {
+        Pure::UCase => v.make_ascii_uppercase(),
+        Pure::LCase => v.make_ascii_lowercase(),
+        _ => {}
+    }
+}
+
+/// UCASE$, LCASE$, LTRIM$, RTRIM$, _TRIM$ of `s` into `dst`, reusing its buffer (the
+/// result `pure_call` gives); false (nothing written) for the other builtins.
+pub(crate) fn pure_str_into(p: Pure, s: &[u8], dst: &mut Vec<u8>) -> bool {
+    let Some((a, b)) = pure_str_range(p, s) else { return false };
+    dst.clear();
+    dst.extend_from_slice(&s[a..b]);
+    pure_str_case(p, dst);
+    true
+}
+
+/// As [`pure_str_into`], the argument being `v` itself.
+pub(crate) fn pure_str_in_place(p: Pure, v: &mut Vec<u8>) -> bool {
+    let Some((a, b)) = pure_str_range(p, v) else { return false };
+    v.truncate(b);
+    v.drain(..a);
+    pure_str_case(p, v);
+    true
+}
+
 /// Runs the [`Pure`] builtin `p`; `s` is its string argument (or empty), `v` its
 /// other argument.
 pub(crate) fn pure_call(p: Pure, s: &[u8], v: &V) -> R<V> {

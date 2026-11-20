@@ -53,6 +53,9 @@ pub(crate) struct Mem {
     pub(crate) group_strs: Vec<Vec<(u32, u32)>>,
 }
 
+/// Largest buffer a freed string handle keeps for its next string.
+const FREE_STR_KEEP: usize = 1 << 14;
+
 /// Largest variable whose storage `Mem::var_pool` keeps, and how many per size.
 const VAR_POOL_MAX: usize = 1 << 16;
 const VAR_POOL_PER_SIZE: usize = 64;
@@ -169,7 +172,13 @@ impl Mem {
 
     fn free_str(&mut self, h: u64) {
         if h != 0 && (h as usize) < self.strs.len() {
-            self.strs[h as usize] = Vec::new();
+            // a small buffer stays with the handle for the next new_str
+            let v = &mut self.strs[h as usize];
+            if v.capacity() > FREE_STR_KEEP {
+                *v = Vec::new();
+            } else {
+                v.clear();
+            }
             self.free_strs.push(h);
         }
     }
@@ -179,7 +188,9 @@ impl Mem {
             return 0;
         }
         if let Some(h) = self.free_strs.pop() {
-            self.strs[h as usize] = s.to_vec();
+            let v = &mut self.strs[h as usize];
+            v.clear();
+            v.extend_from_slice(s);
             h
         } else {
             self.strs.push(s.to_vec());
@@ -478,6 +489,17 @@ impl Mem {
     }
 
     pub(crate) fn aaddr(&mut self, desc: u64, idx: &[i64]) -> R<u64> {
+        // one subscript of a dimensioned array: the common case, one block lookup
+        if desc & ARR_TAG != 0
+            && let (Some(Block::Arr(a)), &[i]) = (self.blocks.get((desc & !ARR_TAG) as usize), idx)
+            && let (Some(d), &[(lo, hi)]) = (a.data, a.dims.as_slice())
+        {
+            if i < lo || i > hi {
+                return Err(9);
+            }
+            let off = (i - lo) * i64::from(a.esize);
+            return Ok(self.block_addr(d).wrapping_add(off as u64));
+        }
         let a = self.arr(desc)?;
         if a.data.is_none() && !a.erased && !idx.is_empty() {
             // never dimensioned: QBasic's implicit DIM name(10) (the register model's arr_at)

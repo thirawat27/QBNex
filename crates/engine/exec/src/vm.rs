@@ -1313,6 +1313,18 @@ impl<'m, 'o> Vm<'m, 'o> {
         let (name, rty) = m.rtfns[f as usize];
         let a = &m.bargs[args as usize];
         let res = match (self.pure.get(f as usize).copied().flatten(), a.as_slice()) {
+            // UCASE$, the TRIMs, ...: the result into the destination's own buffer
+            (Some(p), &[(r, Ty::Str)]) if rty == Some(Ty::Str) && d != NONE && {
+                let i = self.sb + d as usize;
+                if r == d {
+                    rt::builtins::pure_str_in_place(p, &mut self.strs[i])
+                } else {
+                    let src: *const [u8] = self.sget(r);
+                    // SAFETY: r != d, so the argument is another buffer (a register, a
+                    // constant, a module-level or a memory string) than the destination
+                    rt::builtins::pure_str_into(p, unsafe { &*src }, &mut self.strs[i])
+                }
+            } => return Ok(None),
             // one argument: no argument vector, no name dispatch
             (Some(p), &[(r, Ty::Str)]) => rt::builtins::pure_call(p, self.sget(r), &V::I(0)).map(Some),
             (Some(p), &[(r, ty)]) => rt::builtins::pure_call(p, b"", &self.rt_arg(r, ty)).map(Some),
