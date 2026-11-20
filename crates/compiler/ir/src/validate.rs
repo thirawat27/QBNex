@@ -2,7 +2,9 @@
 
 use crate::print::inst_text;
 use crate::*;
-use std::collections::{HashMap, HashSet};
+// FxHash: the validator hashes every name and register of a program (SipHash was a
+// visible part of the start of a large program)
+use rustc_hash::{FxHashMap as HashMap, FxHashSet as HashSet};
 
 fn bad<T>(f: &str, msg: impl Into<String>) -> Result<T, IrError> {
     Err(IrError { line: 0, msg: format!("{f}: {}", msg.into()) })
@@ -106,7 +108,7 @@ fn func_def_ty(m: &Module, funcs: &HashMap<&str, &Func>, i: &Inst) -> Option<(Re
 }
 
 fn labels(f: &Func) -> Result<HashSet<&str>, IrError> {
-    let mut s = HashSet::new();
+    let mut s = HashSet::default();
     for i in &f.body {
         if let Inst::Label(l) = i
             && !s.insert(l.as_str()) {
@@ -123,8 +125,8 @@ fn check_func<'m>(
     globals: &'m HashMap<&'m str, &'m VarDecl>,
     main_labels: &HashSet<&str>,
 ) -> Result<(), IrError> {
-    let mut vars: HashMap<&str, &VarDecl> = HashMap::new();
-    let mut own = HashSet::new();
+    let mut vars: HashMap<&str, &VarDecl> = HashMap::default();
+    let mut own = HashSet::default();
     for d in f.params.iter().chain(&f.locals) {
         if !own.insert(d.name.as_str()) {
             return bad(&f.name, format!("variable {} declared twice", d.name));
@@ -137,7 +139,7 @@ fn check_func<'m>(
         vars.insert(&d.name, d);
     }
     let lbl = labels(f)?;
-    let mut regs: HashMap<Reg, Ty> = HashMap::new();
+    let mut regs: HashMap<Reg, Ty> = HashMap::default();
     for i in &f.body {
         if let Some((r, t)) = def(i).or_else(|| func_def_ty(m, funcs, i))
             && let Some(old) = regs.insert(r, t)
@@ -412,13 +414,13 @@ pub fn validate(m: &Module) -> Result<(), IrError> {
         return bad("main", "main takes no parameters and returns nothing");
     }
     // functions by name (`Module::func` searches the list)
-    let mut funcs = HashMap::new();
+    let mut funcs = HashMap::default();
     for f in &m.funcs {
         if funcs.insert(f.name.as_str(), f).is_some() {
             return bad("module", format!("function {} defined twice", f.name));
         }
     }
-    let mut tnames = HashSet::new();
+    let mut tnames = HashSet::default();
     for t in &m.types {
         if !tnames.insert(t.name.as_str()) {
             return bad("module", format!("type {} defined twice", t.name));
@@ -435,7 +437,7 @@ pub fn validate(m: &Module) -> Result<(), IrError> {
             }
         }
     }
-    let mut gnames = HashSet::new();
+    let mut gnames = HashSet::default();
     for g in &m.globals {
         if !gnames.insert(g.name.as_str()) {
             return bad("module", format!("global {} declared twice", g.name));

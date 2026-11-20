@@ -12,3 +12,5 @@ name = "qb_ir"
 path = "src/lib.rs"
 
 [dependencies]
+# fast hashing of names and registers while a program loads
+rustc-hash = "2.1"

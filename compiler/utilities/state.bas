@@ -36,3 +36,14 @@ DIM SHARED pathCaseListings AS STRING
 DIM SHARED tmpdir AS STRING
 DIM SHARED tempfolderindex
 DIM SHARED tempfolderindexstr AS STRING
+
+' Token index (utilities/tokens.bas): a line of elements separated by sp is kept as the
+' positions of its elements, for the four lines used last (round robin), so that
+' getelement$, numelements, getelements$ and elementpos find an element without
+' scanning the line. Slot s (0-3) holds the text tkSrc<s+1>, its element count
+' tkCnt(s) and the first character of element k at tkPos(s * tkStride + k)
+' (tkPos(s * tkStride + count + 1) = LEN + 2, one past the end).
+DIM SHARED tkSrc1 AS STRING, tkSrc2 AS STRING, tkSrc3 AS STRING, tkSrc4 AS STRING
+DIM SHARED tkCnt(0 TO 3) AS LONG, tkNext AS LONG, tkStride AS LONG
+tkStride = 256
+REDIM SHARED tkPos(0 TO 4 * tkStride - 1) AS LONG

@@ -437,6 +437,9 @@ struct EvShared {
 #[derive(Clone)]
 pub struct EventHandle(Arc<EvShared>);
 
+/// Largest buffer a returned frame's string register keeps (`Vm::str_top`).
+const SPARE_STR_MAX: usize = 1 << 14;
+
 /// Event bit of the `QB_PROFILE` sampler.
 const PROFILE_EV: u32 = 31;
 
@@ -631,6 +634,13 @@ pub struct Vm<'m, 'o> {
     /// addressable memory (QIR TYPE / STRING * n / pointers)
     mem: crate::mem::Mem,
     owned: Vec<u32>,
+    /// End of the string registers of the active frames. `strs` stays longer: the
+    /// registers of returned frames keep their (emptied) buffers for the next calls,
+    /// so a string assigned in a SUB/FUNCTION does not allocate (and free at the
+    /// return) on every call.
+    str_top: usize,
+    /// storage of the variable group the last `NewVA` created (for the `NewVO` after it)
+    vbase: u64,
     /// attached debugger (feature `debug`)
     #[cfg(feature = "debug")]
     dbg: Option<debug::DebugState>,
@@ -818,9 +828,12 @@ impl<'m, 'o> Vm<'m, 'o> {
             mem: {
                 let mut mem = crate::mem::Mem::new();
                 mem.option_base = m.option_base;
+                mem.group_strs = m.vgroups.iter().map(|g| g.strs.clone()).collect();
                 mem
             },
+            vbase: 0,
             owned: Vec::new(),
+            str_top: main.n_str as usize,
             #[cfg(feature = "debug")]
             dbg: None,
         }
@@ -977,9 +990,9 @@ impl<'m, 'o> Vm<'m, 'o> {
         for (f, regs, call_pc) in frames {
             let Ins::Call { desc, .. } = self.m.code[call_pc as usize] else { unreachable!("chain points at a CALL") };
             let func = &self.m.funcs[f as usize];
-            let (nb, sb, ab) = (self.nums.len(), self.strs.len(), self.arrs.len());
+            let (nb, sb, ab) = (self.nums.len(), self.str_top, self.arrs.len());
             self.nums.extend_from_slice(&regs[..func.n_num() as usize]);
-            self.strs.resize_with(sb + func.n_str as usize, Vec::new);
+            self.push_strs(func.n_str);
             self.arrs.resize_with(ab + func.n_arr() as usize, || None);
             self.frames.push(Frame { owned: self.owned.len(), func: f, ret: call_pc + 1, nb, sb, ab, caller_view: self.view, desc, refs: self.refs.len() });
             self.set_view(self.frames.len() - 1);
@@ -1112,6 +1125,7 @@ impl<'m, 'o> Vm<'m, 'o> {
         self.nums.extend_from_slice(&main.num_init);
         self.strs.clear();
         self.strs.resize_with(main.n_str as usize, Vec::new);
+        self.str_top = main.n_str as usize;
         let n = main.n_arr() as usize;
         self.arrs.truncate(n);
         for a in &mut self.arrs {
@@ -1166,6 +1180,8 @@ impl<'m, 'o> Vm<'m, 'o> {
             &self.m.kstr[(r & !K) as usize]
         } else if r & M != 0 {
             self.mem.peek_str(self.nums[self.nb + (r & !M) as usize])
+        } else if r & GS != 0 {
+            &self.strs[(r & !GS) as usize]
         } else {
             &self.strs[self.sb + r as usize]
         }
@@ -1195,6 +1211,38 @@ impl<'m, 'o> Vm<'m, 'o> {
         dst.clear();
         // SAFETY: s != d, so src is another buffer (or a constant) that `dst` does not alias
         dst.extend_from_slice(unsafe { &*src });
+    }
+
+    /// Module-level string `g` = g + a [+ bb] (`Ins::AppGS`), in its own buffer.
+    // (out of the interpreter loop: inlined, these helpers slowed down its dispatch)
+    #[inline(never)]
+    fn app_gs(&mut self, g: R, a: R, bb: R) -> Result<(), i32> {
+        let g = g as usize;
+        let la = self.sget(a).len();
+        let lb = if bb == NONE { 0 } else { self.sget(bb).len() };
+        if self.strs[g].len() + la + lb > MAX_STR {
+            return Err(14);
+        }
+        // a part that is the global itself (not produced by the lowering, but cheap to allow)
+        let own = |vm: &Self, r: R| r != NONE && r & K == 0 && r & M == 0 && (if r & GS != 0 { (r & !GS) as usize } else { vm.sb + r as usize }) == g;
+        if own(self, a) || own(self, bb) {
+            let mut v = self.strs[g].clone();
+            v.extend_from_slice(self.sget(a));
+            if bb != NONE {
+                v.extend_from_slice(self.sget(bb));
+            }
+            self.strs[g] = v;
+            return Ok(());
+        }
+        self.strs[g].try_reserve(la + lb).map_err(|_| 14)?;
+        let x: *const [u8] = self.sget(a);
+        // SAFETY: neither part is g's buffer (checked above), so the reservation did not move them
+        self.strs[g].extend_from_slice(unsafe { &*x });
+        if bb != NONE {
+            let y: *const [u8] = self.sget(bb);
+            self.strs[g].extend_from_slice(unsafe { &*y });
+        }
+        Ok(())
     }
 
     /// d = a + bb; error 14 (out of string space) past [`MAX_STR`] or when the
@@ -1267,6 +1315,18 @@ impl<'m, 'o> Vm<'m, 'o> {
         let (name, rty) = m.rtfns[f as usize];
         let a = &m.bargs[args as usize];
         let res = match (self.pure.get(f as usize).copied().flatten(), a.as_slice()) {
+            // UCASE$, the TRIMs, ...: the result into the destination's own buffer
+            (Some(p), &[(r, Ty::Str)]) if rty == Some(Ty::Str) && d != NONE && {
+                let i = self.sb + d as usize;
+                if r == d {
+                    rt::builtins::pure_str_in_place(p, &mut self.strs[i])
+                } else {
+                    let src: *const [u8] = self.sget(r);
+                    // SAFETY: r != d, so the argument is another buffer (a register, a
+                    // constant, a module-level or a memory string) than the destination
+                    rt::builtins::pure_str_into(p, unsafe { &*src }, &mut self.strs[i])
+                }
+            } => return Ok(None),
             // one argument: no argument vector, no name dispatch
             (Some(p), &[(r, Ty::Str)]) => rt::builtins::pure_call(p, self.sget(r), &V::I(0)).map(Some),
             (Some(p), &[(r, ty)]) => rt::builtins::pure_call(p, b"", &self.rt_arg(r, ty)).map(Some),
@@ -1672,11 +1732,37 @@ impl<'m, 'o> Vm<'m, 'o> {
         }
     }
 
+    /// Storage of the variable group `g` (`Ins::NewVA`), owned by the current frame.
+    #[inline(never)]
+    fn new_frame(&mut self, g: u32) -> u64 {
+        let (p, id) = self.mem.new_frame(g, self.m.vgroups[g as usize].size);
+        self.owned.push(id);
+        self.vbase = p;
+        p
+    }
+
+    /// String registers for a new frame of `n` registers, after `str_top` (empty: the
+    /// registers of returned frames were emptied by `drop_window`).
+    fn push_strs(&mut self, n: u32) {
+        let end = self.str_top + n as usize;
+        if self.strs.len() < end {
+            self.strs.resize_with(end, Vec::new);
+        }
+        self.str_top = end;
+    }
+
     /// Frees the window of `fr`, the frame just removed from `frames`.
-    #[inline]
     fn drop_window(&mut self, fr: &Frame) {
         self.nums.truncate(fr.nb);
-        self.strs.truncate(fr.sb);
+        // the registers stay, emptied, with their buffers for the registers of later calls
+        for v in &mut self.strs[fr.sb..self.str_top] {
+            if v.capacity() > SPARE_STR_MAX {
+                *v = Vec::new();
+            } else {
+                v.clear();
+            }
+        }
+        self.str_top = fr.sb;
         self.arrs.truncate(fr.ab);
         self.refs.truncate(fr.refs);
         self.free_owned(fr.owned);
@@ -1746,12 +1832,12 @@ impl<'m, 'o> Vm<'m, 'o> {
         let func = &m.funcs[f as usize];
         let cd = &m.calls[desc as usize];
         let cx = self.cur_ctx();
-        let (nb, sb, ab) = (self.nums.len(), self.strs.len(), self.arrs.len());
+        let (nb, sb, ab) = (self.nums.len(), self.str_top, self.arrs.len());
         if self.frames.len() > 100_000 {
             return Err(7); // out of stack space (QB: error 7 / 28)
         }
         self.nums.extend_from_slice(&func.num_init);
-        self.strs.resize_with(sb + func.n_str as usize, Vec::new);
+        self.push_strs(func.n_str);
         self.arrs.resize_with(ab + func.n_arr() as usize, || None);
         let fr = Frame { owned: self.owned.len(), func: f, ret, nb, sb, ab, caller_view: self.view, desc, refs: self.refs.len() };
         for (k, (arg, &slot)) in cd.args.iter().zip(&func.params).enumerate() {
@@ -1833,7 +1919,8 @@ impl<'m, 'o> Vm<'m, 'o> {
                         self.nums[cx.nb + d as usize + 1] = self.nums[fr.nb + r as usize + 1];
                     }
                 }
-                Slot::S(r) => self.strs[cx.sb + d as usize] = std::mem::take(&mut self.strs[fr.sb + r as usize]),
+                // the caller's former buffer goes to the callee's register (kept by drop_window)
+                Slot::S(r) => self.strs.swap(cx.sb + d as usize, fr.sb + r as usize),
                 Slot::A(_) | Slot::R(_) => {}
             }
         }
@@ -2762,6 +2849,11 @@ impl<'m, 'o> Vm<'m, 'o> {
                     };
                     seti!(d, w.wrap(n))
                 }
+                Ins::NewVA { d, g } => {
+                    let p = self.new_frame(g);
+                    set!(d, p)
+                }
+                Ins::NewVO { d, off } => set!(d, self.vbase.wrapping_add(u64::from(off))),
                 Ins::NewV { d, v } => {
                     let (p, id) = self.mem.new_var(&m.mvars[v as usize]);
                     self.owned.push(id);
@@ -2800,8 +2892,10 @@ impl<'m, 'o> Vm<'m, 'o> {
                     }
                 }
                 Ins::LdFs { d, p, off, len } => {
-                    let v = tryc!(self.mem.ldfs(r!(p).wrapping_add(u64::from(off)), len));
-                    *self.sdst(d) = v;
+                    // into the register's own buffer (no allocation per load)
+                    let a = r!(p).wrapping_add(u64::from(off));
+                    let i = self.sb + d as usize;
+                    tryc!(self.mem.ldfs_into(a, len, &mut self.strs[i]));
                 }
                 Ins::StFs { p, off, len, s } => {
                     let v: *const [u8] = self.sget(s);
@@ -3029,6 +3123,7 @@ impl<'m, 'o> Vm<'m, 'o> {
                         dst.extend_from_slice(unsafe { &*src });
                     }
                 }
+                Ins::AppGS { g, a, b: y } => tryc!(self.app_gs(g, a, y)),
                 Ins::Concat { d, a, b: y } => tryc!(self.concat(d, a, y)),
                 Ins::LenS { d, s } => seti!(d, self.sget(s).len() as i64),
                 Ins::Chr { d, s } => {

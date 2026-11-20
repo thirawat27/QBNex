@@ -1530,10 +1530,23 @@ DIM SHARED incRangeFrom AS LONG, incRangeTo AS LONG, incRangeSkip AS LONG, incRa
                                 '----------------------------------------
                                 a$ = ""
                                 ca$ = ""
+                                'the statement is elements ppfirst to wholelinei - 1 of the line, cut out
+                                'of it at its end (appending element by element was most of the prepass)
+                                ppfirst = wholelinei
                                 ppblda:
                                 e$ = getelement$(wholeline$, wholelinei)
-                                ce$ = getelement$(cwholeline$, wholelinei)
                                 IF e$ = ":" OR e$ = "ELSE" OR e$ = "THEN" OR e$ = "" THEN
+                                    IF wholelinei > ppfirst THEN
+                                        a$ = getelements$(wholeline$, ppfirst, wholelinei - 1)
+                                        IF wholelinei - 1 <= numelements(cwholeline$) THEN
+                                            ca$ = getelements$(cwholeline$, ppfirst, wholelinei - 1)
+                                        ELSE
+                                            'elements past the end of cwholeline$ are empty
+                                            FOR ppi = ppfirst TO wholelinei - 1
+                                                IF ppi = ppfirst THEN ca$ = getelement$(cwholeline$, ppi) ELSE ca$ = ca$ + sp + getelement$(cwholeline$, ppi)
+                                            NEXT
+                                        END IF
+                                    END IF
                                     IF LEN(a$) THEN
                                         n = numelements(a$)
                                         firstelement$ = getelement(a$, 1)
@@ -2295,8 +2308,7 @@ DIM SHARED incRangeFrom AS LONG, incRangeTo AS LONG, incRangeSkip AS LONG, incRa
                                             END IF
                                             a$ = ""
                                             ca$ = ""
-                                        ELSE
-                                            IF a$ = "" THEN a$ = e$: ca$ = ce$ ELSE a$ = a$ + sp + e$: ca$ = ca$ + sp + ce$
+                                            ppfirst = wholelinei + 1
                                         END IF
                                         IF wholelinei <= wholelinen THEN wholelinei = wholelinei + 1: GOTO ppblda
                                         '----------------------------------------
@@ -2797,6 +2809,8 @@ DIM SHARED incRangeFrom AS LONG, incRangeTo AS LONG, incRangeSkip AS LONG, incRa
 
     a$ = ""
 
+    'The command is elements start to i - 1 of entireline$: it is joined where the scan
+    'stops (joinelements$, as appending each element did) instead of element by element.
     FOR i = start TO n
         e$ = getelement(u$, i)
 
@@ -2808,15 +2822,19 @@ DIM SHARED incRangeFrom AS LONG, incRangeTo AS LONG, incRangeSkip AS LONG, incRa
                 GOTO finishednonexec
             END IF
             IF i <> n THEN continuelinefrom = i
+            a$ = joinelements$(entireline$, start, i - 1)
             GOTO gotcommand
         END IF
 
 
         'begin scanning an 'IF' statement
-        IF e$ = "IF" AND a$ = "" THEN newif = 1
+        IF e$ = "IF" THEN
+            IF joinelements$(entireline$, start, i - 1) = "" THEN newif = 1
+        END IF
 
 
         IF e$ = "THEN" OR (e$ = "GOTO" AND newif = 1) THEN
+            a$ = joinelements$(entireline$, start, i - 1)
             IF newif = 0 THEN a$ = "THEN without IF": GOTO errmes
             newif = 0
             IF lineelseused > 0 THEN lineelseused = lineelseused - 1
@@ -2852,12 +2870,12 @@ DIM SHARED incRangeFrom AS LONG, incRangeTo AS LONG, incRangeSkip AS LONG, incRa
 
             'apply everything up to (but not including) 'ELSE'
             continuelinefrom = i
+            a$ = joinelements$(entireline$, start, i - 1)
             GOTO gotcommand
         END IF '"ELSE"
-
-
-        e$ = getelement(entireline$, i): IF a$ = "" THEN a$ = e$ ELSE a$ = a$ + sp + e$
     NEXT
+    a$ = joinelements$(entireline$, start, n)
+    IF n >= start THEN e$ = getelement(entireline$, n) 'as the last element appended left it
 
 
     'we're reached the end of the line

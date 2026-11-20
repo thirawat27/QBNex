@@ -21,7 +21,9 @@
 //! arithmetic, GET/PUT of variables) are lowered in memory mode, where only
 //! the variables that need an address live in `mem::Mem`.
 
-use std::collections::HashMap;
+// FxHash: lowering hashes every variable, label and constant of a program (SipHash
+// was a visible part of the start of a large program)
+use rustc_hash::{FxHashMap as HashMap, FxHashSet};
 
 use crate::bytecode::*;
 use qb_ir::{self as ir, BinOp, CmpOp, DimKind, Inst, Lit, ResumeKind, StoreTy, Ty as IT, UnOp, VarKind};
@@ -207,8 +209,8 @@ fn mty(t: IT) -> MTy {
 }
 
 /// Names a function's body refers to through variables.
-fn var_names(f: &ir::Func) -> std::collections::HashSet<&str> {
-    let mut n = std::collections::HashSet::new();
+fn var_names(f: &ir::Func) -> FxHashSet<&str> {
+    let mut n = FxHashSet::default();
     for i in &f.body {
         match i {
             Inst::Load { var, .. }
@@ -252,7 +254,7 @@ struct Frame {
     arr_tys: Vec<Ty>,
     consts: HashMap<(u64, bool), R>,
     /// the registers of `consts` (asked for at every store)
-    const_regs: std::collections::HashSet<R>,
+    const_regs: FxHashSet<R>,
     /// first numeric register that is not a variable (temporaries, QIR registers, constants)
     n_vars: u32,
     n_svars: u32,
@@ -453,15 +455,24 @@ struct Lw<'a> {
     /// memory mode: variables that need an address live in `Mem` blocks
     mem: bool,
     /// (scope, name) of variables whose address is taken; scope = function index, MAX = module
-    taken: std::collections::HashSet<(usize, String)>,
+    taken: FxHashSet<(usize, String)>,
     /// register mode: (function, parameter) of the BYREF parameters that refer to
     /// their argument instead of holding a copy (`byref.rs`)
-    refs: std::collections::HashSet<(usize, usize)>,
+    refs: FxHashSet<(usize, usize)>,
     /// instructions run on entry of each function (storage of memory-backed variables)
     prologue: Vec<Vec<Ins>>,
     /// register-table entries the functions may still allocate (see `function`)
     reg_budget: usize,
+    /// memory mode: QIR instructions before this index of the function body are already
+    /// lowered (field copies merged into one `CopyM`, see `copy_run`)
+    copy_skip: usize,
+    /// register mode: QIR instructions of `g$ = g$ + a [+ b]` on a module-level string
+    /// (`app_chain`): at its index, nothing or the `AppGS` (g, a, b) is emitted
+    app_plan: Vec<(usize, Option<AppGs>)>,
 }
+
+/// An `AppGS` to emit: the module-level string and the QIR registers of the parts.
+type AppGs = (R, u32, Option<u32>);
 
 /// Lowers a QIR module to bytecode, or says why it cannot.
 /// Register mode first; programs that need addressable storage (TYPE,
@@ -495,24 +506,26 @@ fn compile_mode(src: &ir::Module, mem: bool) -> Res<Module> {
                 xfns: src.extfns.iter().filter_map(xfn).collect(),
                 ..Module::default()
             },
-        kstr: HashMap::new(),
-        labels: HashMap::new(),
+        kstr: HashMap::default(),
+        labels: HashMap::default(),
         fixups: Vec::new(),
         barrier: 0,
+        copy_skip: 0,
+        app_plan: Vec::new(),
         fidx,
         fnames: src.funcs.iter().map(|f| (f.name.as_str(), f)).collect(),
-        globals: HashMap::new(),
+        globals: HashMap::default(),
         frames: Vec::from_fn(order.len(), |_| Frame::default()),
         mem,
-        taken: std::collections::HashSet::new(),
-        refs: if mem { std::collections::HashSet::new() } else { crate::byref::reference_params(src, &order) },
+        taken: FxHashSet::default(),
+        refs: if mem { FxHashSet::default() } else { crate::byref::reference_params(src, &order).into_iter().collect() },
         prologue: vec![Vec::new(); order.len()],
         reg_budget: src.funcs.iter().map(|f| f.body.len()).sum::<usize>().saturating_mul(4) + (1 << 16),
     };
     if mem {
         for (k, &fi) in order.iter().enumerate() {
             let f = &src.funcs[fi];
-            let own: std::collections::HashSet<&str> = f.params.iter().chain(&f.locals).map(|d| d.name.as_str()).collect();
+            let own: FxHashSet<&str> = f.params.iter().chain(&f.locals).map(|d| d.name.as_str()).collect();
             for i in &f.body {
                 if let Inst::Addr { var, .. } | Inst::ARef { var, .. } | Inst::AAddr { var, .. } = i {
                     let scope = if own.contains(var.as_str()) { k } else { usize::MAX };
@@ -526,7 +539,7 @@ fn compile_mode(src: &ir::Module, mem: bool) -> Res<Module> {
         let v = lw.alloc_var(0, g, usize::MAX)?;
         lw.globals.insert(g.name.clone(), v);
     }
-    let mut statics: Vec<HashMap<String, Var>> = vec![HashMap::new(); order.len()];
+    let mut statics: Vec<HashMap<String, Var>> = vec![HashMap::default(); order.len()];
     for (k, &fi) in order.iter().enumerate() {
         for l in src.funcs[fi].locals.iter().filter(|l| l.kind == VarKind::Static) {
             let v = lw.alloc_var(0, l, k)?;
@@ -534,7 +547,7 @@ fn compile_mode(src: &ir::Module, mem: bool) -> Res<Module> {
         }
     }
     let mut funcs = Vec::new();
-    let mut const_sets: Vec<std::collections::HashSet<R>> = Vec::new();
+    let mut const_sets: Vec<FxHashSet<R>> = Vec::new();
     for (k, &fi) in order.iter().enumerate() {
         let f = &src.funcs[fi];
         let entry = lw.m.code.len() as u32;
@@ -642,7 +655,7 @@ impl<'a> Lw<'a> {
         // globals (module view). Looked up in that order instead of copying every
         // global into a per-function map, which cost globals x functions copies.
         let globals = std::mem::take(&mut self.globals);
-        let mut vars: HashMap<&'a str, Var> = HashMap::new();
+        let mut vars: HashMap<&'a str, Var> = HashMap::default();
         for l in f.locals.iter().filter(|l| l.kind == VarKind::Static) {
             if let Some(v) = statics.get(&l.name) {
                 vars.insert(l.name.as_str(), to_global(*v));
@@ -818,13 +831,29 @@ impl<'a> Lw<'a> {
         // QIR register -> variable whose register it aliases
         let mut alias_var = vec![None::<&str>; n_regs];
         let mut rg = FnRegs { rty, defs, uses, rmap, alias_src: vec![None; n_regs] };
-        for i in std::mem::take(&mut self.prologue[k]) {
-            self.emit(i);
-        }
+        let prologue = std::mem::take(&mut self.prologue[k]);
+        self.emit_prologue(prologue);
         self.barrier = self.pc();
         let body = &f.body;
+        LabelRefs::set(body);
+        self.copy_skip = 0;
+        self.app_plan.clear();
         for (ii, ins) in body.iter().enumerate() {
+            if ii < self.copy_skip {
+                continue;
+            }
             reg_macros!(self, rg, k);
+            if let Some(at) = self.app_plan.iter().position(|p| p.0 == ii) {
+                if let (_, Some((g, a, b))) = self.app_plan.swap_remove(at) {
+                    let a = sreg!(a);
+                    let b = match b {
+                        Some(b) => sreg!(b),
+                        None => NONE,
+                    };
+                    self.emit(Ins::AppGS { g, a, b });
+                }
+                continue;
+            }
             macro_rules! var {
                 ($n:expr) => {
                     lookup_var(&vars, &globals, k, $n.as_str()).ok_or_else(|| format!("unknown variable {}", $n))?
@@ -1032,6 +1061,17 @@ impl<'a> Lw<'a> {
                         Var::NG(g, _) => {
                             let d = nreg!(*dst);
                             self.emit(Ins::GetG { d, g });
+                        }
+                        Var::SG(g) if rg.single(*dst) && rg.rmap[*dst as usize].is_none() && str_read_only(body, ii, *dst) => {
+                            // its only reader takes the string from the module-level register: no copy
+                            rg.rmap[*dst as usize] = Some(Rg::S(g | GS));
+                        }
+                        Var::SG(g) if let Some((steps, a, b)) = app_chain(body, ii, var, &|r| rg.single(r)) => {
+                            // g$ = g$ + a [+ b]: appended in place (the load copied all of g$)
+                            let last = *steps.iter().rev().nth(1).expect("a concat and the store");
+                            for &j in &steps {
+                                self.app_plan.push((j, if j == last { Some((g, a, b)) } else { None }));
+                            }
                         }
                         Var::SG(g) => {
                             let d = sreg!(*dst);
@@ -1661,7 +1701,8 @@ impl<'a> Lw<'a> {
             }
             Inst::Copy { dst, src, size } => {
                 let (d, sr) = (nreg!(*dst), nreg!(*src));
-                self.emit(Ins::CopyM { d, s: sr, n: *size });
+                let n = *size + self.copy_run(k, rg, body, ii);
+                self.emit(Ins::CopyM { d, s: sr, n });
                 return Ok(true);
             }
             Inst::Dim { kind, var, bounds } => {
@@ -1861,6 +1902,101 @@ impl<'a> Lw<'a> {
         Ok(())
     }
 
+    /// Emits a function's entry code. A run of `NewV` of scalar variables becomes one
+    /// block for all of them (`NewVA`, then a `NewVO` per further variable): every call
+    /// creates the memory-backed variables of its frame, and one allocation instead
+    /// of one per variable (BYREF arguments, TYPE locals, string temporaries) is most
+    /// of the cost of a call in a program like the compiler.
+    fn emit_prologue(&mut self, pro: Vec<Ins>) {
+        let scalar = |m: &Module, i: &Ins| matches!(*i, Ins::NewV { v, .. } if !m.mvars[v as usize].array);
+        let mut i = 0;
+        while i < pro.len() {
+            let mut j = i;
+            while j < pro.len() && scalar(&self.m, &pro[j]) {
+                j += 1;
+            }
+            if j - i < 2 {
+                self.emit(pro[i]);
+                i += 1;
+                continue;
+            }
+            let mut off = 0u32;
+            let mut place = Vec::new();
+            let mut strs = Vec::new();
+            for ins in &pro[i..j] {
+                let Ins::NewV { d, v } = *ins else { unreachable!("scalar NewV") };
+                let mv = self.m.mvars[v as usize];
+                let size = mv.size.max(1);
+                if mv.strs {
+                    strs.push((off, off + size));
+                }
+                place.push((d, off));
+                // 8-byte aligned, as the variables' own allocations were
+                off = (off + size).next_multiple_of(8);
+            }
+            let g = self.m.vgroups.len() as u32;
+            self.m.vgroups.push(VGroup { size: off, strs });
+            for (n, &(d, o)) in place.iter().enumerate() {
+                self.emit(if n == 0 { Ins::NewVA { d, g } } else { Ins::NewVO { d, off: o } });
+            }
+            i = j;
+        }
+    }
+
+    /// Value of QIR register `r` when it is a constant register of function `k`.
+    fn const_val(&self, k: usize, rg: &FnRegs, r: u32) -> Option<u64> {
+        match rg.rmap.get(r as usize).copied().flatten() {
+            Some(Rg::N(n)) if self.is_const(k, n) => self.frames[k].num_init.get(n as usize).copied(),
+            _ => None,
+        }
+    }
+
+    /// A TYPE assignment copies field by field: for each field, `padd` of the two
+    /// variables' addresses and the field offset, then `copy` of its size. `body[at]`
+    /// is such a copy; the copies of the next fields that continue it (the same two
+    /// bases, offsets right after it, temporaries used only by their copy) are merged
+    /// into it. Returns the bytes they add and sets `copy_skip` past them. String
+    /// fields are not copied with `copy`, so a run stops before one (and at any gap).
+    fn copy_run(&mut self, k: usize, rg: &FnRegs, body: &[Inst], at: usize) -> u32 {
+        let Inst::Copy { dst, src, size } = body[at] else { return 0 };
+        let single = |r: u32| rg.defs[r as usize] == 1 && rg.uses[r as usize] == 1;
+        // the two `padd` that made this copy's addresses
+        let padd = |i: usize, d: u32| match body.get(i) {
+            Some(&Inst::PAdd { dst: pd, ptr, off }) if pd == d => Some((ptr, off)),
+            _ => None,
+        };
+        let (Some(i1), Some(i2)) = (at.checked_sub(3), at.checked_sub(1)) else { return 0 };
+        let (Some((pa, oa)), Some((pb, ob))) = (padd(i1, dst), padd(i2, src)) else { return 0 };
+        if rg.defs[pa as usize] != 1 || rg.defs[pb as usize] != 1 {
+            return 0;
+        }
+        let (Some(oa), Some(ob)) = (self.const_val(k, rg, oa), self.const_val(k, rg, ob)) else { return 0 };
+        let mut total = u64::from(size);
+        let mut j = at + 1;
+        while let [Inst::Const { dst: ca, .. }, Inst::PAdd { dst: a, ptr: p1, off: o1 }, Inst::Const { dst: cb, .. }, Inst::PAdd { dst: b, ptr: p2, off: o2 }, Inst::Copy { dst: cd, src: cs, size: n }, ..] = &body[j..] {
+            let ok = o1 == ca
+                && o2 == cb
+                && p1 == &pa
+                && p2 == &pb
+                && cd == a
+                && cs == b
+                && single(*a)
+                && single(*b)
+                && self.const_val(k, rg, *ca) == Some(oa.wrapping_add(total))
+                && self.const_val(k, rg, *cb) == Some(ob.wrapping_add(total));
+            if !ok || total + u64::from(*n) > u64::from(u32::MAX) {
+                break;
+            }
+            total += u64::from(*n);
+            j += 5;
+        }
+        if j == at + 1 {
+            return 0;
+        }
+        self.copy_skip = j;
+        (total - u64::from(size)) as u32
+    }
+
     fn is_const(&self, k: usize, r: R) -> bool {
         self.frames[k].const_regs.contains(&r)
     }
@@ -1949,6 +2085,15 @@ impl<'a> Lw<'a> {
 
 /// Every reference to label `l` is a jump located strictly between `at` and `here`.
 fn local_label(body: &[Inst], l: &str, at: usize, here: usize) -> bool {
+    // the table of the function being lowered (`LabelRefs::set`): one lookup instead of a
+    // scan of the whole function at every label (quadratic in a large main module)
+    if let Some(r) = LABEL_REFS.with(|c| c.borrow().as_ref().filter(|t| t.is(body)).map(|t| t.refs.get(l).copied())) {
+        return match r {
+            None => true,
+            Some(LabelRef { special: true, .. }) => false,
+            Some(LabelRef { first, last, .. }) => first > at && last < here,
+        };
+    }
     body.iter().enumerate().all(|(k, i)| {
         let refers = match i {
             Inst::Jmp(t) | Inst::Jz { target: t, .. } | Inst::Jnz { target: t, .. } => t == l,
@@ -1958,6 +2103,49 @@ fn local_label(body: &[Inst], l: &str, at: usize, here: usize) -> bool {
         };
         !refers || (k > at && k < here)
     })
+}
+
+/// The references to a label in a function: first and last jump (`jmp`, `jz`, `jnz`) to
+/// it, and whether anything else (GOSUB, ON ... GOSUB, RESUME, ...) names it.
+#[derive(Clone, Copy)]
+struct LabelRef {
+    first: usize,
+    last: usize,
+    special: bool,
+}
+
+/// [`LabelRef`] of every label referenced in one function body, for [`local_label`].
+struct LabelRefs {
+    body: (*const Inst, usize),
+    refs: HashMap<String, LabelRef>,
+}
+
+thread_local! {
+    static LABEL_REFS: std::cell::RefCell<Option<LabelRefs>> = const { std::cell::RefCell::new(None) };
+}
+
+impl LabelRefs {
+    fn is(&self, body: &[Inst]) -> bool {
+        self.body == (body.as_ptr(), body.len())
+    }
+
+    /// Makes the table of `body` the one [`local_label`] uses (until the next `set`).
+    fn set(body: &[Inst]) {
+        let mut refs: HashMap<String, LabelRef> = HashMap::default();
+        for (k, i) in body.iter().enumerate() {
+            let (t, special) = match i {
+                Inst::Jmp(t) | Inst::Jz { target: t, .. } | Inst::Jnz { target: t, .. } => (t, false),
+                Inst::Gosub(t) | Inst::GRetL(t) => (t, true),
+                Inst::OnError(Some(t)) | Inst::Resume(ResumeKind::Label(t)) | Inst::OnTimer { target: t, .. } | Inst::OnKey { target: t, .. } | Inst::OnPlay { target: t, .. } | Inst::OnStrig { target: t, .. } => (t, true),
+                _ => continue,
+            };
+            let e = refs.entry(t.clone()).or_insert(LabelRef { first: k, last: k, special: false });
+            e.first = e.first.min(k);
+            e.last = e.last.max(k);
+            e.special |= special;
+        }
+        LABEL_REFS.with(|c| *c.borrow_mut() = Some(LabelRefs { body: (body.as_ptr(), body.len()), refs }));
+    }
 }
 
 /// Every value of integer type `from` has the same normalized bits in `to`.
@@ -2050,9 +2238,49 @@ fn str_read_only(body: &[Inst], at: usize, d: u32) -> bool {
         Inst::Cmp { ty: IT::Str, a, b, .. } => (*a == d) != (*b == d),
         _ => false,
     };
-    ok && stable_until_uses(body, at, d, 1, &|i: &Inst| {
-        matches!(i, Inst::Store { .. } | Inst::St { .. } | Inst::StFs { .. } | Inst::Copy { .. } | Inst::Rt { .. } | Inst::Read { .. })
+    ok && stable_until_uses(body, at, d, 1, &|i: &Inst| match i {
+        Inst::Store { .. } | Inst::St { .. } | Inst::StFs { .. } | Inst::Copy { .. } | Inst::Read { .. } => true,
+        // a builtin that only computes a value cannot change the string (CHR$(13) as
+        // INSTR's other argument: INSTR(p, buffer$, CHR$(13)) read the whole buffer)
+        Inst::Rt { name, .. } => !rt_writes_nothing(name),
+        _ => false,
     })
+}
+
+/// `body[at]` loads the module-level string `var` into a register that only starts
+/// `var = var + a [+ b]`: up to two `concat`s, each the only use of the value before
+/// it, then the store of the last one to `var`. In between only loads of other
+/// variables, constants and builtins that write nothing (the parts). Returns the
+/// indices of the concats and of the store, and the parts.
+fn app_chain(body: &[Inst], at: usize, var: &str, single: &dyn Fn(u32) -> bool) -> Option<(Vec<usize>, u32, Option<u32>)> {
+    let Inst::Load { dst, .. } = &body[at] else { return None };
+    let mut cur = *dst;
+    let mut parts = Vec::new();
+    let mut steps = Vec::new();
+    for (j, i) in body.iter().enumerate().skip(at + 1) {
+        match i {
+            Inst::Concat { dst, a, b } if *a == cur && *b != cur && parts.len() < 2 && single(cur) => {
+                parts.push(*b);
+                steps.push(j);
+                cur = *dst;
+            }
+            Inst::Store { var: v, src, .. } if v == var && *src == cur && !parts.is_empty() && single(cur) => {
+                steps.push(j);
+                return Some((steps, parts[0], parts.get(1).copied()));
+            }
+            Inst::Load { var: v, .. } if v != var => {}
+            Inst::Const { .. } => {}
+            Inst::Rt { name, .. } if rt_writes_nothing(name) => {}
+            _ => return None,
+        }
+    }
+    None
+}
+
+/// Builtins that write no variable or memory: they only read their arguments and
+/// return a value (the VM's own string instructions and the [`crate::rt::builtins::Pure`] ones).
+fn rt_writes_nothing(name: &str) -> bool {
+    matches!(name, "LEN" | "ASC" | "ASC.n" | "LEFT$" | "RIGHT$" | "MID$" | "MID$.n" | "CHR$" | "INSTR" | "INSTR.n") || crate::rt::builtins::pure(name).is_some()
 }
 
 fn alias_ok(body: &[Inst], at: usize, d: u32, var: &str, total: u32) -> bool {

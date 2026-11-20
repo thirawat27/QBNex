@@ -69,63 +69,86 @@ FUNCTION getelementspecial$ (savea$, elenum)
 END FUNCTION
 
 FUNCTION getelement$ (a$, elenum)
-    'Two lines are cached (callers often alternate between two): the element
-    'last returned for each (its number, start and the separator after it).
-    'Scalars rather than STATIC arrays keep a cache hit, by far the most
-    'frequent call of the compiler, short.
-    STATIC geSrc1 AS STRING, geEl1 AS LONG, geSt1 AS LONG, geNx1 AS LONG
-    STATIC geSrc2 AS STRING, geEl2 AS LONG, geSt2 AS LONG, geNx2 AS LONG
-    STATIC geVictim AS LONG
-    DIM slot AS LONG, ce AS LONG, cs AS LONG, cn AS LONG, p AS LONG, i AS LONG, n AS LONG
-
-    IF a$ = "" THEN EXIT FUNCTION 'no elements!
-
-    IF a$ = geSrc1 THEN
-        slot = 1: ce = geEl1: cs = geSt1: cn = geNx1
-    ELSEIF a$ = geSrc2 THEN
-        slot = 2: ce = geEl2: cs = geSt2: cn = geNx2
+    'element elenum of a$ ("" when there is none), from the token index (state.bas)
+    DIM b AS LONG, p AS LONG
+    IF a$ = tkSrc1 THEN
+        b = 0
+    ELSEIF a$ = tkSrc2 THEN
+        b = tkStride
+    ELSEIF a$ = tkSrc3 THEN
+        b = 2 * tkStride
+    ELSEIF a$ = tkSrc4 THEN
+        b = 3 * tkStride
     ELSE
-        IF geVictim = 1 THEN geVictim = 2 ELSE geVictim = 1
-        slot = geVictim
-        IF slot = 1 THEN
-            geSrc1 = a$: geEl1 = 0: geSt1 = 0: geNx1 = 0
-        ELSE
-            geSrc2 = a$: geEl2 = 0: geSt2 = 0: geNx2 = 0
-        END IF
+        b = tkIndex&(a$)
     END IF
-
-    IF elenum = ce AND cs > 0 THEN
-        p = cs
-        i = cn
-    ELSE
-        IF elenum > ce AND cn <> 0 THEN
-            n = ce + 1
-            p = cn + 1
-        ELSE
-            'Jump to the element with the shared position cache (seeded by the
-            'SUBs that edit lines) instead of scanning from the start
-            p = elementpos(a$, elenum, 0)
-            IF p = 0 THEN EXIT FUNCTION 'no such element
-            n = elenum
-        END IF
-        DO
-            i = INSTR(p, a$, sp)
-            IF elenum = n THEN EXIT DO
-            IF i = 0 THEN EXIT FUNCTION 'no more elements!
-            n = n + 1
-            p = i + 1
-        LOOP
-        IF slot = 1 THEN
-            geEl1 = elenum: geSt1 = p: geNx1 = i
-        ELSE
-            geEl2 = elenum: geSt2 = p: geNx2 = i
-        END IF
-    END IF
-    IF i THEN getelement$ = MID$(a$, p, i - p) ELSE getelement$ = RIGHT$(a$, LEN(a$) - p + 1)
+    IF elenum < 1 THEN EXIT FUNCTION
+    IF elenum > tkPos(b) THEN EXIT FUNCTION
+    p = tkPos(b + elenum)
+    getelement$ = MID$(a$, p, tkPos(b + elenum + 1) - p - 1)
 END FUNCTION
 
+FUNCTION tkIndex& (a$)
+    'indexes the elements of a$ in the next slot of the token index; returns the
+    'slot's base in tkPos (tkPos(base) is the number of elements)
+    DIM b AS LONG, n AS LONG, p AS LONG, i AS LONG
+    tkNext = (tkNext + 1) AND 3
+    SELECT CASE tkNext
+        CASE 0: tkSrc1 = a$
+        CASE 1: tkSrc2 = a$
+        CASE 2: tkSrc3 = a$
+        CASE ELSE: tkSrc4 = a$
+    END SELECT
+    tkindexagain:
+    b = tkNext * tkStride
+    IF LEN(a$) = 0 THEN tkPos(b) = 0: tkIndex& = b: EXIT FUNCTION
+    n = 0: p = 1
+    DO
+        n = n + 1
+        IF n + 1 >= tkStride THEN tkGrow: GOTO tkindexagain
+        tkPos(b + n) = p
+        i = INSTR(p, a$, sp)
+        IF i = 0 THEN EXIT DO
+        p = i + 1
+    LOOP
+    tkPos(b + n + 1) = LEN(a$) + 2
+    tkPos(b) = n
+    tkIndex& = b
+END FUNCTION
+
+SUB tkGrow
+    'a line with more elements than a slot holds: larger slots; the lines of the other
+    'slots are forgotten (an empty slot has no elements, as the empty line)
+    tkStride = tkStride * 2
+    REDIM tkPos(0 TO 4 * tkStride - 1) AS LONG
+    IF tkNext <> 0 THEN tkSrc1 = ""
+    IF tkNext <> 1 THEN tkSrc2 = ""
+    IF tkNext <> 2 THEN tkSrc3 = ""
+    IF tkNext <> 3 THEN tkSrc4 = ""
+END SUB
+
 FUNCTION getelements$ (a$, i1, i2)
+    DIM b AS LONG, p AS LONG
     IF i2 < i1 THEN getelements$ = "": EXIT FUNCTION
+    IF i1 >= 1 THEN
+        IF a$ = tkSrc1 THEN
+            b = 0
+        ELSEIF a$ = tkSrc2 THEN
+            b = tkStride
+        ELSEIF a$ = tkSrc3 THEN
+            b = 2 * tkStride
+        ELSEIF a$ = tkSrc4 THEN
+            b = 3 * tkStride
+        ELSE
+            b = tkIndex&(a$)
+        END IF
+        IF i2 <= tkPos(b) THEN
+            p = tkPos(b + i1)
+            getelements$ = MID$(a$, p, tkPos(b + i2 + 1) - p - 1)
+            EXIT FUNCTION
+        END IF
+    END IF
+    'not all of i1 to i2 are elements of a$: the result of the former scan
     n = 1
     p = 1
     getelementsnext:
@@ -172,60 +195,62 @@ SUB insertelements (a$, i, elements$)
     END IF
 END SUB
 
-FUNCTION elementpos (a$, k, setpos)
-    'Position of the first character of element k in a$ (0 if there is
-    'no element k). The last answer is remembered, and the SUBs that splice a
-    'line store the position they know, so walking a long line element by
-    'element while editing it does not rescan it from the start each time.
-    STATIC cacheText AS STRING, cacheK AS LONG, cachePos AS LONG
-    IF setpos > 0 THEN
-        cacheText = a$: cacheK = k: cachePos = setpos
-        elementpos = setpos
-        EXIT FUNCTION
-    END IF
-    IF k < 1 OR a$ = "" THEN EXIT FUNCTION
-
-    n = 1: p = 1: cachehit = 0
-    IF cacheK > 0 THEN
-        IF LEN(cacheText) = LEN(a$) THEN
-            IF cacheText = a$ THEN cachehit = -1
+FUNCTION joinelements$ (a$, i1, i2)
+    'elements i1 to i2 of a$ joined with sp as appending them one by one does
+    '(IF r$ = "" THEN r$ = e$ ELSE r$ = r$ + sp + e$: empty elements at the start are
+    'dropped): the text from element i1 to element i2 when none of them is empty
+    DIM r AS STRING, k AS LONG, n AS LONG
+    IF i2 < i1 THEN EXIT FUNCTION
+    n = numelements(a$)
+    IF i1 >= 1 AND i2 <= n THEN
+        r = getelements$(a$, i1, i2)
+        IF INSTR(r, sp + sp) = 0 THEN
+            IF LEN(r) THEN
+                IF LEFT$(r, 1) <> sp AND RIGHT$(r, 1) <> sp THEN joinelements$ = r: EXIT FUNCTION
+            END IF
         END IF
+        r = ""
     END IF
-    IF cachehit THEN
-        IF k >= cacheK THEN n = cacheK: p = cachePos
+    FOR k = i1 TO i2
+        IF r = "" THEN r = getelement$(a$, k) ELSE r = r + sp + getelement$(a$, k)
+    NEXT
+    joinelements$ = r
+END FUNCTION
+
+FUNCTION elementpos (a$, k, setpos)
+    'Position of the first character of element k in a$ (0 if there is no element k),
+    'from the token index. The SUBs that splice a line pass the position they know as
+    'setpos: it is the answer (the index of the new line is made when it is read).
+    DIM b AS LONG
+    IF setpos > 0 THEN elementpos = setpos: EXIT FUNCTION
+    IF k < 1 OR a$ = "" THEN EXIT FUNCTION
+    IF a$ = tkSrc1 THEN
+        b = 0
+    ELSEIF a$ = tkSrc2 THEN
+        b = tkStride
+    ELSEIF a$ = tkSrc3 THEN
+        b = 2 * tkStride
+    ELSEIF a$ = tkSrc4 THEN
+        b = 3 * tkStride
+    ELSE
+        b = tkIndex&(a$)
     END IF
-    DO WHILE n < k
-        i = INSTR(p, a$, sp)
-        IF i = 0 THEN EXIT FUNCTION 'no element k
-        p = i + 1
-        n = n + 1
-    LOOP
-    IF cachehit = 0 THEN cacheText = a$
-    cacheK = k: cachePos = p
-    elementpos = p
+    IF k <= tkPos(b) THEN elementpos = tkPos(b + k)
 END FUNCTION
 
 FUNCTION numelements (a$)
-    'the counts of the last two lines (scalars: see getelement$)
-    STATIC neSrc1 AS STRING, neCnt1 AS LONG, neSrc2 AS STRING, neCnt2 AS LONG
-    STATIC neVictim AS LONG
-    DIM n AS LONG, p AS LONG, i AS LONG
-
-    IF a$ = "" THEN EXIT FUNCTION
-    IF a$ = neSrc1 THEN numelements = neCnt1: EXIT FUNCTION
-    IF a$ = neSrc2 THEN numelements = neCnt2: EXIT FUNCTION
-
-    n = 1
-    p = 1
-    DO
-        i = INSTR(p, a$, sp)
-        IF i = 0 THEN EXIT DO
-        n = n + 1
-        p = i + 1
-    LOOP
-    IF neVictim = 1 THEN neVictim = 2 ELSE neVictim = 1
-    IF neVictim = 1 THEN neSrc1 = a$: neCnt1 = n ELSE neSrc2 = a$: neCnt2 = n
-    numelements = n
+    'the number of elements of a$, from the token index
+    IF a$ = tkSrc1 THEN
+        numelements = tkPos(0)
+    ELSEIF a$ = tkSrc2 THEN
+        numelements = tkPos(tkStride)
+    ELSEIF a$ = tkSrc3 THEN
+        numelements = tkPos(2 * tkStride)
+    ELSEIF a$ = tkSrc4 THEN
+        numelements = tkPos(3 * tkStride)
+    ELSE
+        numelements = tkPos(tkIndex&(a$))
+    END IF
 END FUNCTION
 
 SUB removeelements (a$, first, last, keepindexing)
