@@ -121,6 +121,7 @@ their former size.
 #### Since 2.0.0-preview.5
 
 - The compiler is about twice as fast with the same QIR output: it compiles itself in 11.4 s instead of 21.7 s (Linux x64), a 941-line program in 0.65 s instead of 1.04 s. The compiler keeps the positions of a line's elements (tokens) instead of scanning the line again for each one, cuts a statement out of its line at once, and walks a symbol's hash chain without a call per candidate. `qb-exec`, which runs the compiler and every program: the memory-backed variables of a SUB/FUNCTION call are one allocation instead of one per variable, string registers and memory strings keep their buffers between calls, a TYPE assignment is one copy instead of one per field, a SHARED string read by LEN/INSTR/MID$/a comparison or appended to (`g$ = g$ + x$`) is no longer copied first, `INSTR(p, text$, CHR$(13))` no longer copies all of `text$`, and UCASE$ / the TRIMs write into the result's own buffer. Programs and the JIT run as before; the self-host fixpoint and the conformance suite are unchanged.
+- Programs start about 20% sooner: loading the QIR no longer rescans a whole function at every label, and the names are hashed with FxHash. The compiler reaches its first line in 140 ms instead of 173 ms, most of the time of compiling a small program (the examples, tests and conformance sources, 304 files: 67 s instead of 94 s).
 
 ### Added
 
