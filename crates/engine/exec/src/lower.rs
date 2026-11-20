@@ -461,7 +461,16 @@ struct Lw<'a> {
     prologue: Vec<Vec<Ins>>,
     /// register-table entries the functions may still allocate (see `function`)
     reg_budget: usize,
+    /// memory mode: QIR instructions before this index of the function body are already
+    /// lowered (field copies merged into one `CopyM`, see `copy_run`)
+    copy_skip: usize,
+    /// register mode: QIR instructions of `g$ = g$ + a [+ b]` on a module-level string
+    /// (`app_chain`): at its index, nothing or the `AppGS` (g, a, b) is emitted
+    app_plan: Vec<(usize, Option<AppGs>)>,
 }
+
+/// An `AppGS` to emit: the module-level string and the QIR registers of the parts.
+type AppGs = (R, u32, Option<u32>);
 
 /// Lowers a QIR module to bytecode, or says why it cannot.
 /// Register mode first; programs that need addressable storage (TYPE,
@@ -499,6 +508,8 @@ fn compile_mode(src: &ir::Module, mem: bool) -> Res<Module> {
         labels: HashMap::new(),
         fixups: Vec::new(),
         barrier: 0,
+        copy_skip: 0,
+        app_plan: Vec::new(),
         fidx,
         fnames: src.funcs.iter().map(|f| (f.name.as_str(), f)).collect(),
         globals: HashMap::new(),
@@ -818,13 +829,28 @@ impl<'a> Lw<'a> {
         // QIR register -> variable whose register it aliases
         let mut alias_var = vec![None::<&str>; n_regs];
         let mut rg = FnRegs { rty, defs, uses, rmap, alias_src: vec![None; n_regs] };
-        for i in std::mem::take(&mut self.prologue[k]) {
-            self.emit(i);
-        }
+        let prologue = std::mem::take(&mut self.prologue[k]);
+        self.emit_prologue(prologue);
         self.barrier = self.pc();
         let body = &f.body;
+        self.copy_skip = 0;
+        self.app_plan.clear();
         for (ii, ins) in body.iter().enumerate() {
+            if ii < self.copy_skip {
+                continue;
+            }
             reg_macros!(self, rg, k);
+            if let Some(at) = self.app_plan.iter().position(|p| p.0 == ii) {
+                if let (_, Some((g, a, b))) = self.app_plan.swap_remove(at) {
+                    let a = sreg!(a);
+                    let b = match b {
+                        Some(b) => sreg!(b),
+                        None => NONE,
+                    };
+                    self.emit(Ins::AppGS { g, a, b });
+                }
+                continue;
+            }
             macro_rules! var {
                 ($n:expr) => {
                     lookup_var(&vars, &globals, k, $n.as_str()).ok_or_else(|| format!("unknown variable {}", $n))?
@@ -1032,6 +1058,17 @@ impl<'a> Lw<'a> {
                         Var::NG(g, _) => {
                             let d = nreg!(*dst);
                             self.emit(Ins::GetG { d, g });
+                        }
+                        Var::SG(g) if rg.single(*dst) && rg.rmap[*dst as usize].is_none() && str_read_only(body, ii, *dst) => {
+                            // its only reader takes the string from the module-level register: no copy
+                            rg.rmap[*dst as usize] = Some(Rg::S(g | GS));
+                        }
+                        Var::SG(g) if let Some((steps, a, b)) = app_chain(body, ii, var, &|r| rg.single(r)) => {
+                            // g$ = g$ + a [+ b]: appended in place (the load copied all of g$)
+                            let last = *steps.iter().rev().nth(1).expect("a concat and the store");
+                            for &j in &steps {
+                                self.app_plan.push((j, if j == last { Some((g, a, b)) } else { None }));
+                            }
                         }
                         Var::SG(g) => {
                             let d = sreg!(*dst);
@@ -1661,7 +1698,8 @@ impl<'a> Lw<'a> {
             }
             Inst::Copy { dst, src, size } => {
                 let (d, sr) = (nreg!(*dst), nreg!(*src));
-                self.emit(Ins::CopyM { d, s: sr, n: *size });
+                let n = *size + self.copy_run(k, rg, body, ii);
+                self.emit(Ins::CopyM { d, s: sr, n });
                 return Ok(true);
             }
             Inst::Dim { kind, var, bounds } => {
@@ -1861,6 +1899,101 @@ impl<'a> Lw<'a> {
         Ok(())
     }
 
+    /// Emits a function's entry code. A run of `NewV` of scalar variables becomes one
+    /// block for all of them (`NewVA`, then a `NewVO` per further variable): every call
+    /// creates the memory-backed variables of its frame, and one allocation instead
+    /// of one per variable (BYREF arguments, TYPE locals, string temporaries) is most
+    /// of the cost of a call in a program like the compiler.
+    fn emit_prologue(&mut self, pro: Vec<Ins>) {
+        let scalar = |m: &Module, i: &Ins| matches!(*i, Ins::NewV { v, .. } if !m.mvars[v as usize].array);
+        let mut i = 0;
+        while i < pro.len() {
+            let mut j = i;
+            while j < pro.len() && scalar(&self.m, &pro[j]) {
+                j += 1;
+            }
+            if j - i < 2 {
+                self.emit(pro[i]);
+                i += 1;
+                continue;
+            }
+            let mut off = 0u32;
+            let mut place = Vec::new();
+            let mut strs = Vec::new();
+            for ins in &pro[i..j] {
+                let Ins::NewV { d, v } = *ins else { unreachable!("scalar NewV") };
+                let mv = self.m.mvars[v as usize];
+                let size = mv.size.max(1);
+                if mv.strs {
+                    strs.push((off, off + size));
+                }
+                place.push((d, off));
+                // 8-byte aligned, as the variables' own allocations were
+                off = (off + size).next_multiple_of(8);
+            }
+            let g = self.m.vgroups.len() as u32;
+            self.m.vgroups.push(VGroup { size: off, strs });
+            for (n, &(d, o)) in place.iter().enumerate() {
+                self.emit(if n == 0 { Ins::NewVA { d, g } } else { Ins::NewVO { d, off: o } });
+            }
+            i = j;
+        }
+    }
+
+    /// Value of QIR register `r` when it is a constant register of function `k`.
+    fn const_val(&self, k: usize, rg: &FnRegs, r: u32) -> Option<u64> {
+        match rg.rmap.get(r as usize).copied().flatten() {
+            Some(Rg::N(n)) if self.is_const(k, n) => self.frames[k].num_init.get(n as usize).copied(),
+            _ => None,
+        }
+    }
+
+    /// A TYPE assignment copies field by field: for each field, `padd` of the two
+    /// variables' addresses and the field offset, then `copy` of its size. `body[at]`
+    /// is such a copy; the copies of the next fields that continue it (the same two
+    /// bases, offsets right after it, temporaries used only by their copy) are merged
+    /// into it. Returns the bytes they add and sets `copy_skip` past them. String
+    /// fields are not copied with `copy`, so a run stops before one (and at any gap).
+    fn copy_run(&mut self, k: usize, rg: &FnRegs, body: &[Inst], at: usize) -> u32 {
+        let Inst::Copy { dst, src, size } = body[at] else { return 0 };
+        let single = |r: u32| rg.defs[r as usize] == 1 && rg.uses[r as usize] == 1;
+        // the two `padd` that made this copy's addresses
+        let padd = |i: usize, d: u32| match body.get(i) {
+            Some(&Inst::PAdd { dst: pd, ptr, off }) if pd == d => Some((ptr, off)),
+            _ => None,
+        };
+        let (Some(i1), Some(i2)) = (at.checked_sub(3), at.checked_sub(1)) else { return 0 };
+        let (Some((pa, oa)), Some((pb, ob))) = (padd(i1, dst), padd(i2, src)) else { return 0 };
+        if rg.defs[pa as usize] != 1 || rg.defs[pb as usize] != 1 {
+            return 0;
+        }
+        let (Some(oa), Some(ob)) = (self.const_val(k, rg, oa), self.const_val(k, rg, ob)) else { return 0 };
+        let mut total = u64::from(size);
+        let mut j = at + 1;
+        while let [Inst::Const { dst: ca, .. }, Inst::PAdd { dst: a, ptr: p1, off: o1 }, Inst::Const { dst: cb, .. }, Inst::PAdd { dst: b, ptr: p2, off: o2 }, Inst::Copy { dst: cd, src: cs, size: n }, ..] = &body[j..] {
+            let ok = o1 == ca
+                && o2 == cb
+                && p1 == &pa
+                && p2 == &pb
+                && cd == a
+                && cs == b
+                && single(*a)
+                && single(*b)
+                && self.const_val(k, rg, *ca) == Some(oa.wrapping_add(total))
+                && self.const_val(k, rg, *cb) == Some(ob.wrapping_add(total));
+            if !ok || total + u64::from(*n) > u64::from(u32::MAX) {
+                break;
+            }
+            total += u64::from(*n);
+            j += 5;
+        }
+        if j == at + 1 {
+            return 0;
+        }
+        self.copy_skip = j;
+        (total - u64::from(size)) as u32
+    }
+
     fn is_const(&self, k: usize, r: R) -> bool {
         self.frames[k].const_regs.contains(&r)
     }
@@ -2050,9 +2183,49 @@ fn str_read_only(body: &[Inst], at: usize, d: u32) -> bool {
         Inst::Cmp { ty: IT::Str, a, b, .. } => (*a == d) != (*b == d),
         _ => false,
     };
-    ok && stable_until_uses(body, at, d, 1, &|i: &Inst| {
-        matches!(i, Inst::Store { .. } | Inst::St { .. } | Inst::StFs { .. } | Inst::Copy { .. } | Inst::Rt { .. } | Inst::Read { .. })
+    ok && stable_until_uses(body, at, d, 1, &|i: &Inst| match i {
+        Inst::Store { .. } | Inst::St { .. } | Inst::StFs { .. } | Inst::Copy { .. } | Inst::Read { .. } => true,
+        // a builtin that only computes a value cannot change the string (CHR$(13) as
+        // INSTR's other argument: INSTR(p, buffer$, CHR$(13)) read the whole buffer)
+        Inst::Rt { name, .. } => !rt_writes_nothing(name),
+        _ => false,
     })
+}
+
+/// `body[at]` loads the module-level string `var` into a register that only starts
+/// `var = var + a [+ b]`: up to two `concat`s, each the only use of the value before
+/// it, then the store of the last one to `var`. In between only loads of other
+/// variables, constants and builtins that write nothing (the parts). Returns the
+/// indices of the concats and of the store, and the parts.
+fn app_chain(body: &[Inst], at: usize, var: &str, single: &dyn Fn(u32) -> bool) -> Option<(Vec<usize>, u32, Option<u32>)> {
+    let Inst::Load { dst, .. } = &body[at] else { return None };
+    let mut cur = *dst;
+    let mut parts = Vec::new();
+    let mut steps = Vec::new();
+    for (j, i) in body.iter().enumerate().skip(at + 1) {
+        match i {
+            Inst::Concat { dst, a, b } if *a == cur && *b != cur && parts.len() < 2 && single(cur) => {
+                parts.push(*b);
+                steps.push(j);
+                cur = *dst;
+            }
+            Inst::Store { var: v, src, .. } if v == var && *src == cur && !parts.is_empty() && single(cur) => {
+                steps.push(j);
+                return Some((steps, parts[0], parts.get(1).copied()));
+            }
+            Inst::Load { var: v, .. } if v != var => {}
+            Inst::Const { .. } => {}
+            Inst::Rt { name, .. } if rt_writes_nothing(name) => {}
+            _ => return None,
+        }
+    }
+    None
+}
+
+/// Builtins that write no variable or memory: they only read their arguments and
+/// return a value (the VM's own string instructions and the [`crate::rt::builtins::Pure`] ones).
+fn rt_writes_nothing(name: &str) -> bool {
+    matches!(name, "LEN" | "ASC" | "ASC.n" | "LEFT$" | "RIGHT$" | "MID$" | "MID$.n" | "CHR$" | "INSTR" | "INSTR.n") || crate::rt::builtins::pure(name).is_some()
 }
 
 fn alias_ok(body: &[Inst], at: usize, d: u32, var: &str, total: u32) -> bool {

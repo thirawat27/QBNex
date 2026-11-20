@@ -12,6 +12,9 @@ use crate::bytecode::{DimMode, MTy, MVar};
 
 pub(crate) enum Block {
     Bytes { data: Vec<u8>, strs: bool },
+    /// the variables of `Module::vgroups[group]` (one call's `NewVA`): string handles
+    /// in the byte ranges `Mem::group_strs[group]`
+    Frame { data: Vec<u8>, group: u32 },
     Arr(MArr),
     Free,
 }
@@ -41,7 +44,18 @@ pub(crate) struct Mem {
     /// `OPTION BASE`: lower bound of an array used without DIM
     pub(crate) option_base: i64,
     retired: Vec<Vec<u8>>,
+    /// Storage of freed variables, by size (`VAR_POOL_MAX` bytes at most): `new_var`
+    /// takes it zeroed instead of a new allocation. Every SUB/FUNCTION call creates
+    /// the memory-backed variables of its frame (BYREF arguments, TYPE locals) and
+    /// frees them at the return, so this is the hottest allocation of most programs.
+    var_pool: Vec<Vec<Vec<u8>>>,
+    /// per variable group (`Module::vgroups`): the byte ranges that hold string handles
+    pub(crate) group_strs: Vec<Vec<(u32, u32)>>,
 }
+
+/// Largest variable whose storage `Mem::var_pool` keeps, and how many per size.
+const VAR_POOL_MAX: usize = 1 << 16;
+const VAR_POOL_PER_SIZE: usize = 64;
 
 /// Tag of an array-descriptor reference; every other pointer is a real address.
 pub(crate) const ARR_TAG: u64 = 1 << 63;
@@ -66,7 +80,7 @@ impl Mem {
     /// (first address, end address) of a variable's storage, None for an array.
     pub(crate) fn var_range(&self, id: u32) -> Option<(u64, u64)> {
         match self.blocks.get(id as usize) {
-            Some(Block::Bytes { data, .. }) => Some((data.as_ptr() as u64, data.as_ptr() as u64 + data.len() as u64)),
+            Some(Block::Bytes { data, .. } | Block::Frame { data, .. }) => Some((data.as_ptr() as u64, data.as_ptr() as u64 + data.len() as u64)),
             _ => None,
         }
     }
@@ -78,7 +92,7 @@ impl Mem {
 
     fn block_addr(&self, id: u32) -> u64 {
         match &self.blocks[id as usize] {
-            Block::Bytes { data, .. } => data.as_ptr() as u64,
+            Block::Bytes { data, .. } | Block::Frame { data, .. } => data.as_ptr() as u64,
             _ => 0,
         }
     }
@@ -87,10 +101,23 @@ impl Mem {
         let Some(slot) = self.blocks.get_mut(i as usize) else { return };
         let b = std::mem::replace(slot, Block::Free);
         match b {
-            Block::Bytes { data, strs: true } => {
-                for c in data.as_chunks::<8>().0 {
-                    self.free_str(u64::from_le_bytes(*c));
+            Block::Bytes { data, strs } => {
+                if strs {
+                    for c in data.as_chunks::<8>().0 {
+                        self.free_str(u64::from_le_bytes(*c));
+                    }
                 }
+                self.pool_var(data);
+            }
+            Block::Frame { data, group } => {
+                let n = self.group_strs.get(group as usize).map_or(0, Vec::len);
+                for k in 0..n {
+                    let (a, b) = self.group_strs[group as usize][k];
+                    for c in data[a as usize..b as usize].as_chunks::<8>().0 {
+                        self.free_str(u64::from_le_bytes(*c));
+                    }
+                }
+                self.pool_var(data);
             }
             Block::Arr(a) => {
                 if let Some(d) = a.data {
@@ -98,7 +125,6 @@ impl Mem {
                 }
             }
             Block::Free => return,
-            _ => {}
         }
         self.free_blocks.push(i);
     }
@@ -161,13 +187,51 @@ impl Mem {
         }
     }
 
+    /// Keeps the storage of a freed block for `new_var` (see `var_pool`).
+    fn pool_var(&mut self, data: Vec<u8>) {
+        let n = data.len();
+        if n == 0 || n > VAR_POOL_MAX || data.capacity() != n {
+            return;
+        }
+        if self.var_pool.len() <= n {
+            self.var_pool.resize_with(n + 1, Vec::new);
+        }
+        let p = &mut self.var_pool[n];
+        if p.len() < VAR_POOL_PER_SIZE {
+            p.push(data);
+        }
+    }
+
+    /// New zero-initialized storage for the variables of group `g` (`size` bytes):
+    /// (pointer, block id).
+    pub(crate) fn new_frame(&mut self, g: u32, size: u32) -> (u64, u32) {
+        let n = size.max(1) as usize;
+        let data = match self.var_pool.get_mut(n).and_then(Vec::pop) {
+            Some(mut d) => {
+                d.fill(0);
+                d
+            }
+            None => vec![0; n],
+        };
+        let id = self.alloc(Block::Frame { data, group: g });
+        (self.block_addr(id), id)
+    }
+
     /// New zero-initialized storage for a variable: (pointer, block id).
     pub(crate) fn new_var(&mut self, v: &MVar) -> (u64, u32) {
         if v.array {
             let id = self.alloc(Block::Arr(MArr { esize: v.size, strs: v.strs, dims: vec![], data: None, fixed: false, erased: false }));
             return (ARR_TAG | u64::from(id), id);
         }
-        let id = self.alloc(Block::Bytes { data: vec![0; v.size.max(1) as usize], strs: v.strs });
+        let n = v.size.max(1) as usize;
+        let data = match self.var_pool.get_mut(n).and_then(Vec::pop) {
+            Some(mut d) => {
+                d.fill(0);
+                d
+            }
+            None => vec![0; n],
+        };
+        let id = self.alloc(Block::Bytes { data, strs: v.strs });
         (self.block_addr(id), id)
     }
 
@@ -192,22 +256,23 @@ impl Mem {
             let se = u16::from_le_bytes([b[8], b[9]]);
             return Ok(qb_float80::F80 { mant, se }.to_f64().to_bits());
         }
-        let n = t.size();
-        let b = self.bytes(p, n)?;
-        let mut w = [0u8; 8];
-        w[..n].copy_from_slice(b);
-        let u = u64::from_le_bytes(w);
-        Ok(match t {
-            MTy::I8 => u as i8 as i64 as u64,
-            MTy::U8 => u as u8 as u64,
-            MTy::I16 => u as i16 as i64 as u64,
-            MTy::U16 => u as u16 as u64,
-            MTy::I32 => u as i32 as i64 as u64,
-            MTy::U32 => u as u32 as u64,
-            MTy::I64 | MTy::U64 | MTy::Ptr | MTy::Str => u,
-            MTy::F32 => f64::from(f32::from_bits(u as u32)).to_bits(),
-            MTy::F64 => u,
-            MTy::F80 => unreachable!("read above"),
+        if p == 0 || p & ARR_TAG != 0 {
+            return Err(5);
+        }
+        // SAFETY: as `bytes`: `p` is `t.size()` bytes of live storage (unaligned reads,
+        // little-endian like the former byte copy on the supported targets)
+        Ok(unsafe {
+            match t {
+                MTy::I8 => (p as *const i8).read() as i64 as u64,
+                MTy::U8 => u64::from((p as *const u8).read()),
+                MTy::I16 => i16::from_le((p as *const i16).read_unaligned()) as i64 as u64,
+                MTy::U16 => u64::from(u16::from_le((p as *const u16).read_unaligned())),
+                MTy::I32 => i32::from_le((p as *const i32).read_unaligned()) as i64 as u64,
+                MTy::U32 => u64::from(u32::from_le((p as *const u32).read_unaligned())),
+                MTy::I64 | MTy::U64 | MTy::Ptr | MTy::Str | MTy::F64 => u64::from_le((p as *const u64).read_unaligned()),
+                MTy::F32 => f64::from(f32::from_bits(u32::from_le((p as *const u32).read_unaligned()))).to_bits(),
+                MTy::F80 => unreachable!("read above"),
+            }
         })
     }
 
@@ -220,12 +285,21 @@ impl Mem {
             b[8..].copy_from_slice(&x.se.to_le_bytes());
             return Ok(());
         }
-        let u = match t {
-            MTy::F32 => u64::from((f64::from_bits(bits) as f32).to_bits()),
-            _ => bits,
-        };
-        let n = t.size();
-        self.bytes(p, n)?.copy_from_slice(&u.to_le_bytes()[..n]);
+        if p == 0 || p & ARR_TAG != 0 {
+            return Err(5);
+        }
+        // SAFETY: as `ld`; the low `t.size()` bytes of the value, little-endian
+        unsafe {
+            match t.size() {
+                1 => (p as *mut u8).write(bits as u8),
+                2 => (p as *mut u16).write_unaligned((bits as u16).to_le()),
+                4 => {
+                    let u = if t == MTy::F32 { (f64::from_bits(bits) as f32).to_bits() } else { bits as u32 };
+                    (p as *mut u32).write_unaligned(u.to_le())
+                }
+                _ => (p as *mut u64).write_unaligned(bits.to_le()),
+            }
+        }
         Ok(())
     }
 
@@ -272,21 +346,35 @@ impl Mem {
         self.st(MTy::U64, p, h)
     }
 
+    #[cfg(feature = "debug")]
     pub(crate) fn ldfs(&mut self, p: u64, len: u32) -> R<Vec<u8>> {
         Ok(self.bytes(p, len as usize)?.to_vec())
     }
 
+    /// `ldfs` into `dst`, reusing its buffer (no allocation per load of a `STRING * n`).
+    pub(crate) fn ldfs_into(&mut self, p: u64, len: u32, dst: &mut Vec<u8>) -> R<()> {
+        let b = self.bytes(p, len as usize)?;
+        dst.clear();
+        dst.extend_from_slice(b);
+        Ok(())
+    }
+
     pub(crate) fn stfs(&mut self, p: u64, len: u32, s: &[u8]) -> R<()> {
         let b = self.bytes(p, len as usize)?;
-        for (i, x) in b.iter_mut().enumerate() {
-            *x = s.get(i).copied().unwrap_or(b' ');
-        }
+        // the value, cut or padded with spaces to the length
+        let k = s.len().min(b.len());
+        b[..k].copy_from_slice(&s[..k]);
+        b[k..].fill(b' ');
         Ok(())
     }
 
     pub(crate) fn copy(&mut self, dst: u64, src: u64, n: u32) -> R<()> {
-        let v = self.bytes(src, n as usize)?.to_vec();
-        self.bytes(dst, n as usize)?.copy_from_slice(&v);
+        // both ranges are checked as before (null and array references fail)
+        let s = self.bytes(src, n as usize)?.as_ptr();
+        let d = self.bytes(dst, n as usize)?.as_mut_ptr();
+        // SAFETY: both are `n` valid bytes (`bytes`); `copy` allows them to overlap,
+        // as the former copy through a temporary did
+        unsafe { std::ptr::copy(s, d, n as usize) };
         Ok(())
     }
 

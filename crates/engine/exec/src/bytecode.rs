@@ -32,9 +32,14 @@ pub const K: u32 = 1 << 31;
 /// register `r & !M` (a load fused into its only reader, so the string is not copied).
 pub const M: u32 = 1 << 30;
 
-/// String operand `r` is read from memory ([`M`]).
+/// String source operand: the module-level string register `r & !GS` (a load of a
+/// SHARED / STATIC string fused into its only reader, so the string is not copied).
+pub const GS: u32 = 1 << 29;
+
+/// String operand `r` is not a register of the current frame: it is read from memory
+/// ([`M`]) or from a module-level register ([`GS`]).
 pub fn mem_str(r: R) -> bool {
-    r & K == 0 && r & M != 0
+    r & K == 0 && r & (M | GS) != 0
 }
 /// Array operand: module-level array (absolute index).
 pub const G: u32 = 1 << 31;
@@ -265,6 +270,14 @@ impl MTy {
     }
 }
 
+/// Memory-backed variables of a function stored in one block (`Ins::NewVA`): its
+/// size, and the byte ranges that hold string handles.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
+pub struct VGroup {
+    pub size: u32,
+    pub strs: Vec<(u32, u32)>,
+}
+
 /// Storage of a memory-backed variable or array.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct MVar {
@@ -466,6 +479,9 @@ pub enum Ins {
     TakeS { d: R, s: R },
     GetGS { d: R, g: R },
     SetGS { g: R, s: R },
+    /// g = g + a [+ b] (`b == NONE`: no second part), appended in place; error 14
+    /// before anything is appended when the result would be too long
+    AppGS { g: R, a: R, b: R },
     /// d = a + b; `d == a` appends in place
     Concat { d: R, a: R, b: R },
     LenS { d: R, s: R },
@@ -514,6 +530,11 @@ pub enum Ins {
     // ---- memory (QIR programs with TYPE / STRING * n / pointers); `p`, `a` = pointer registers
     /// d = new storage for `Module::mvars[v]`, freed when the frame returns
     NewV { d: R, v: u32 },
+    /// d = storage for all variables of `Module::vgroups[g]` (one block, freed when the
+    /// frame returns); the first variable is at `d`, the others follow with `NewVO`
+    NewVA { d: R, g: u32 },
+    /// d = the storage `NewVA` just created + `off` (the next variable of its group)
+    NewVO { d: R, off: u32 },
     LdM { t: MTy, d: R, p: R, off: u32 },
     StM { t: MTy, p: R, off: u32, s: R },
     LdFs { d: R, p: R, off: u32, len: u32 },
@@ -645,6 +666,8 @@ pub struct Module {
     pub rtfns: Vec<(&'static str, Option<Ty>)>,
     /// memory-backed variables (`NewV`)
     pub mvars: Vec<MVar>,
+    /// variables a function creates together on entry (`NewVA` / `NewVO`)
+    pub vgroups: Vec<VGroup>,
     /// statement starts: (pc, source line), sorted by pc
     pub stmts: Vec<(u32, u32)>,
     /// statements inside an `$INCLUDE` file: (index into `stmts`, line in that file,
@@ -746,6 +769,7 @@ impl Ins {
         // a string read from memory reads the numeric register holding its address
         let f = &mut |o: Opnd| match o {
             O::SK(r) if r & K == 0 && r & M != 0 => f(O::N(r & !M)),
+            O::SK(r) if r & K == 0 && r & GS != 0 => f(O::SG(r & !GS)),
             o => f(o),
         };
         match *self {
@@ -839,7 +863,7 @@ impl Ins {
             }
             Erase { a } => f(O::A(a)),
             Chain { pl, .. } => f(O::Place(pl)),
-            NewV { d, .. } => f(O::N(d)),
+            NewV { d, .. } | NewVA { d, .. } | NewVO { d, .. } => f(O::N(d)),
             MovX { d, s } | XNeg { d, s } => {
                 f(O::NRun(d, 2));
                 f(O::NRun(s, 2))
@@ -939,6 +963,13 @@ impl Ins {
             SetGS { g, s } => {
                 f(O::SG(g));
                 f(O::SK(s))
+            }
+            AppGS { g, a, b } => {
+                f(O::SG(g));
+                f(O::SK(a));
+                if b != NONE {
+                    f(O::SK(b))
+                }
             }
             Concat { d, a, b } => {
                 f(O::S(d));
@@ -1074,6 +1105,8 @@ impl Ins {
             Erase { .. } => "erase".into(),
             Chain { get, .. } => if get { "chain.get" } else { "chain.put" }.into(),
             NewV { v, .. } => format!("newv mvar{v}"),
+            NewVA { g, .. } => format!("newv.a group{g}"),
+            NewVO { off, .. } => format!("newv.o +{off}"),
             MovX { .. } => "mov.x".into(),
             XBin { op, .. } => format!("{}.x", format!("{op:?}").to_lowercase()),
             XNeg { .. } => "neg.x".into(),
@@ -1143,6 +1176,7 @@ impl Ins {
             TakeS { .. } => "take.s".into(),
             GetGS { .. } => "getg.s".into(),
             SetGS { .. } => "setg.s".into(),
+            AppGS { .. } => "app.gs".into(),
             Concat { .. } => "concat".into(),
             LenS { .. } => "len".into(),
             Chr { .. } => "chr".into(),
@@ -1383,6 +1417,22 @@ impl Module {
                 }
                 match *ins {
                     Ins::NewV { v, .. } if v as usize >= self.mvars.len() => return Err(format!("pc {pc}: bad memory variable")),
+                    Ins::NewVA { g, .. } if g as usize >= self.vgroups.len() => return Err(format!("pc {pc}: bad variable group")),
+                    Ins::NewVO { off, .. } => {
+                        // right after the NewVA of its group (or another NewVO of it)
+                        let mut q = pc;
+                        let g = loop {
+                            q = q.checked_sub(1).filter(|&q| q >= f.entry).ok_or_else(|| format!("pc {pc}: newv.o without newv.a"))?;
+                            match self.code[q as usize] {
+                                Ins::NewVO { .. } => {}
+                                Ins::NewVA { g, .. } => break g,
+                                _ => return Err(format!("pc {pc}: newv.o without newv.a")),
+                            }
+                        };
+                        if self.vgroups.get(g as usize).is_none_or(|v| off >= v.size) {
+                            return Err(format!("pc {pc}: bad variable offset"));
+                        }
+                    }
                     Ins::XCall { c } => {
                         let Some(xc) = self.xcalls.get(c as usize) else { return Err(format!("pc {pc}: bad extern call")) };
                         let Some(xf) = self.xfns.get(xc.f as usize) else { return Err(format!("pc {pc}: bad extern function")) };

@@ -177,6 +177,7 @@ fn vm_safe(ins: &Ins) -> bool {
             | TakeS { .. }
             | GetGS { .. }
             | SetGS { .. }
+            | AppGS { .. }
             | Concat { .. }
             | LenS { .. }
             | Chr { .. }
