@@ -28,6 +28,8 @@ gpu = ["qb-runtime/gpu"]
 native-syms = ["qb-jit/native-syms"]
 
 [dependencies]
+# fast hashing of names and registers while a program loads
+rustc-hash = "2.1"
 qb-runtime = { path = "../../runtime/core" }
 qb-ir = { path = "../../compiler/ir" }
 qb-jit = { path = "../jit" }

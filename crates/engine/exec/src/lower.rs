@@ -21,7 +21,9 @@
 //! arithmetic, GET/PUT of variables) are lowered in memory mode, where only
 //! the variables that need an address live in `mem::Mem`.
 
-use std::collections::HashMap;
+// FxHash: lowering hashes every variable, label and constant of a program (SipHash
+// was a visible part of the start of a large program)
+use rustc_hash::{FxHashMap as HashMap, FxHashSet};
 
 use crate::bytecode::*;
 use qb_ir::{self as ir, BinOp, CmpOp, DimKind, Inst, Lit, ResumeKind, StoreTy, Ty as IT, UnOp, VarKind};
@@ -207,8 +209,8 @@ fn mty(t: IT) -> MTy {
 }
 
 /// Names a function's body refers to through variables.
-fn var_names(f: &ir::Func) -> std::collections::HashSet<&str> {
-    let mut n = std::collections::HashSet::new();
+fn var_names(f: &ir::Func) -> FxHashSet<&str> {
+    let mut n = FxHashSet::default();
     for i in &f.body {
         match i {
             Inst::Load { var, .. }
@@ -252,7 +254,7 @@ struct Frame {
     arr_tys: Vec<Ty>,
     consts: HashMap<(u64, bool), R>,
     /// the registers of `consts` (asked for at every store)
-    const_regs: std::collections::HashSet<R>,
+    const_regs: FxHashSet<R>,
     /// first numeric register that is not a variable (temporaries, QIR registers, constants)
     n_vars: u32,
     n_svars: u32,
@@ -453,10 +455,10 @@ struct Lw<'a> {
     /// memory mode: variables that need an address live in `Mem` blocks
     mem: bool,
     /// (scope, name) of variables whose address is taken; scope = function index, MAX = module
-    taken: std::collections::HashSet<(usize, String)>,
+    taken: FxHashSet<(usize, String)>,
     /// register mode: (function, parameter) of the BYREF parameters that refer to
     /// their argument instead of holding a copy (`byref.rs`)
-    refs: std::collections::HashSet<(usize, usize)>,
+    refs: FxHashSet<(usize, usize)>,
     /// instructions run on entry of each function (storage of memory-backed variables)
     prologue: Vec<Vec<Ins>>,
     /// register-table entries the functions may still allocate (see `function`)
@@ -504,26 +506,26 @@ fn compile_mode(src: &ir::Module, mem: bool) -> Res<Module> {
                 xfns: src.extfns.iter().filter_map(xfn).collect(),
                 ..Module::default()
             },
-        kstr: HashMap::new(),
-        labels: HashMap::new(),
+        kstr: HashMap::default(),
+        labels: HashMap::default(),
         fixups: Vec::new(),
         barrier: 0,
         copy_skip: 0,
         app_plan: Vec::new(),
         fidx,
         fnames: src.funcs.iter().map(|f| (f.name.as_str(), f)).collect(),
-        globals: HashMap::new(),
+        globals: HashMap::default(),
         frames: Vec::from_fn(order.len(), |_| Frame::default()),
         mem,
-        taken: std::collections::HashSet::new(),
-        refs: if mem { std::collections::HashSet::new() } else { crate::byref::reference_params(src, &order) },
+        taken: FxHashSet::default(),
+        refs: if mem { FxHashSet::default() } else { crate::byref::reference_params(src, &order).into_iter().collect() },
         prologue: vec![Vec::new(); order.len()],
         reg_budget: src.funcs.iter().map(|f| f.body.len()).sum::<usize>().saturating_mul(4) + (1 << 16),
     };
     if mem {
         for (k, &fi) in order.iter().enumerate() {
             let f = &src.funcs[fi];
-            let own: std::collections::HashSet<&str> = f.params.iter().chain(&f.locals).map(|d| d.name.as_str()).collect();
+            let own: FxHashSet<&str> = f.params.iter().chain(&f.locals).map(|d| d.name.as_str()).collect();
             for i in &f.body {
                 if let Inst::Addr { var, .. } | Inst::ARef { var, .. } | Inst::AAddr { var, .. } = i {
                     let scope = if own.contains(var.as_str()) { k } else { usize::MAX };
@@ -537,7 +539,7 @@ fn compile_mode(src: &ir::Module, mem: bool) -> Res<Module> {
         let v = lw.alloc_var(0, g, usize::MAX)?;
         lw.globals.insert(g.name.clone(), v);
     }
-    let mut statics: Vec<HashMap<String, Var>> = vec![HashMap::new(); order.len()];
+    let mut statics: Vec<HashMap<String, Var>> = vec![HashMap::default(); order.len()];
     for (k, &fi) in order.iter().enumerate() {
         for l in src.funcs[fi].locals.iter().filter(|l| l.kind == VarKind::Static) {
             let v = lw.alloc_var(0, l, k)?;
@@ -545,7 +547,7 @@ fn compile_mode(src: &ir::Module, mem: bool) -> Res<Module> {
         }
     }
     let mut funcs = Vec::new();
-    let mut const_sets: Vec<std::collections::HashSet<R>> = Vec::new();
+    let mut const_sets: Vec<FxHashSet<R>> = Vec::new();
     for (k, &fi) in order.iter().enumerate() {
         let f = &src.funcs[fi];
         let entry = lw.m.code.len() as u32;
@@ -653,7 +655,7 @@ impl<'a> Lw<'a> {
         // globals (module view). Looked up in that order instead of copying every
         // global into a per-function map, which cost globals x functions copies.
         let globals = std::mem::take(&mut self.globals);
-        let mut vars: HashMap<&'a str, Var> = HashMap::new();
+        let mut vars: HashMap<&'a str, Var> = HashMap::default();
         for l in f.locals.iter().filter(|l| l.kind == VarKind::Static) {
             if let Some(v) = statics.get(&l.name) {
                 vars.insert(l.name.as_str(), to_global(*v));
@@ -833,6 +835,7 @@ impl<'a> Lw<'a> {
         self.emit_prologue(prologue);
         self.barrier = self.pc();
         let body = &f.body;
+        LabelRefs::set(body);
         self.copy_skip = 0;
         self.app_plan.clear();
         for (ii, ins) in body.iter().enumerate() {
@@ -2082,6 +2085,15 @@ impl<'a> Lw<'a> {
 
 /// Every reference to label `l` is a jump located strictly between `at` and `here`.
 fn local_label(body: &[Inst], l: &str, at: usize, here: usize) -> bool {
+    // the table of the function being lowered (`LabelRefs::set`): one lookup instead of a
+    // scan of the whole function at every label (quadratic in a large main module)
+    if let Some(r) = LABEL_REFS.with(|c| c.borrow().as_ref().filter(|t| t.is(body)).map(|t| t.refs.get(l).copied())) {
+        return match r {
+            None => true,
+            Some(LabelRef { special: true, .. }) => false,
+            Some(LabelRef { first, last, .. }) => first > at && last < here,
+        };
+    }
     body.iter().enumerate().all(|(k, i)| {
         let refers = match i {
             Inst::Jmp(t) | Inst::Jz { target: t, .. } | Inst::Jnz { target: t, .. } => t == l,
@@ -2091,6 +2103,49 @@ fn local_label(body: &[Inst], l: &str, at: usize, here: usize) -> bool {
         };
         !refers || (k > at && k < here)
     })
+}
+
+/// The references to a label in a function: first and last jump (`jmp`, `jz`, `jnz`) to
+/// it, and whether anything else (GOSUB, ON ... GOSUB, RESUME, ...) names it.
+#[derive(Clone, Copy)]
+struct LabelRef {
+    first: usize,
+    last: usize,
+    special: bool,
+}
+
+/// [`LabelRef`] of every label referenced in one function body, for [`local_label`].
+struct LabelRefs {
+    body: (*const Inst, usize),
+    refs: HashMap<String, LabelRef>,
+}
+
+thread_local! {
+    static LABEL_REFS: std::cell::RefCell<Option<LabelRefs>> = const { std::cell::RefCell::new(None) };
+}
+
+impl LabelRefs {
+    fn is(&self, body: &[Inst]) -> bool {
+        self.body == (body.as_ptr(), body.len())
+    }
+
+    /// Makes the table of `body` the one [`local_label`] uses (until the next `set`).
+    fn set(body: &[Inst]) {
+        let mut refs: HashMap<String, LabelRef> = HashMap::default();
+        for (k, i) in body.iter().enumerate() {
+            let (t, special) = match i {
+                Inst::Jmp(t) | Inst::Jz { target: t, .. } | Inst::Jnz { target: t, .. } => (t, false),
+                Inst::Gosub(t) | Inst::GRetL(t) => (t, true),
+                Inst::OnError(Some(t)) | Inst::Resume(ResumeKind::Label(t)) | Inst::OnTimer { target: t, .. } | Inst::OnKey { target: t, .. } | Inst::OnPlay { target: t, .. } | Inst::OnStrig { target: t, .. } => (t, true),
+                _ => continue,
+            };
+            let e = refs.entry(t.clone()).or_insert(LabelRef { first: k, last: k, special: false });
+            e.first = e.first.min(k);
+            e.last = e.last.max(k);
+            e.special |= special;
+        }
+        LABEL_REFS.with(|c| *c.borrow_mut() = Some(LabelRefs { body: (body.as_ptr(), body.len()), refs }));
+    }
 }
 
 /// Every value of integer type `from` has the same normalized bits in `to`.
