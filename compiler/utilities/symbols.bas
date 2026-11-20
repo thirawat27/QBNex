@@ -29,15 +29,39 @@ gotsc:
     IF LEN(sc$) THEN scpassed = 1: sc$ = sc$ + SPACE$(8 - LEN(sc$)) ELSE scpassed = 0
 
     n$ = RTRIM$(n$)
+    'The hash chain of n$ is walked here, with the results and the HashFind_* state of
+    'HashFind (first search) and HashFindCont (findanotherid): most candidates are
+    'locals of other procedures (the I of every SUB), and a call per candidate was
+    'most of the time of findid.
     IF findanother THEN
-hashretry:
-        z = HashFindCont(unrequired, i)
+        hi = HashFind_NextListItem: hfFlags = HashFind_SearchFlags: hfName$ = HashFind_Name: hfRev = HashFind_Reverse
     ELSE
-        z = HashFind(n$, 1, unrequired, i)
+        hn$ = n$ 'HashValue takes its argument BYREF: n$ itself stays a plain local
+        hi = HashTable(HashValue(hn$) AND HASH_TABLE_MASK)
+        hfFlags = 1: hfName$ = n$: hfRev = 0
     END IF
+findidnext:
+    z = 0
+    DO WHILE hi
+        IF hfFlags AND HashList(hi).Flags THEN
+            IF HashListName(hi) = hfName$ THEN
+                IF hfRev THEN hfNext = HashList(hi).PrevItem ELSE hfNext = HashList(hi).NextItem
+                IF hfNext THEN
+                    z = 2
+                    HashFind_NextListItem = hfNext
+                    HashFind_Reverse = hfRev: HashFind_SearchFlags = hfFlags: HashFind_Name = hfName$
+                ELSE
+                    z = 1
+                END IF
+                EXIT DO
+            END IF
+        END IF
+        IF hfRev THEN hi = HashList(hi).PrevItem ELSE hi = HashList(hi).NextItem
+    LOOP
     findidinternal = z
     IF z = 0 THEN GOTO noid
     findid = z
+    i = HashList(hi).Reference
 
     IF ids(i).subfunc = 0 AND ids(i).share = 0 THEN
         IF ids(i).insubfunc <> insf$ THEN GOTO findidnomatch
@@ -83,15 +107,16 @@ hashretry:
     END IF
 
 findidok:
-    id = ids(i)
-    t = id.t
-    temp$ = refer$(str2$(i), t, 1)
+    'id = ids(i): refer$ makes this copy (getid) before anything else
+    t = ids(i).t
+    ri = i 'a copy for the BYREF parameter: i stays a plain local
+    temp$ = refer$(str2$(ri), t, 1)
     manageVariableList "", temp$, 0, 1
     currentid = i
     EXIT FUNCTION
 
 findidnomatch:
-    IF z = 2 THEN GOTO hashretry
+    IF z = 2 THEN hi = hfNext: GOTO findidnext
 
 noid:
     findid& = 0
