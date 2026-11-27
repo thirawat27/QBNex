@@ -4,7 +4,9 @@
 //! day, and the program clock that `TIME$ =` and `DATE$ =` move.
 
 use crate::error::code;
-use chrono::{NaiveDate, NaiveDateTime, NaiveTime, TimeDelta};
+use jiff::civil::{Date, DateTime, Time};
+use jiff::tz::TimeZone;
+use jiff::{SignedDuration, Timestamp};
 use std::sync::atomic::{AtomicI64, Ordering};
 #[cfg(not(target_arch = "wasm32"))]
 use std::sync::OnceLock;
@@ -104,12 +106,11 @@ pub fn day_ms(hms: Option<(u32, u32, u32)>) -> u32 {
 /// Local hour, minute and second of a Unix time, or `None` where the system
 /// `localtime` would fail (before 1970).
 pub fn local_hms(unix_seconds: i64) -> Option<(u32, u32, u32)> {
-    use chrono::{Local, TimeZone, Timelike};
     if unix_seconds < 0 {
         return None;
     }
-    let t = Local.timestamp_opt(unix_seconds, 0).single()?;
-    Some((t.hour(), t.minute(), t.second()))
+    let t = TimeZone::system().to_datetime(Timestamp::from_second(unix_seconds).ok()?);
+    Some((t.hour() as u32, t.minute() as u32, t.second() as u32))
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -129,33 +130,27 @@ pub fn clock_offset_ms() -> i64 {
 }
 
 /// The program's local date and time (the wall clock plus the offset).
-fn program_now() -> NaiveDateTime {
-    use chrono::{Local, TimeZone};
+fn program_now() -> DateTime {
     let ms = (unix_time() * 1000.0) as i64;
-    let wall = Local
-        .timestamp_millis_opt(ms)
-        .earliest()
-        .map(|t| t.naive_local())
-        .unwrap_or_default();
-    TimeDelta::try_milliseconds(clock_offset_ms())
-        .and_then(|d| wall.checked_add_signed(d))
-        .unwrap_or(wall)
+    // (1970-01-01 00:00 when the clock cannot be read)
+    let wall = Timestamp::from_millisecond(ms).map_or(DateTime::constant(1970, 1, 1, 0, 0, 0, 0), |t| TimeZone::system().to_datetime(t));
+    wall.checked_add(SignedDuration::from_millis(clock_offset_ms())).unwrap_or(wall)
 }
 
 /// Moves the program clock so that it now reads `target`.
-fn set_program_clock(target: NaiveDateTime) {
-    let delta = target.signed_duration_since(program_now()).num_milliseconds();
+fn set_program_clock(target: DateTime) {
+    let delta = i64::try_from(target.duration_since(program_now()).as_millis()).unwrap_or(0);
     CLOCK_OFFSET_MS.fetch_add(delta, Ordering::Relaxed);
 }
 
 /// `TIME$`: "hh:mm:ss" (24-hour) of the program clock.
 pub fn time_string() -> String {
-    program_now().format("%H:%M:%S").to_string()
+    program_now().strftime("%H:%M:%S").to_string()
 }
 
 /// `DATE$`: "mm-dd-yyyy" of the program clock.
 pub fn date_string() -> String {
-    program_now().format("%m-%d-%Y").to_string()
+    program_now().strftime("%m-%d-%Y").to_string()
 }
 
 /// Splits `s` at any of `seps` into numbers of 1..=`max_digits` digits each.
@@ -171,18 +166,19 @@ fn clock_fields(s: &[u8], seps: &[u8], max_digits: usize) -> Option<Vec<(u32, us
 }
 
 /// Parses a `TIME$ =` value: "hh", "hh:mm" or "hh:mm:ss".
-pub fn parse_time(s: &[u8]) -> Option<NaiveTime> {
+pub fn parse_time(s: &[u8]) -> Option<Time> {
     let f = clock_fields(s, b":", 2)?;
     if f.is_empty() || f.len() > 3 {
         return None;
     }
     let part = |k: usize| f.get(k).map_or(0, |p| p.0);
-    NaiveTime::from_hms_opt(part(0), part(1), part(2))
+    // (fields have at most 2 digits: they fit an i8)
+    Time::new(part(0) as i8, part(1) as i8, part(2) as i8, 0).ok()
 }
 
 /// Parses a `DATE$ =` value: "mm-dd-yy", "mm-dd-yyyy", or the same with "/".
 /// A two-digit year is 1980..=2079 (80-99 are 19xx); the year must be 1980..=2099.
-pub fn parse_date(s: &[u8]) -> Option<NaiveDate> {
+pub fn parse_date(s: &[u8]) -> Option<Date> {
     let f = clock_fields(s, b"-/", 4)?;
     let [(m, ml), (d, dl), (y, yl)] = f[..] else { return None };
     if ml > 2 || dl > 2 || (yl != 2 && yl != 4) {
@@ -196,20 +192,20 @@ pub fn parse_date(s: &[u8]) -> Option<NaiveDate> {
     if !(1980..=2099).contains(&y) {
         return None;
     }
-    NaiveDate::from_ymd_opt(y as i32, m, d)
+    Date::new(y as i16, m as i8, d as i8).ok()
 }
 
 /// `TIME$ = s`: the program clock reads `s` on today's (program) date from now on.
 pub fn set_time(s: &[u8]) -> Result<(), i32> {
     let t = parse_time(s).ok_or(code::ILLEGAL_FUNCTION_CALL)?;
-    set_program_clock(program_now().date().and_time(t));
+    set_program_clock(program_now().date().to_datetime(t));
     Ok(())
 }
 
 /// `DATE$ = s`: the program clock reads date `s` at the current (program) time of day.
 pub fn set_date(s: &[u8]) -> Result<(), i32> {
     let d = parse_date(s).ok_or(code::ILLEGAL_FUNCTION_CALL)?;
-    set_program_clock(d.and_time(program_now().time()));
+    set_program_clock(d.to_datetime(program_now().time()));
     Ok(())
 }
 
@@ -255,14 +251,14 @@ mod tests {
 
     #[test]
     fn clock_values_parse_like_qbasic() {
-        let t = |s: &str| parse_time(s.as_bytes()).map(|t| t.format("%H:%M:%S").to_string());
+        let t = |s: &str| parse_time(s.as_bytes()).map(|t| t.strftime("%H:%M:%S").to_string());
         assert_eq!(t("13:45:07").as_deref(), Some("13:45:07"));
         assert_eq!(t("9:5").as_deref(), Some("09:05:00"));
         assert_eq!(t("23").as_deref(), Some("23:00:00"));
         for bad in ["", "24:00:00", "12:60", "12:00:60", "1:2:3:4", "ab", "12::00", "123:00", " 12:00"] {
             assert_eq!(t(bad), None, "{bad:?}");
         }
-        let d = |s: &str| parse_date(s.as_bytes()).map(|d| d.format("%m-%d-%Y").to_string());
+        let d = |s: &str| parse_date(s.as_bytes()).map(|d| d.strftime("%m-%d-%Y").to_string());
         assert_eq!(d("07-04-1999").as_deref(), Some("07-04-1999"));
         assert_eq!(d("2/29/2000").as_deref(), Some("02-29-2000"));
         assert_eq!(d("12-31-85").as_deref(), Some("12-31-1985"));
