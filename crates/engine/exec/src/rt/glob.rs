@@ -29,14 +29,34 @@ pub(crate) fn glob_files(spec: &std::path::Path) -> Vec<std::path::PathBuf> {
 }
 
 /// `*` any run of letters, `?` one letter, anything else itself.
+///
+/// Only the last `*` is ever retried: what an earlier one took can be given to the
+/// later one instead, so time stays linear in name x pattern. Trying every split at
+/// every `*` took exponential time (`KILL "*a*a*a*a*a*a*a*a*b"` never returned).
 fn dos_match(p: &[char], t: &[char]) -> bool {
-    match (p.first(), t.first()) {
-        (None, None) => true,
-        (Some('*'), _) => dos_match(&p[1..], t) || (!t.is_empty() && dos_match(p, &t[1..])),
-        (Some('?'), Some(_)) => dos_match(&p[1..], &t[1..]),
-        (Some(a), Some(b)) if a == b => dos_match(&p[1..], &t[1..]),
-        _ => false,
+    let (mut pi, mut ti) = (0, 0);
+    // the pattern after the last `*` seen, and the first letter it has not yet taken
+    let mut retry: Option<(usize, usize)> = None;
+    while ti < t.len() {
+        match p.get(pi) {
+            Some('*') => {
+                pi += 1;
+                retry = Some((pi, ti));
+            }
+            Some(&c) if c == '?' || c == t[ti] => {
+                pi += 1;
+                ti += 1;
+            }
+            _ => {
+                let Some((after_star, taken)) = retry else { return false };
+                // the `*` takes one more letter
+                pi = after_star;
+                ti = taken + 1;
+                retry = Some((after_star, ti));
+            }
+        }
     }
+    p[pi..].iter().all(|&c| c == '*')
 }
 
 #[cfg(test)]
@@ -65,5 +85,26 @@ mod glob_tests {
             assert_eq!(names("notes.*"), ["notes.txt"]);
         }
         let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn dos_match_rules() {
+        let m = |p: &str, t: &str| super::dos_match(&p.chars().collect::<Vec<_>>(), &t.chars().collect::<Vec<_>>());
+        assert!(m("*", "") && m("*", "abc") && m("**", "abc"));
+        assert!(m("a*c", "abc") && m("a*c", "ac") && !m("a*c", "ab"));
+        assert!(m("*.txt", "a.b.txt") && !m("*.txt", "a.txt.bak"));
+        assert!(m("?b?", "abc") && !m("?", "") && !m("a?", "a"));
+        assert!(m("*b*b", "abab") && !m("*b*b", "abba"));
+        assert!(m("ก*", "กข") && m("?", "ก"));
+    }
+
+    #[test]
+    fn many_stars_take_linear_time() {
+        // every `*` tried at every split: about 10^11 steps for this name
+        let pat: Vec<char> = "*a".repeat(12).chars().chain(['b']).collect();
+        let name: Vec<char> = "a".repeat(40).chars().collect();
+        let start = std::time::Instant::now();
+        assert!(!super::dos_match(&pat, &name));
+        assert!(start.elapsed() < std::time::Duration::from_secs(1));
     }
 }
