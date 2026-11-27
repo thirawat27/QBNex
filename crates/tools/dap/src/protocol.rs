@@ -35,7 +35,8 @@ pub fn read_frame(r: &mut impl BufRead) -> io::Result<Option<Vec<u8>>> {
         if let Some((k, v)) = line.split_once(':')
             && k.trim().eq_ignore_ascii_case("Content-Length")
         {
-            len = v.trim().parse().ok();
+            let v = v.trim();
+            len = Some(v.parse().map_err(|_| io::Error::new(io::ErrorKind::InvalidData, format!("bad Content-Length `{v}`")))?);
         }
     }
     let len = len.unwrap_or(0);
@@ -77,6 +78,17 @@ mod tests {
         let mut r = io::BufReader::new(&b"Content-Length: 1000000000000\r\n\r\n{}"[..]);
         let e = read_message(&mut r).unwrap_err();
         assert_eq!(e.kind(), io::ErrorKind::InvalidData);
+    }
+
+    /// A Content-Length that is not a number is broken framing: an error, as in
+    /// the language server. Ignoring it read the body as header lines, and every
+    /// later message was lost in them.
+    #[test]
+    fn bad_content_length_is_an_error() {
+        let mut buf = b"Content-Length: abc\r\n\r\n{}".to_vec();
+        write_message(&mut buf, &serde_json::json!({"a": 3})).unwrap();
+        let mut r = io::BufReader::new(&buf[..]);
+        assert_eq!(read_frame(&mut r).unwrap_err().kind(), io::ErrorKind::InvalidData);
     }
 
     /// A body that is not JSON is still one whole frame: the next message is
