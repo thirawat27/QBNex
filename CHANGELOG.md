@@ -5,7 +5,7 @@ All notable changes to QBNex will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [2.0.0] - 2026-11-13
+## [2.0.0] - 2026-11-27
 
 In QBNex 2.0, programs are compiled to QIR and run by a Rust runtime. Old
 QBasic/QB64 programs compile and behave as before, except for the fixes listed
@@ -26,7 +26,7 @@ Rust crates); `2.0.0-preview.3` adds the items marked "In 2.0.0-preview.3".
 `2.0.0-preview.4` (2026-11-16) adds the items marked "In 2.0.0-preview.4": GPU 3D in
 the standard builds, faster 3D drawing and `qb --help` options that do what they say.
 `2.0.0-preview.5` (2026-11-18) adds the items marked "In 2.0.0-preview.5": programs about a quarter of
-their former size.
+their former size. `2.0.0` (2026-11-27) adds the items marked "Since 2.0.0-preview.5".
 
 ### Changed
 
