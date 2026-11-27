@@ -83,10 +83,12 @@ fn extract_limited(path: &Path, dest: &Path, budget: u64) -> Result<usize, Strin
         if let Some(parent) = target.parent() {
             fs::create_dir_all(parent).map_err(|e| e.to_string())?;
         }
-        let mut out = File::create(&target).map_err(|e| format!("{}: {e}", target.display()))?;
-        let n = std::io::copy(&mut f.by_ref().take(left.saturating_add(1)), &mut out).map_err(|e| e.to_string())?;
+        // (the file is closed at the end of this block, before it may be removed)
+        let n = {
+            let mut out = File::create(&target).map_err(|e| format!("{}: {e}", target.display()))?;
+            std::io::copy(&mut f.by_ref().take(left.saturating_add(1)), &mut out).map_err(|e| e.to_string())?
+        };
         if n > left {
-            drop(out);
             let _ = fs::remove_file(&target);
             return Err(format!("archive expands to more than {budget} bytes"));
         }

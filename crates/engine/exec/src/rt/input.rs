@@ -136,20 +136,18 @@ fn movement_from_positions() -> bool {
 
 /// Starts the headless window with the input script (once), when one is set.
 pub(crate) fn start() {
-    if STARTED.swap(true, Ordering::SeqCst) {
-        return;
-    }
-    if std::env::var_os("QBNEX_INPUT_SCRIPT").is_none_or(|s| s.is_empty()) {
-        return;
-    }
-    // a GUI program's window (rt/window.rs) already replays the script on the main thread
-    #[cfg(not(target_arch = "wasm32"))]
-    if super::window::active() {
-        return;
-    }
     // browser build: no window layer and no threads; the page feeds keys instead
     #[cfg(not(target_arch = "wasm32"))]
-    start_window();
+    {
+        if STARTED.swap(true, Ordering::SeqCst) || std::env::var_os("QBNEX_INPUT_SCRIPT").is_none_or(|s| s.is_empty()) {
+            return;
+        }
+        // a GUI program's window (rt/window.rs) already replays the script on the main thread
+        if super::window::active() {
+            return;
+        }
+        start_window();
+    }
 }
 
 #[cfg(not(target_arch = "wasm32"))]

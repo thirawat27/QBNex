@@ -125,6 +125,15 @@ jobs:
         shell: bash
         run: cargo clippy --workspace --all-targets --locked -- -D warnings
 
+      # The browser build: the runtime's non-Windows code must keep its Unix-only
+      # parts behind cfg(unix) (they stopped qb-web from building for a while).
+      - name: Clippy (web build, wasm32)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          rustup target add wasm32-unknown-unknown
+          cargo clippy -p qb-web --target wasm32-unknown-unknown --locked -- -D warnings
+
       # Linux overcommit defeats try_reserve, so the image decoder fuzz test can OOM the
       # runner instead of failing the allocation; cap virtual memory per test process.
       - name: Rust workspace tests

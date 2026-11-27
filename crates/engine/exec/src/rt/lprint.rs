@@ -153,21 +153,30 @@ pub(crate) fn print_image(w: usize, h: usize, px: &[u32]) {
             hash = (hash ^ u64::from(b)).wrapping_mul(0x100_0000_01b3);
         }
     }
-    if to_file(format!("[_PRINTIMAGE {w}x{h} {hash:016x}]\r\n\x0c").as_bytes()) || w == 0 || h == 0 {
-        return;
-    }
-    #[cfg(windows)]
-    print_scaled(w, h, |x, y| px[y * w + x] & 0x00FF_FFFF);
-    #[cfg(unix)]
-    {
-        // a binary PPM, which CUPS converts
-        let mut ppm = format!("P6\n{w} {h}\n255\n").into_bytes();
-        for p in px {
-            ppm.extend_from_slice(&[(p >> 16) as u8, (p >> 8) as u8, *p as u8]);
-        }
-        lp(&ppm);
+    if !to_file(format!("[_PRINTIMAGE {w}x{h} {hash:016x}]\r\n\x0c").as_bytes()) && w > 0 && h > 0 {
+        image_to_printer(w, h, px);
     }
 }
+
+/// The image of [`print_image`] on the default printer.
+#[cfg(windows)]
+fn image_to_printer(w: usize, h: usize, px: &[u32]) {
+    print_scaled(w, h, |x, y| px[y * w + x] & 0x00FF_FFFF);
+}
+
+/// The image of [`print_image`] to `lp`, as a binary PPM, which CUPS converts.
+#[cfg(unix)]
+fn image_to_printer(w: usize, h: usize, px: &[u32]) {
+    let mut ppm = format!("P6\n{w} {h}\n255\n").into_bytes();
+    for p in px {
+        ppm.extend_from_slice(&[(p >> 16) as u8, (p >> 8) as u8, *p as u8]);
+    }
+    lp(&ppm);
+}
+
+/// Browser build: no printer (the image only reaches a `QBNEX_LPRINT` file).
+#[cfg(not(any(windows, unix)))]
+fn image_to_printer(_w: usize, _h: usize, _px: &[u32]) {}
 
 /// Prints an `iw` x `ih` image, `pixel(x, y)`, scaled to fit the paper of the default printer.
 #[cfg(windows)]

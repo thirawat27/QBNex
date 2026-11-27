@@ -125,7 +125,9 @@ struct Slot {
 /// Size at which [`Slot::wb`] is written out.
 const WRITE_BEHIND_MAX: usize = 64 * 1024;
 
-/// How long written bytes may wait in [`Slot::wb`] at most.
+/// How long written bytes may wait in [`Slot::wb`] at most (a browser build has
+/// no flush thread: the bytes wait for the next flush the program causes).
+#[cfg(not(target_arch = "wasm32"))]
 const FLUSH_EVERY: std::time::Duration = std::time::Duration::from_millis(200);
 
 /// Some [`Slot::wb`] holds bytes ([`flush_pending`] has work to do).
@@ -1588,9 +1590,8 @@ mod os {
         }
         match h {
             Ok(f) => {
-                use std::os::unix::fs::MetadataExt;
                 // one fstat for both: the file's identity, and whether it is a regular file
-                s.ident = f.metadata().ok().filter(std::fs::Metadata::is_file).map(|m| (m.dev(), m.ino()));
+                s.ident = f.metadata().ok().filter(std::fs::Metadata::is_file).and_then(|m| identity(&m));
                 if s.ident.is_some() && !share(&f, restrictions) {
                     s.ident = None;
                     return -7;
@@ -1681,6 +1682,20 @@ mod os {
         }
     }
 
+    /// Device and inode of a file.
+    #[cfg(unix)]
+    fn identity(m: &std::fs::Metadata) -> Option<(u64, u64)> {
+        use std::os::unix::fs::MetadataExt;
+        Some((m.dev(), m.ino()))
+    }
+
+    /// Browser build: no device and inode numbers. The file is then handled as
+    /// a device is (no write buffer), which is always correct.
+    #[cfg(not(unix))]
+    fn identity(_: &std::fs::Metadata) -> Option<(u64, u64)> {
+        None
+    }
+
     /// Device and inode of a regular file; `None` for a device, FIFO or socket
     /// (found by [`open`]).
     pub fn regular(s: &Slot) -> Option<(u64, u64)> {
@@ -1736,7 +1751,7 @@ mod os {
 
     /// Other systems: process locks (closing another file number of the same
     /// file in the program releases them; documented).
-    #[cfg(not(target_os = "linux"))]
+    #[cfg(all(unix, not(target_os = "linux")))]
     fn setlk(fd: i32, fl: &mut libc::flock) -> i32 {
         // SAFETY: plain call, `fl` valid.
         unsafe { libc::fcntl(fd, libc::F_SETLK, fl as *mut libc::flock) }
@@ -1750,7 +1765,6 @@ mod os {
     /// allows that much). A file system without record locks behaves as before
     /// (every LOCK succeeds).
     pub fn lock(s: &mut Slot, start: i64, end: i64, lock: bool) -> i32 {
-        use std::os::fd::AsRawFd;
         if end != -1 && end < start {
             return -4;
         }
@@ -1769,11 +1783,28 @@ mod os {
             // UnlockFile takes only a range that was locked, exactly
             return -7;
         }
+        let e = record_lock(f, start, len, lock, s.file.write != 0);
+        if e != 0 {
+            return e;
+        }
+        if lock {
+            s.locks.push((start_u, len));
+        } else {
+            s.locks.retain(|&r| r != (start_u, len));
+        }
+        0
+    }
+
+    /// The `fcntl` record lock of [`lock`] (`len` 0 = to the end of any file
+    /// length): 0, -7 when another program holds the range, -9 for other errors.
+    #[cfg(unix)]
+    fn record_lock(f: &File, start: i64, len: u64, lock: bool, write: bool) -> i32 {
+        use std::os::fd::AsRawFd;
         // SAFETY: an all-zero flock is a valid value.
         let mut fl: libc::flock = unsafe { std::mem::zeroed() };
         fl.l_type = (if !lock {
             libc::F_UNLCK
-        } else if s.file.write != 0 {
+        } else if write {
             libc::F_WRLCK
         } else {
             libc::F_RDLCK
@@ -1789,11 +1820,14 @@ mod os {
                 _ => return -9,
             }
         }
-        if lock {
-            s.locks.push((start_u, len));
-        } else {
-            s.locks.retain(|&r| r != (start_u, len));
-        }
+        0
+    }
+
+    /// Browser build: no other program can open the file, so there is nothing to
+    /// lock against (the ranges are still checked and kept, as on a file system
+    /// without record locks).
+    #[cfg(not(unix))]
+    fn record_lock(_f: &File, _start: i64, _len: u64, _lock: bool, _write: bool) -> i32 {
         0
     }
 
