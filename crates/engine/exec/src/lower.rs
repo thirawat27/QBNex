@@ -362,6 +362,31 @@ impl FnRegs {
     }
 }
 
+/// What the lowering of one function's instructions shares (`Lw::function`).
+struct FnCx<'a> {
+    /// function index (0 = main)
+    k: usize,
+    body: &'a [Inst],
+    /// this function's own variables (statics, parameters, locals)
+    vars: HashMap<&'a str, Var>,
+    /// the module-level variables, looked up after `vars` (see `lookup_var`)
+    globals: HashMap<String, Var>,
+    rg: FnRegs,
+    /// QIR register -> the place an addr / aref / aaddr gave it
+    ptrs: Vec<Option<Ptr>>,
+    /// register mode: QIR type of the variable (or array element) an addr / aref points at
+    ptr_ty: Vec<Option<IT>>,
+    /// QIR register -> variable whose register it aliases
+    alias_var: Vec<Option<&'a str>>,
+    /// result slot and type of a FUNCTION
+    ret: Option<(Slot, Ty)>,
+}
+
+/// The key of label `l` of function `k` in `Lw::labels`.
+fn label_key(k: usize, l: &str) -> String {
+    format!("{k}\u{1}{l}")
+}
+
 /// The register macros of a lowering function: `$s` is the `Lw`, `$rg` the
 /// [`FnRegs`], `$k` the function index.
 macro_rules! reg_macros {
@@ -664,11 +689,54 @@ impl<'a> Lw<'a> {
     }
 
     fn function(&mut self, k: usize, f: &'a ir::Func, statics: &HashMap<String, Var>) -> Res<FuncSlots> {
-        let fkey = |l: &str| format!("{k}\u{1}{l}");
         // variables: this function's own names (statics, params, locals) over the
         // globals (module view). Looked up in that order instead of copying every
         // global into a per-function map, which cost globals x functions copies.
         let globals = std::mem::take(&mut self.globals);
+        let (mut vars, params) = self.bind_vars(k, f, statics)?;
+        if self.mem && k > 0 {
+            self.fetch_module_vars(k, f, &mut vars, &globals);
+        }
+        let ret = self.result_slot(k, f)?;
+        {
+            let fr = &mut self.frames[k];
+            fr.n_vars = fr.num_init.len() as u32;
+            fr.n_svars = fr.n_str;
+        }
+        let rg = self.reg_tables(k, f)?;
+        let n_regs = rg.rmap.len();
+        let mut cx = FnCx {
+            k,
+            body: &f.body,
+            vars,
+            globals,
+            rg,
+            ptrs: vec![None; n_regs],
+            ptr_ty: vec![None; n_regs],
+            alias_var: vec![None; n_regs],
+            ret,
+        };
+        let prologue = std::mem::take(&mut self.prologue[k]);
+        self.emit_prologue(prologue);
+        self.barrier = self.pc();
+        LabelRefs::set(cx.body);
+        self.copy_skip = 0;
+        self.app_plan.clear();
+        for ii in 0..cx.body.len() {
+            // (copy_run may move copy_skip on while the body is lowered)
+            if ii >= self.copy_skip {
+                self.lower_inst(&mut cx, ii)?;
+            }
+        }
+        // falling off the end = ret (end in main)
+        self.emit(if k == 0 { Ins::End } else { Ins::Ret });
+        self.globals = cx.globals;
+        Ok((params, ret))
+    }
+
+    /// The variables function `k` knows by its own names (statics, parameters,
+    /// locals) and the slots its parameters arrive in.
+    fn bind_vars(&mut self, k: usize, f: &'a ir::Func, statics: &HashMap<String, Var>) -> Res<(HashMap<&'a str, Var>, Vec<Slot>)> {
         let mut vars: HashMap<&'a str, Var> = HashMap::default();
         for l in f.locals.iter().filter(|l| l.kind == VarKind::Static) {
             if let Some(v) = statics.get(&l.name) {
@@ -744,26 +812,34 @@ impl<'a> Lw<'a> {
             let v = self.alloc_var(k, l, k)?;
             vars.insert(l.name.as_str(), v);
         }
-        if self.mem && k > 0 {
-            // module-level memory variables: fetch their addresses once per call
-            let mut fetch = Vec::new();
-            // by name: HashMap order differs between runs, and the registers must not
-            // (a native image built ahead of time checks the lowered program)
-            let mut names: Vec<&'a str> = var_names(f)
-                .into_iter()
-                .filter(|n| matches!(lookup_var(&vars, &globals, k, n), Some(Var::MG(..))))
-                .collect();
-            names.sort_unstable();
-            for n in names {
-                if let Some(Var::MG(g, mk)) = lookup_var(&vars, &globals, k, n) {
-                    let r = self.frames[k].new_n(0);
-                    fetch.push(Ins::GetG { d: r, g });
-                    vars.insert(n, Var::M(r, mk));
-                }
+        Ok((vars, params))
+    }
+
+    /// Memory mode, in a SUB/FUNCTION: the addresses of the module-level memory
+    /// variables it uses, fetched once per call.
+    fn fetch_module_vars(&mut self, k: usize, f: &'a ir::Func, vars: &mut HashMap<&'a str, Var>, globals: &HashMap<String, Var>) {
+        // module-level memory variables: fetch their addresses once per call
+        let mut fetch = Vec::new();
+        // by name: HashMap order differs between runs, and the registers must not
+        // (a native image built ahead of time checks the lowered program)
+        let mut names: Vec<&'a str> = var_names(f)
+            .into_iter()
+            .filter(|n| matches!(lookup_var(vars, globals, k, n), Some(Var::MG(..))))
+            .collect();
+        names.sort_unstable();
+        for n in names {
+            if let Some(Var::MG(g, mk)) = lookup_var(vars, globals, k, n) {
+                let r = self.frames[k].new_n(0);
+                fetch.push(Ins::GetG { d: r, g });
+                vars.insert(n, Var::M(r, mk));
             }
-            self.prologue[k].extend(fetch);
         }
-        let ret = match f.ret {
+        self.prologue[k].extend(fetch);
+    }
+
+    /// The slot and type of a FUNCTION's result.
+    fn result_slot(&mut self, k: usize, f: &'a ir::Func) -> Res<Option<(Slot, Ty)>> {
+        Ok(match f.ret {
             None => None,
             Some(IT::Str) => Some((Slot::S(self.frames[k].new_s()), Ty::Str)),
             Some(IT::F80) => {
@@ -775,12 +851,12 @@ impl<'a> Lw<'a> {
                 let ty = vty(t)?;
                 Some((Slot::N(self.frames[k].new_n(0)), ty))
             }
-        };
-        {
-            let fr = &mut self.frames[k];
-            fr.n_vars = fr.num_init.len() as u32;
-            fr.n_svars = fr.n_str;
-        }
+        })
+    }
+
+    /// Per-register tables of function `k`: types, definition and use counts, and
+    /// the constants that become constant registers / K strings.
+    fn reg_tables(&mut self, k: usize, f: &'a ir::Func) -> Res<FnRegs> {
         // Per-register tables of this function. QIR numbers registers densely from
         // 0 in each function, so they are arrays indexed by register (hash maps here
         // were a large part of loading a big program).
@@ -839,23 +915,15 @@ impl<'a> Lw<'a> {
                     rmap[*dst as usize] = Some(rg);
                 }
         }
-        let mut ptrs = vec![None::<Ptr>; n_regs];
-        // register mode: QIR type of the variable (or array element) an addr / aref points at
-        let mut ptr_ty = vec![None::<IT>; n_regs];
-        // QIR register -> variable whose register it aliases
-        let mut alias_var = vec![None::<&str>; n_regs];
-        let mut rg = FnRegs { rty, defs, uses, rmap, alias_src: vec![None; n_regs] };
-        let prologue = std::mem::take(&mut self.prologue[k]);
-        self.emit_prologue(prologue);
-        self.barrier = self.pc();
-        let body = &f.body;
-        LabelRefs::set(body);
-        self.copy_skip = 0;
-        self.app_plan.clear();
-        for (ii, ins) in body.iter().enumerate() {
-            if ii < self.copy_skip {
-                continue;
-            }
+        Ok(FnRegs { rty, defs, uses, rmap, alias_src: vec![None; n_regs] })
+    }
+
+    /// Lowers instruction `ii` of the function body.
+    fn lower_inst(&mut self, cx: &mut FnCx<'a>, ii: usize) -> Res<()> {
+        let (k, body) = (cx.k, cx.body);
+        let ins = &body[ii];
+        {
+            let rg = &mut cx.rg;
             reg_macros!(self, rg, k);
             if let Some(at) = self.app_plan.iter().position(|p| p.0 == ii) {
                 if let (_, Some((g, a, b))) = self.app_plan.swap_remove(at) {
@@ -866,712 +934,809 @@ impl<'a> Lw<'a> {
                     };
                     self.emit(Ins::AppGS { g, a, b });
                 }
-                continue;
-            }
-            macro_rules! var {
-                ($n:expr) => {
-                    lookup_var(&vars, &globals, k, $n.as_str()).ok_or_else(|| format!("unknown variable {}", $n))?
-                };
-            }
-            if self.mem && self.lower_mem(k, &mut rg, &vars, &globals, body, ii)? {
-                continue;
-            }
-            // _FLOAT instructions (register pairs)
-            let f80_case = match ins {
-                Inst::Const { ty: IT::F80, .. }
-                | Inst::Mov { ty: IT::F80, .. }
-                | Inst::Bin { ty: IT::F80, .. }
-                | Inst::Un { ty: IT::F80, .. }
-                | Inst::Cmp { ty: IT::F80, .. }
-                | Inst::Load { ty: IT::F80, .. }
-                | Inst::Store { ty: IT::F80, .. }
-                | Inst::Read { ty: IT::F80, .. } => true,
-                Inst::Cvt { to, from, .. } | Inst::Trunc { to, from, .. } => *to == IT::F80 || *from == IT::F80,
-                _ => false,
-            };
-            if f80_case {
-                self.lower_f80(k, &mut rg, &vars, &globals, ins)?;
-                continue;
-            }
-            match ins {
-                Inst::Line(n) => {
-                    let pc = self.pc();
-                    self.m.stmts.push((pc, *n));
-                    self.barrier = pc;
-                }
-                Inst::IncLine { line, file } => {
-                    // belongs to the statement the `line` before it started
-                    if let Some(k) = self.m.stmts.len().checked_sub(1) {
-                        self.m.incls.push((k as u32, *line, *file));
-                    }
-                }
-                Inst::Label(l) => {
-                    let pc = self.pc();
-                    if self.labels.insert(fkey(l), pc).is_some() {
-                        return Err(format!("duplicate label {l}"));
-                    }
-                    self.barrier = pc;
-                }
-                Inst::Const { ty, dst, val } => {
-                    if rg.defs[*dst as usize] == 1 {
-                        continue; // constant register
-                    }
-                    match reg!(*dst) {
-                        Rg::N(d) => {
-                            let bits = lit_num(*ty, val)?;
-                            let kk = self.m.nconst.len() as u32;
-                            self.m.nconst.push(bits);
-                            self.emit(Ins::Ldk { d, k: kk });
-                        }
-                        Rg::S(d) => {
-                            let Lit::Str(s) = val else { return Err("bad string const".into()) };
-                            let kk = self.kstr(s);
-                            self.emit(Ins::MovS { d, s: kk });
-                        }
-                        Rg::P | Rg::X(_) => return Err("pointer constant".into()),
-                    }
-                }
-                Inst::Mov { dst, src, .. } => match (reg!(*dst), reg!(*src)) {
-                    (Rg::N(d), Rg::N(s)) => {
-                        self.emit(Ins::Mov { d, s });
-                    }
-                    (Rg::S(d), Rg::S(s)) => {
-                        self.emit(Ins::MovS { d, s });
-                    }
-                    _ => return Err("pointer mov".into()),
-                },
-                Inst::Bin { op, ty, dst, a, b } => {
-                    let (d, x, y) = (nreg!(*dst), nreg!(*a), nreg!(*b));
-                    if ty.is_float() {
-                        self.emit(match op {
-                            BinOp::Add => Ins::AddF { d, a: x, b: y },
-                            BinOp::Sub => Ins::SubF { d, a: x, b: y },
-                            BinOp::Mul => Ins::MulF { d, a: x, b: y },
-                            BinOp::Div => Ins::DivFI { d, a: x, b: y },
-                            BinOp::Pow => Ins::PowF { d, a: x, b: y },
-                            _ => return Err("bad float op".into()),
-                        });
-                        if *ty == IT::F32 {
-                            self.emit(Ins::RoundF32 { d, s: d });
-                        }
-                    } else {
-                        let w = width(*ty)?;
-                        let (ins, wrapped) = match (op, w) {
-                            (BinOp::Add, W::W16) => (Ins::AddI16 { d, a: x, b: y }, true),
-                            (BinOp::Add, W::W32) => (Ins::AddI32 { d, a: x, b: y }, true),
-                            (BinOp::Add, _) => (Ins::AddI64 { d, a: x, b: y }, w == W::W64),
-                            (BinOp::Sub, W::W16) => (Ins::SubI16 { d, a: x, b: y }, true),
-                            (BinOp::Sub, W::W32) => (Ins::SubI32 { d, a: x, b: y }, true),
-                            (BinOp::Sub, _) => (Ins::SubI64 { d, a: x, b: y }, w == W::W64),
-                            (BinOp::Mul, W::W16) => (Ins::MulI16 { d, a: x, b: y }, true),
-                            (BinOp::Mul, W::W32) => (Ins::MulI32 { d, a: x, b: y }, true),
-                            (BinOp::Mul, _) => (Ins::MulI64 { d, a: x, b: y }, w == W::W64),
-                            (BinOp::IDiv, _) => (Ins::IDiv { d, a: x, b: y, w }, true),
-                            (BinOp::Mod, _) => (Ins::Mod { d, a: x, b: y, w }, true),
-                            (BinOp::And, _) => (Ins::And { d, a: x, b: y }, true),
-                            (BinOp::Or, _) => (Ins::Or { d, a: x, b: y }, true),
-                            (BinOp::Xor, _) => (Ins::Xor { d, a: x, b: y }, true),
-                            (BinOp::Shl, _) => (Ins::Shl { d, a: x, b: y, w }, true),
-                            (BinOp::Shr, _) => (Ins::Shr { d, a: x, b: y, w }, true),
-                            _ => return Err("bad int op".into()),
-                        };
-                        self.emit(ins);
-                        if !wrapped {
-                            self.emit(Ins::Wrap { d, s: d, w });
-                        }
-                    }
-                }
-                Inst::Un { op, ty, dst, a } => {
-                    let (d, s) = (nreg!(*dst), nreg!(*a));
-                    match (op, ty.is_float()) {
-                        (UnOp::Neg, true) => {
-                            self.emit(Ins::Un { op: Un::NegF, d, s });
-                        }
-                        (UnOp::Neg, false) => {
-                            self.emit(Ins::Un { op: Un::NegI(width(*ty)?), d, s });
-                        }
-                        (UnOp::Not, _) => {
-                            self.emit(Ins::Un { op: Un::Not, d, s });
-                            self.emit(Ins::Wrap { d, s: d, w: width(*ty)? });
-                        }
-                    }
-                }
-                Inst::Cmp { op, ty, dst, a, b } => {
-                    let d = nreg!(*dst);
-                    let c = cmp(*op);
-                    if *ty == IT::Str {
-                        let (x, y) = (sreg!(*a), sreg!(*b));
-                        self.emit(Ins::CmpS { c, d, a: x, b: y });
-                    } else {
-                        let (x, y) = (nreg!(*a), nreg!(*b));
-                        self.emit(if ty.is_float() {
-                            Ins::CmpF { c, d, a: x, b: y }
-                        } else if *ty == IT::U64 {
-                            Ins::CmpU { c, d, a: x, b: y }
-                        } else {
-                            Ins::CmpI { c, d, a: x, b: y }
-                        });
-                    }
-                }
-                Inst::Cvt { to, from, dst, src } | Inst::Trunc { to, from, dst, src } => {
-                    let trunc = matches!(ins, Inst::Trunc { .. });
-                    if to.is_int() && from.is_int() && widens(*from, *to) && rg.defs[*dst as usize] == 1 && rg.rmap[*dst as usize].is_none() {
-                        // widening an already normalized integer changes nothing: reuse the register
-                        let s = nreg!(*src);
-                        let n_uses = rg.uses[*dst as usize];
-                        let ok = match alias_var[*src as usize] {
-                            Some(v) => alias_ok(body, ii, *dst, v, n_uses),
-                            None => stable_until_uses(body, ii, *dst, n_uses, &|i: &Inst| regs(i).0 == Some(*src)),
-                        };
-                        if ok {
-                            rg.rmap[*dst as usize] = Some(Rg::N(s));
-                            rg.alias_src[*dst as usize] = Some(*src);
-                            if let Some(v) = alias_var[*src as usize] {
-                                alias_var[*dst as usize] = Some(v);
-                            }
-                            continue;
-                        }
-                    }
-                    let (d, s) = (nreg!(*dst), nreg!(*src));
-                    match (to.is_float(), from.is_float()) {
-                        (true, true) => {
-                            self.emit(if *to == IT::F32 { Ins::RoundF32 { d, s } } else { Ins::Mov { d, s } });
-                        }
-                        (true, false) => {
-                            self.emit(if *from == IT::U64 { Ins::IToFU { d, s } } else { Ins::IToF { d, s } });
-                            if *to == IT::F32 {
-                                self.emit(Ins::RoundF32 { d, s: d });
-                            }
-                        }
-                        (false, true) => {
-                            self.emit(Ins::CvtFI { d, s, w: width(*to)?, trunc });
-                        }
-                        (false, false) => {
-                            self.emit(Ins::Wrap { d, s, w: width(*to)? });
-                        }
-                    }
-                }
-                Inst::Concat { dst, a, b } => {
-                    let (d, x, y) = (sreg!(*dst), sreg!(*a), sreg!(*b));
-                    self.emit(Ins::Concat { d, a: x, b: y });
-                }
-                Inst::Load { ty, dst, var } => {
-                    let v = var!(var);
-                    match v {
-                        Var::N(r, _) | Var::S(r) => {
-                            let alias = rg.defs[*dst as usize] == 1 && rg.rmap[*dst as usize].is_none() && alias_ok(body, ii, *dst, var, rg.uses[*dst as usize]);
-                            let is_s = matches!(v, Var::S(_));
-                            if alias {
-                                rg.rmap[*dst as usize] = Some(if is_s { Rg::S(r) } else { Rg::N(r) });
-                                alias_var[*dst as usize] = Some(var.as_str());
-                            } else if is_s {
-                                let d = sreg!(*dst);
-                                self.emit(Ins::MovS { d, s: r });
-                            } else {
-                                let d = nreg!(*dst);
-                                self.emit(Ins::Mov { d, s: r });
-                            }
-                        }
-                        Var::NG(g, _) => {
-                            let d = nreg!(*dst);
-                            self.emit(Ins::GetG { d, g });
-                        }
-                        Var::SG(g) if rg.single(*dst) && rg.rmap[*dst as usize].is_none() && str_read_only(body, ii, *dst) => {
-                            // its only reader takes the string from the module-level register: no copy
-                            rg.rmap[*dst as usize] = Some(Rg::S(g | GS));
-                        }
-                        Var::SG(g) if let Some((steps, a, b)) = app_chain(body, ii, var, &|r| rg.single(r)) => {
-                            // g$ = g$ + a [+ b]: appended in place (the load copied all of g$)
-                            let last = *steps.iter().rev().nth(1).expect("a concat and the store");
-                            for &j in &steps {
-                                self.app_plan.push((j, if j == last { Some((g, a, b)) } else { None }));
-                            }
-                        }
-                        Var::SG(g) => {
-                            let d = sreg!(*dst);
-                            self.emit(Ins::GetGS { d, g });
-                        }
-                        Var::R(r, IT::Str) => {
-                            let d = sreg!(*dst);
-                            self.emit(Ins::LdRS { d, r });
-                        }
-                        Var::R(r, _) => {
-                            let d = nreg!(*dst);
-                            self.emit(Ins::LdR { d, r });
-                        }
-                        Var::A(..) => return Err("load of an array".into()),
-                        Var::M(..) | Var::MG(..) => return Err("memory variable outside memory mode".into()),
-                    }
-                    let _ = ty;
-                }
-                Inst::Store { ty, var, src } => {
-                    let v = var!(var);
-                    match v {
-                        Var::N(r, t) => {
-                            let s = nreg!(*src);
-                            let produced = rg.single(*src) && s >= self.frames[k].n_vars && !self.is_const(k, s) && self.last_writes(false, s);
-                            if *ty == IT::F32 && !(produced && matches!(self.m.code.last(), Some(Ins::RoundF32 { .. }))) && !self.is_const(k, s) {
-                                self.emit(Ins::RoundF32 { d: r, s });
-                            } else if s != r && !(produced && self.retarget(false, s, r)) {
-                                self.emit(Ins::Mov { d: r, s });
-                            }
-                            if t.is_int() {
-                                // every QIR register on the VM register is read once
-                                let once = |x: R| {
-                                    let mut on = rg.rmap.iter().enumerate().filter(|(_, g)| matches!(g, Some(Rg::N(y)) if *y == x)).peekable();
-                                    on.peek().is_some() && on.all(|(v, _)| rg.single(v as u32))
-                                };
-                                self.fuse_acc(k, r, once);
-                            }
-                        }
-                        Var::S(r) => {
-                            let s = sreg!(*src);
-                            if s != r {
-                                let produced = rg.single(*src) && s & K == 0 && s >= self.frames[k].n_svars && self.last_writes(true, s);
-                                if !(produced && self.retarget(true, s, r)) {
-                                    let tmp = s & K == 0 && s >= self.frames[k].n_svars && rg.single(*src);
-                                    self.emit(if tmp { Ins::TakeS { d: r, s } } else { Ins::MovS { d: r, s } });
-                                }
-                            }
-                        }
-                        Var::NG(g, _) => {
-                            let s = nreg!(*src);
-                            if *ty == IT::F32 && !self.is_const(k, s) {
-                                let t = self.frames[k].new_n(0);
-                                self.emit(Ins::RoundF32 { d: t, s });
-                                self.emit(Ins::SetG { g, s: t });
-                            } else {
-                                self.emit(Ins::SetG { g, s });
-                            }
-                        }
-                        Var::SG(g) => {
-                            let s = sreg!(*src);
-                            self.emit(Ins::SetGS { g, s });
-                        }
-                        Var::R(r, IT::Str) => {
-                            let s = sreg!(*src);
-                            self.emit(Ins::StRS { r, s });
-                        }
-                        Var::R(r, _) => {
-                            let s = nreg!(*src);
-                            if *ty == IT::F32 && !self.is_const(k, s) {
-                                let t = self.frames[k].new_n(0);
-                                self.emit(Ins::RoundF32 { d: t, s });
-                                self.emit(Ins::StR { r, s: t });
-                            } else {
-                                self.emit(Ins::StR { r, s });
-                            }
-                        }
-                        Var::A(..) => return Err("store to an array".into()),
-                        Var::M(..) | Var::MG(..) => return Err("memory variable outside memory mode".into()),
-                    }
-                }
-                Inst::Addr { dst, var } => {
-                    let (p, t) = match var!(var) {
-                        Var::N(r, t) => (Place::N(r, vty(t)?), t),
-                        Var::NG(g, t) => (Place::NG(g, vty(t)?), t),
-                        Var::S(r) => (Place::S(r), IT::Str),
-                        Var::SG(g) => (Place::SG(g), IT::Str),
-                        Var::R(r, t) => (Place::R(r, vty(t)?), t),
-                        Var::A(..) => return Err("addr of an array".into()),
-                        Var::M(..) | Var::MG(..) => return Err("memory variable outside memory mode".into()),
-                    };
-                    reg!(*dst);
-                    ptrs[*dst as usize] = Some(Ptr::Place(p));
-                    ptr_ty[*dst as usize] = Some(t);
-                }
-                Inst::ARef { dst, var } => {
-                    let Var::A(a, t) = var!(var) else { return Err("aref of a scalar".into()) };
-                    reg!(*dst);
-                    ptrs[*dst as usize] = Some(Ptr::Place(Place::A(a)));
-                    ptr_ty[*dst as usize] = Some(t);
-                }
-                Inst::AAddr { dst, var, idx } => {
-                    let Var::A(a, ety) = var!(var) else { return Err("aaddr of a scalar".into()) };
-                    let n = idx.len() as u32;
-                    // one subscript that stays unchanged until the address is used: read it in place
-                    // A BYREF argument is copied back after the callee ran, and the callee
-                    // may have changed the subscript variable (SHARED): the place then
-                    // needs its own copy of the subscript.
-                    // A register defined once has all its reads behind it after `uses`
-                    // of them: the scans below stop there. Scanning to the next definition
-                    // (the end of the function, for such a register) made the loader
-                    // quadratic in the number of array accesses of a function.
-                    let reads = if rg.defs[*dst as usize] == 1 { rg.uses[*dst as usize] } else { u32::MAX };
-                    let mut to_call = false;
-                    let mut seen = 0;
-                    for i in &body[ii + 1..] {
-                        let (d, us) = regs(i);
-                        if seen >= reads || d == Some(*dst) {
-                            break;
-                        }
-                        seen += us.count(*dst);
-                        if matches!(i, Inst::Call { args, .. } if args.contains(dst)) {
-                            to_call = true;
-                            break;
-                        }
-                    }
-                    let direct = match idx.as_slice() {
-                        [x] if !to_call => {
-                            let x = *x;
-                            let cnt = if reads == u32::MAX { uses_before_redef(body, ii, *dst) } else { reads };
-                            let var = alias_var[x as usize];
-                            stable_until_uses(body, ii, *dst, cnt, &|i: &Inst| {
-                                regs(i).0 == Some(x) || matches!((i, var), (Inst::Store { var: v, .. }, Some(w)) if v == w)
-                            })
-                        }
-                        _ => false,
-                    };
-                    let base = if direct {
-                        nreg!(idx[0])
-                    } else {
-                        let base = self.frames[k].new_run(n);
-                        for (j, r) in idx.iter().enumerate() {
-                            let s = nreg!(*r);
-                            self.emit(Ins::Mov { d: base + j as R, s });
-                        }
-                        base
-                    };
-                    reg!(*dst);
-                    ptrs[*dst as usize] = Some(Ptr::Elem { a, i: base, n, ety });
-                    let read = if reads == u32::MAX { used_before_redef(body, ii, *dst) } else { reads > 0 };
-                    if !read {
-                        // address never used: still check the subscripts (error 9)
-                        if ety == IT::Str {
-                            let t = self.frames[k].new_s();
-                            self.emit(if n == 1 { Ins::LdE1S { d: t, a, i: base } } else { Ins::LdES { d: t, a, i: base, n } });
-                        } else {
-                            let t = self.frames[k].new_n(0);
-                            self.emit(if n == 1 { Ins::LdE1 { d: t, a, i: base } } else { Ins::LdE { d: t, a, i: base, n } });
-                        }
-                    }
-                }
-                Inst::Ld { ty, dst, ptr, off } | Inst::St { ty, ptr, off, src: dst } => {
-                    let store = matches!(ins, Inst::St { .. });
-                    if *off != 0 {
-                        return Err("ld/st at an offset".into());
-                    }
-                    let Some(Ptr::Elem { a, i, n, ety }) = ptrs[*ptr as usize] else {
-                        return Err("ld/st through a pointer that is not an array element".into());
-                    };
-                    if ety != *ty {
-                        return Err("ld/st type differs from the element type".into());
-                    }
-                    if *ty == IT::Str {
-                        let s = sreg!(*dst);
-                        self.emit(match (store, n) {
-                            (false, 1) => Ins::LdE1S { d: s, a, i },
-                            (false, _) => Ins::LdES { d: s, a, i, n },
-                            (true, 1) => Ins::StE1S { a, i, s },
-                            (true, _) => Ins::StES { a, i, n, s },
-                        });
-                    } else {
-                        let s = nreg!(*dst);
-                        let s = if store && *ty == IT::F32 && !self.is_const(k, s) {
-                            let t = self.frames[k].new_n(0);
-                            self.emit(Ins::RoundF32 { d: t, s });
-                            t
-                        } else {
-                            s
-                        };
-                        self.emit(match (store, n) {
-                            (false, 1) => Ins::LdE1 { d: s, a, i },
-                            (false, _) => Ins::LdE { d: s, a, i, n },
-                            (true, 1) => Ins::StE1 { a, i, s },
-                            (true, _) => Ins::StE { a, i, n, s },
-                        });
-                    }
-                }
-                Inst::LdFs { .. } | Inst::StFs { .. } => return Err("STRING * n field".into()),
-                Inst::PAdd { .. } => return Err("pointer arithmetic".into()),
-                Inst::Copy { .. } => return Err("memory copy".into()),
-                Inst::Dim { kind, var, bounds } => {
-                    let Var::A(a, _) = var!(var) else { return Err("dim of a scalar".into()) };
-                    let n = bounds.len() as u32;
-                    let base = self.frames[k].new_run(2 * n);
-                    for (j, (lo, hi)) in bounds.iter().enumerate() {
-                        let (lo, hi) = (nreg!(*lo), nreg!(*hi));
-                        self.emit(Ins::Mov { d: base + 2 * j as R, s: lo });
-                        self.emit(Ins::Mov { d: base + 2 * j as R + 1, s: hi });
-                    }
-                    self.emit(Ins::Dim { a, dims: base, n, mode: dim_mode(*kind) });
-                }
-                Inst::Erase { var } => {
-                    let Var::A(a, _) = var!(var) else { return Err("erase of a scalar".into()) };
-                    self.emit(Ins::Erase { a });
-                }
-                Inst::LBound { dst, var, dim } | Inst::UBound { dst, var, dim } => {
-                    let Var::A(a, _) = var!(var) else { return Err("bound of a scalar".into()) };
-                    let (d, dm) = (nreg!(*dst), nreg!(*dim));
-                    self.emit(Ins::Bound { d, a, dim: dm, upper: matches!(ins, Inst::UBound { .. }) });
-                }
-                Inst::Jmp(l) => self.jump(Ins::Jmp { t: 0 }, &fkey(l)),
-                Inst::Jz { c, target } | Inst::Jnz { c, target } => {
-                    let on_true = matches!(ins, Inst::Jnz { .. });
-                    let r = nreg!(*c);
-                    let mut j = if on_true { Ins::JnzI { s: r, t: 0 } } else { Ins::JzI { s: r, t: 0 } };
-                    if rg.single(*c) && self.pc() > self.barrier {
-                        let fused = match self.m.code.last().copied() {
-                            Some(Ins::CmpI { c: op, d, a, b }) if d == r => Some(Ins::BrI { c: if on_true { op } else { op.inverse() }, a, b, t: 0 }),
-                            Some(Ins::CmpF { c: op, d, a, b }) if d == r => Some(Ins::BrF { c: if on_true { op } else { op.negated() }, a, b, t: 0 }),
-                            // native BrS reads string operands from the frame, not from memory
-                            Some(Ins::CmpS { c: op, d, a, b }) if d == r && !mem_str(a) && !mem_str(b) => Some(Ins::BrS { c: if on_true { op } else { op.inverse() }, a, b, t: 0 }),
-                            Some(Ins::CmpU { c: op, d, a, b }) if d == r => Some(Ins::BrU { c: if on_true { op } else { op.inverse() }, a, b, t: 0 }),
-                            _ => None,
-                        };
-                        if let Some(b) = fused {
-                            self.m.code.pop();
-                            j = b;
-                        }
-                    }
-                    self.jump(j, &fkey(target));
-                }
-                Inst::Gosub(l) => {
-                    let pc = self.emit(Ins::Gosub { t: 0 });
-                    self.fixups.push((pc, fkey(l)));
-                }
-                Inst::GRet => {
-                    self.emit(Ins::Return);
-                }
-                Inst::GRetL(l) => {
-                    let pc = self.emit(Ins::ReturnL { t: 0 });
-                    self.fixups.push((pc, fkey(l)));
-                }
-                Inst::Call { func, .. } if self.callee(func).is_none() => {
-                    // DECLARE LIBRARY calls pass real addresses: memory mode only
-                    return Err(format!("{func}: DECLARE LIBRARY call (memory mode)"));
-                }
-                Inst::Call { dst, func, args } => {
-                    let callee = self.callee(func).ok_or_else(|| format!("unknown function {func}"))?;
-                    let fi = self.fidx[func.as_str()] as u32;
-                    let mut out = Vec::new();
-                    for (r, p) in args.iter().zip(&callee.params) {
-                        let byref = matches!(p.kind, VarKind::Param { byref: true }) || p.array;
-                        if byref {
-                            let pl = match ptrs[*r as usize] {
-                                Some(Ptr::Place(pl)) => pl,
-                                Some(Ptr::Elem { a, i, n, ety }) => Place::E { a, i, n, ty: vty(ety)? },
-                                None => return Err(format!("BYREF argument %{r} is not an address")),
-                            };
-                            self.m.places.push(pl);
-                            out.push(Arg::Ref(self.m.places.len() as u32 - 1));
-                        } else {
-                            if !push_value_arg(&mut out, reg!(*r)) {
-                                return Err("pointer passed by value".into());
-                            }
-                        }
-                    }
-                    let dest = match dst {
-                        Some(d) => Some(result_reg(reg!(*d))?),
-                        None => None,
-                    };
-                    self.emit_call(fi, out, dest);
-                }
-                Inst::Ret(v) => {
-                    if k == 0 {
-                        self.emit(Ins::End);
-                        continue;
-                    }
-                    if let (Some(v), Some((slot, _))) = (v, ret) {
-                        match (slot, reg!(*v)) {
-                            (Slot::N(d), Rg::N(s)) => {
-                                self.emit(Ins::Mov { d, s });
-                            }
-                            (Slot::S(d), Rg::S(s)) => {
-                                self.emit(Ins::MovS { d, s });
-                            }
-                            (Slot::N(d), Rg::X(s)) => {
-                                self.emit(Ins::MovX { d, s });
-                            }
-                            _ => return Err("bad return value".into()),
-                        }
-                    }
-                    self.emit(Ins::Ret);
-                }
-                Inst::Rt { dst: Some(dst), name, args }
-                    if matches!(name.as_str(), "LEN" | "LEFT$" | "RIGHT$" | "MID$" | "MID$.n" | "CHR$" | "ASC" | "ASC.n" | "INSTR" | "INSTR.n") =>
-                {
-                    // hot string builtins: dedicated instructions, same errors as the shared runtime
-                    let native = match (name.as_str(), args.as_slice()) {
-                        ("LEN", [x]) => Ins::LenS { d: nreg!(*dst), s: sreg!(*x) },
-                        ("ASC", [x]) => Ins::Asc { d: nreg!(*dst), s: sreg!(*x) },
-                        ("ASC.n", [x, i]) => Ins::AscAt { d: nreg!(*dst), s: sreg!(*x), i: nreg!(*i) },
-                        ("INSTR", [x, y]) => Ins::Instr { d: nreg!(*dst), start: NONE, a: sreg!(*x), b: sreg!(*y) },
-                        ("INSTR.n", [n, x, y]) => Ins::Instr { d: nreg!(*dst), start: nreg!(*n), a: sreg!(*x), b: sreg!(*y) },
-                        ("CHR$", [x]) => Ins::Chr { d: sreg!(*dst), s: nreg!(*x) },
-                        ("LEFT$", [x, n]) => Ins::Left { d: sreg!(*dst), s: sreg!(*x), n: nreg!(*n) },
-                        ("RIGHT$", [x, n]) => Ins::Right { d: sreg!(*dst), s: sreg!(*x), n: nreg!(*n) },
-                        ("MID$", [x, st]) => Ins::Mid { d: sreg!(*dst), s: sreg!(*x), start: nreg!(*st), n: NONE },
-                        ("MID$.n", [x, st, n]) => Ins::Mid { d: sreg!(*dst), s: sreg!(*x), start: nreg!(*st), n: nreg!(*n) },
-                        _ => return Err(format!("bad arguments for {name}")),
-                    };
-                    self.emit(native);
-                }
-                Inst::Rt { dst: None, name, args } if !self.mem && is_chain_rt(name) => {
-                    // COMMON / CHAIN of a variable or array: no address needed, the
-                    // instruction names the variable's place (no memory mode for it)
-                    let ptr = args.first().copied().ok_or("CHAIN without a variable")?;
-                    let (Some(Ptr::Place(pl)), Some(t)) = (ptrs[ptr as usize], ptr_ty[ptr as usize]) else {
-                        return Err(format!("{name} of something that is not a variable"));
-                    };
-                    let k = ty_map(t).chain.ok_or_else(|| format!("{name} of a {} variable", t.name()))?;
-                    let strs = name.ends_with('S');
-                    let whole = matches!(name.as_str(), "CHAINPUTA" | "CHAINGETA" | "CHAINPUTAS" | "CHAINGETAS");
-                    if strs != (k == ChainK::Str) || whole != matches!(pl, Place::A(_)) {
-                        return Err(format!("{name} does not match its variable"));
-                    }
-                    self.m.places.push(pl);
-                    let pl = self.m.places.len() as u32 - 1;
-                    self.emit(Ins::Chain { pl, get: name.starts_with("CHAINGET"), k });
-                }
-                Inst::Rt { dst, name, args } => {
-                    let b = ir::builtins::lookup(name).ok_or_else(|| format!("unknown builtin {name}"))?;
-                    let mut regs_ = Vec::new();
-                    for (r, t) in args.iter().zip(b.args) {
-                        if *t == IT::Ptr {
-                            if !self.mem {
-                                return Err(format!("builtin {name} takes an address"));
-                            }
-                            regs_.push((nreg!(*r), Ty::I64));
-                            continue;
-                        }
-                        if *t == IT::F80 {
-                            regs_.push((xreg!(*r), Ty::F80));
-                            continue;
-                        }
-                        let vt = vty(*t)?;
-                        let x = match (reg!(*r), vt) {
-                            (Rg::S(x), Ty::Str) => x,
-                            (Rg::N(x), _) => x,
-                            _ => return Err("bad builtin argument".into()),
-                        };
-                        regs_.push((x, if vt == Ty::Str { Ty::Str } else if t.is_float() { Ty::F64 } else { Ty::I64 }));
-                    }
-                    let rt = match b.ret {
-                        None => None,
-                        Some(t) => Some(if t == IT::Str {
-                            Ty::Str
-                        } else if t == IT::F80 {
-                            Ty::F80
-                        } else if t == IT::Ptr && self.mem {
-                            Ty::I64
-                        } else if t.is_float() {
-                            vty(t)?
-                        } else {
-                            vty(t)?;
-                            Ty::I64
-                        }),
-                    };
-                    let d = match dst {
-                        Some(d) => match reg!(*d) {
-                            Rg::N(x) | Rg::S(x) | Rg::X(x) => x,
-                            Rg::P => return Err("pointer result".into()),
-                        },
-                        None => NONE,
-                    };
-                    let f = match self.m.rtfns.iter().position(|(n, t)| *n == b.name && *t == rt) {
-                        Some(f) => f as u32,
-                        None => {
-                            self.m.rtfns.push((b.name, rt));
-                            self.m.rtfns.len() as u32 - 1
-                        }
-                    };
-                    let d = if rt.is_none() { NONE } else { d };
-                    self.m.bargs.push(regs_);
-                    let args = self.m.bargs.len() as u32 - 1;
-                    self.emit(Ins::Rt { f, d, args });
-                }
-                Inst::OnError(l) => match l {
-                    None => {
-                        self.emit(Ins::OnError { t: NONE });
-                    }
-                    Some(l) => {
-                        let pc = self.emit(Ins::OnError { t: 0 });
-                        self.fixups.push((pc, format!("0\u{1}{l}")));
-                    }
-                },
-                Inst::OnTimer { slot, secs, target } => {
-                    let (s, x) = (nreg!(*slot), nreg!(*secs));
-                    let pc = self.emit(Ins::OnTimer { s, x, t: 0 });
-                    self.fixups.push((pc, format!("0\u{1}{target}")));
-                }
-                Inst::OnKey { key, target } => {
-                    let s = nreg!(*key);
-                    let pc = self.emit(Ins::OnKey { s, t: 0 });
-                    self.fixups.push((pc, format!("0\u{1}{target}")));
-                }
-                Inst::OnPlay { n, target } => {
-                    let s = nreg!(*n);
-                    let pc = self.emit(Ins::OnPlay { s, t: 0 });
-                    self.fixups.push((pc, format!("0\u{1}{target}")));
-                }
-                Inst::OnStrig { n, ctl, target } => {
-                    let (s, x) = (nreg!(*n), nreg!(*ctl));
-                    let pc = self.emit(Ins::OnStrig { s, x, t: 0 });
-                    self.fixups.push((pc, format!("0\u{1}{target}")));
-                }
-                Inst::Resume(r) => match r {
-                    ResumeKind::Same => {
-                        self.emit(Ins::Resume { k: ResumeK::Same, t: 0 });
-                    }
-                    ResumeKind::Next => {
-                        self.emit(Ins::Resume { k: ResumeK::Next, t: 0 });
-                    }
-                    ResumeKind::Label(l) => {
-                        let pc = self.emit(Ins::Resume { k: ResumeK::Label, t: 0 });
-                        self.fixups.push((pc, format!("0\u{1}{l}")));
-                    }
-                },
-                Inst::Error(c) => {
-                    let s = nreg!(*c);
-                    self.emit(Ins::Raise { s });
-                }
-                Inst::Read { ty, dst } => {
-                    if *ty == IT::Str {
-                        let d = sreg!(*dst);
-                        self.emit(Ins::ReadS { d });
-                    } else {
-                        // QB type code of the target (subs_functions: bits | ISFLOAT | ISUNSIGNED)
-                        use qb_runtime::numparse::{ISFLOAT, ISUNSIGNED};
-                        let typ = match *ty {
-                            IT::I8 => 8,
-                            IT::U8 => 8 | ISUNSIGNED,
-                            IT::I16 => 16,
-                            IT::U16 => 16 | ISUNSIGNED,
-                            IT::I32 => 32,
-                            IT::U32 => 32 | ISUNSIGNED,
-                            IT::I64 => 64,
-                            IT::U64 => 64 | ISUNSIGNED,
-                            IT::F32 => 32 | ISFLOAT,
-                            _ => 64 | ISFLOAT,
-                        };
-                        let d = nreg!(*dst);
-                        self.emit(Ins::ReadN { d, typ });
-                    }
-                }
-                Inst::Restore(l) => {
-                    let i = match l {
-                        None => 0,
-                        Some(l) => self.ir.data_labels.iter().find(|(n, _)| n == l).map(|(_, i)| *i).ok_or_else(|| format!("unknown data label {l}"))?,
-                    };
-                    self.emit(Ins::Restore { i: i as u32 });
-                }
-                Inst::End | Inst::Stop => {
-                    self.emit(Ins::End);
-                }
-                Inst::System(c) => {
-                    let s = match c {
-                        Some(c) => nreg!(*c),
-                        None => NONE,
-                    };
-                    self.emit(Ins::System { s });
-                }
+                return Ok(());
             }
         }
-        // falling off the end = ret (end in main)
-        self.emit(if k == 0 { Ins::End } else { Ins::Ret });
-        self.globals = globals;
-        Ok((params, ret))
+        if self.mem && self.lower_mem(k, &mut cx.rg, &cx.vars, &cx.globals, body, ii)? {
+            return Ok(());
+        }
+        // _FLOAT instructions (register pairs)
+        let f80_case = match ins {
+            Inst::Const { ty: IT::F80, .. }
+            | Inst::Mov { ty: IT::F80, .. }
+            | Inst::Bin { ty: IT::F80, .. }
+            | Inst::Un { ty: IT::F80, .. }
+            | Inst::Cmp { ty: IT::F80, .. }
+            | Inst::Load { ty: IT::F80, .. }
+            | Inst::Store { ty: IT::F80, .. }
+            | Inst::Read { ty: IT::F80, .. } => true,
+            Inst::Cvt { to, from, .. } | Inst::Trunc { to, from, .. } => *to == IT::F80 || *from == IT::F80,
+            _ => false,
+        };
+        if f80_case {
+            return self.lower_f80(k, &mut cx.rg, &cx.vars, &cx.globals, ins);
+        }
+        // (exhaustive: a new instruction must be given a group here)
+        match ins {
+            Inst::Line(_)
+            | Inst::IncLine { .. }
+            | Inst::Label(_)
+            | Inst::Const { .. }
+            | Inst::Mov { .. }
+            | Inst::Bin { .. }
+            | Inst::Un { .. }
+            | Inst::Cmp { .. }
+            | Inst::Cvt { .. }
+            | Inst::Trunc { .. }
+            | Inst::Concat { .. } => self.lower_scalar(cx, ii),
+            Inst::Load { .. }
+            | Inst::Store { .. }
+            | Inst::Addr { .. }
+            | Inst::ARef { .. }
+            | Inst::AAddr { .. }
+            | Inst::Ld { .. }
+            | Inst::St { .. }
+            | Inst::LdFs { .. }
+            | Inst::StFs { .. }
+            | Inst::PAdd { .. }
+            | Inst::Copy { .. }
+            | Inst::Dim { .. }
+            | Inst::Erase { .. }
+            | Inst::LBound { .. }
+            | Inst::UBound { .. } => self.lower_place(cx, ii),
+            Inst::Jmp(_) | Inst::Jz { .. } | Inst::Jnz { .. } | Inst::Gosub(_) | Inst::GRet | Inst::GRetL(_) | Inst::Call { .. } | Inst::Ret(_) => self.lower_flow(cx, ii),
+            Inst::Rt { .. } | Inst::Read { .. } | Inst::Restore(_) => self.lower_runtime(cx, ii),
+            Inst::OnError(_)
+            | Inst::OnTimer { .. }
+            | Inst::OnKey { .. }
+            | Inst::OnPlay { .. }
+            | Inst::OnStrig { .. }
+            | Inst::Resume(_)
+            | Inst::Error(_)
+            | Inst::End
+            | Inst::Stop
+            | Inst::System(_) => self.lower_events(cx, ii),
+        }
+    }
+
+    /// Statement markers and labels, constants, moves, arithmetic, comparisons and conversions.
+    fn lower_scalar(&mut self, cx: &mut FnCx<'a>, ii: usize) -> Res<()> {
+        let (k, body) = (cx.k, cx.body);
+        let ins = &body[ii];
+        let FnCx { rg, alias_var, .. } = cx;
+        reg_macros!(self, rg, k);
+        let fkey = |l: &str| label_key(k, l);
+        match ins {
+            Inst::Line(n) => {
+                let pc = self.pc();
+                self.m.stmts.push((pc, *n));
+                self.barrier = pc;
+            }
+            Inst::IncLine { line, file } => {
+                // belongs to the statement the `line` before it started
+                if let Some(k) = self.m.stmts.len().checked_sub(1) {
+                    self.m.incls.push((k as u32, *line, *file));
+                }
+            }
+            Inst::Label(l) => {
+                let pc = self.pc();
+                if self.labels.insert(fkey(l), pc).is_some() {
+                    return Err(format!("duplicate label {l}"));
+                }
+                self.barrier = pc;
+            }
+            Inst::Const { ty, dst, val } => {
+                if rg.defs[*dst as usize] == 1 {
+                    return Ok(()); // constant register
+                }
+                match reg!(*dst) {
+                    Rg::N(d) => {
+                        let bits = lit_num(*ty, val)?;
+                        let kk = self.m.nconst.len() as u32;
+                        self.m.nconst.push(bits);
+                        self.emit(Ins::Ldk { d, k: kk });
+                    }
+                    Rg::S(d) => {
+                        let Lit::Str(s) = val else { return Err("bad string const".into()) };
+                        let kk = self.kstr(s);
+                        self.emit(Ins::MovS { d, s: kk });
+                    }
+                    Rg::P | Rg::X(_) => return Err("pointer constant".into()),
+                }
+            }
+            Inst::Mov { dst, src, .. } => match (reg!(*dst), reg!(*src)) {
+                (Rg::N(d), Rg::N(s)) => {
+                    self.emit(Ins::Mov { d, s });
+                }
+                (Rg::S(d), Rg::S(s)) => {
+                    self.emit(Ins::MovS { d, s });
+                }
+                _ => return Err("pointer mov".into()),
+            },
+            Inst::Bin { op, ty, dst, a, b } => {
+                let (d, x, y) = (nreg!(*dst), nreg!(*a), nreg!(*b));
+                if ty.is_float() {
+                    self.emit(match op {
+                        BinOp::Add => Ins::AddF { d, a: x, b: y },
+                        BinOp::Sub => Ins::SubF { d, a: x, b: y },
+                        BinOp::Mul => Ins::MulF { d, a: x, b: y },
+                        BinOp::Div => Ins::DivFI { d, a: x, b: y },
+                        BinOp::Pow => Ins::PowF { d, a: x, b: y },
+                        _ => return Err("bad float op".into()),
+                    });
+                    if *ty == IT::F32 {
+                        self.emit(Ins::RoundF32 { d, s: d });
+                    }
+                } else {
+                    let w = width(*ty)?;
+                    let (ins, wrapped) = match (op, w) {
+                        (BinOp::Add, W::W16) => (Ins::AddI16 { d, a: x, b: y }, true),
+                        (BinOp::Add, W::W32) => (Ins::AddI32 { d, a: x, b: y }, true),
+                        (BinOp::Add, _) => (Ins::AddI64 { d, a: x, b: y }, w == W::W64),
+                        (BinOp::Sub, W::W16) => (Ins::SubI16 { d, a: x, b: y }, true),
+                        (BinOp::Sub, W::W32) => (Ins::SubI32 { d, a: x, b: y }, true),
+                        (BinOp::Sub, _) => (Ins::SubI64 { d, a: x, b: y }, w == W::W64),
+                        (BinOp::Mul, W::W16) => (Ins::MulI16 { d, a: x, b: y }, true),
+                        (BinOp::Mul, W::W32) => (Ins::MulI32 { d, a: x, b: y }, true),
+                        (BinOp::Mul, _) => (Ins::MulI64 { d, a: x, b: y }, w == W::W64),
+                        (BinOp::IDiv, _) => (Ins::IDiv { d, a: x, b: y, w }, true),
+                        (BinOp::Mod, _) => (Ins::Mod { d, a: x, b: y, w }, true),
+                        (BinOp::And, _) => (Ins::And { d, a: x, b: y }, true),
+                        (BinOp::Or, _) => (Ins::Or { d, a: x, b: y }, true),
+                        (BinOp::Xor, _) => (Ins::Xor { d, a: x, b: y }, true),
+                        (BinOp::Shl, _) => (Ins::Shl { d, a: x, b: y, w }, true),
+                        (BinOp::Shr, _) => (Ins::Shr { d, a: x, b: y, w }, true),
+                        _ => return Err("bad int op".into()),
+                    };
+                    self.emit(ins);
+                    if !wrapped {
+                        self.emit(Ins::Wrap { d, s: d, w });
+                    }
+                }
+            }
+            Inst::Un { op, ty, dst, a } => {
+                let (d, s) = (nreg!(*dst), nreg!(*a));
+                match (op, ty.is_float()) {
+                    (UnOp::Neg, true) => {
+                        self.emit(Ins::Un { op: Un::NegF, d, s });
+                    }
+                    (UnOp::Neg, false) => {
+                        self.emit(Ins::Un { op: Un::NegI(width(*ty)?), d, s });
+                    }
+                    (UnOp::Not, _) => {
+                        self.emit(Ins::Un { op: Un::Not, d, s });
+                        self.emit(Ins::Wrap { d, s: d, w: width(*ty)? });
+                    }
+                }
+            }
+            Inst::Cmp { op, ty, dst, a, b } => {
+                let d = nreg!(*dst);
+                let c = cmp(*op);
+                if *ty == IT::Str {
+                    let (x, y) = (sreg!(*a), sreg!(*b));
+                    self.emit(Ins::CmpS { c, d, a: x, b: y });
+                } else {
+                    let (x, y) = (nreg!(*a), nreg!(*b));
+                    self.emit(if ty.is_float() {
+                        Ins::CmpF { c, d, a: x, b: y }
+                    } else if *ty == IT::U64 {
+                        Ins::CmpU { c, d, a: x, b: y }
+                    } else {
+                        Ins::CmpI { c, d, a: x, b: y }
+                    });
+                }
+            }
+            Inst::Cvt { to, from, dst, src } | Inst::Trunc { to, from, dst, src } => {
+                let trunc = matches!(ins, Inst::Trunc { .. });
+                if to.is_int() && from.is_int() && widens(*from, *to) && rg.defs[*dst as usize] == 1 && rg.rmap[*dst as usize].is_none() {
+                    // widening an already normalized integer changes nothing: reuse the register
+                    let s = nreg!(*src);
+                    let n_uses = rg.uses[*dst as usize];
+                    let ok = match alias_var[*src as usize] {
+                        Some(v) => alias_ok(body, ii, *dst, v, n_uses),
+                        None => stable_until_uses(body, ii, *dst, n_uses, &|i: &Inst| regs(i).0 == Some(*src)),
+                    };
+                    if ok {
+                        rg.rmap[*dst as usize] = Some(Rg::N(s));
+                        rg.alias_src[*dst as usize] = Some(*src);
+                        if let Some(v) = alias_var[*src as usize] {
+                            alias_var[*dst as usize] = Some(v);
+                        }
+                        return Ok(());
+                    }
+                }
+                let (d, s) = (nreg!(*dst), nreg!(*src));
+                match (to.is_float(), from.is_float()) {
+                    (true, true) => {
+                        self.emit(if *to == IT::F32 { Ins::RoundF32 { d, s } } else { Ins::Mov { d, s } });
+                    }
+                    (true, false) => {
+                        self.emit(if *from == IT::U64 { Ins::IToFU { d, s } } else { Ins::IToF { d, s } });
+                        if *to == IT::F32 {
+                            self.emit(Ins::RoundF32 { d, s: d });
+                        }
+                    }
+                    (false, true) => {
+                        self.emit(Ins::CvtFI { d, s, w: width(*to)?, trunc });
+                    }
+                    (false, false) => {
+                        self.emit(Ins::Wrap { d, s, w: width(*to)? });
+                    }
+                }
+            }
+            Inst::Concat { dst, a, b } => {
+                let (d, x, y) = (sreg!(*dst), sreg!(*a), sreg!(*b));
+                self.emit(Ins::Concat { d, a: x, b: y });
+            }
+            _ => return Err("internal: instruction lowered by the wrong group".into()),
+        }
+        Ok(())
+    }
+
+    /// Variables, array elements and their addresses, DIM, ERASE and the bounds.
+    fn lower_place(&mut self, cx: &mut FnCx<'a>, ii: usize) -> Res<()> {
+        let (k, body) = (cx.k, cx.body);
+        let ins = &body[ii];
+        let FnCx { rg, vars, globals, ptrs, ptr_ty, alias_var, .. } = cx;
+        reg_macros!(self, rg, k);
+        macro_rules! var {
+            ($n:expr) => {
+                lookup_var(vars, globals, k, $n.as_str()).ok_or_else(|| format!("unknown variable {}", $n))?
+            };
+        }
+        match ins {
+            Inst::Load { ty, dst, var } => {
+                let v = var!(var);
+                match v {
+                    Var::N(r, _) | Var::S(r) => {
+                        let alias = rg.defs[*dst as usize] == 1 && rg.rmap[*dst as usize].is_none() && alias_ok(body, ii, *dst, var, rg.uses[*dst as usize]);
+                        let is_s = matches!(v, Var::S(_));
+                        if alias {
+                            rg.rmap[*dst as usize] = Some(if is_s { Rg::S(r) } else { Rg::N(r) });
+                            alias_var[*dst as usize] = Some(var.as_str());
+                        } else if is_s {
+                            let d = sreg!(*dst);
+                            self.emit(Ins::MovS { d, s: r });
+                        } else {
+                            let d = nreg!(*dst);
+                            self.emit(Ins::Mov { d, s: r });
+                        }
+                    }
+                    Var::NG(g, _) => {
+                        let d = nreg!(*dst);
+                        self.emit(Ins::GetG { d, g });
+                    }
+                    Var::SG(g) if rg.single(*dst) && rg.rmap[*dst as usize].is_none() && str_read_only(body, ii, *dst) => {
+                        // its only reader takes the string from the module-level register: no copy
+                        rg.rmap[*dst as usize] = Some(Rg::S(g | GS));
+                    }
+                    Var::SG(g) if let Some((steps, a, b)) = app_chain(body, ii, var, &|r| rg.single(r)) => {
+                        // g$ = g$ + a [+ b]: appended in place (the load copied all of g$)
+                        let last = *steps.iter().rev().nth(1).expect("a concat and the store");
+                        for &j in &steps {
+                            self.app_plan.push((j, if j == last { Some((g, a, b)) } else { None }));
+                        }
+                    }
+                    Var::SG(g) => {
+                        let d = sreg!(*dst);
+                        self.emit(Ins::GetGS { d, g });
+                    }
+                    Var::R(r, IT::Str) => {
+                        let d = sreg!(*dst);
+                        self.emit(Ins::LdRS { d, r });
+                    }
+                    Var::R(r, _) => {
+                        let d = nreg!(*dst);
+                        self.emit(Ins::LdR { d, r });
+                    }
+                    Var::A(..) => return Err("load of an array".into()),
+                    Var::M(..) | Var::MG(..) => return Err("memory variable outside memory mode".into()),
+                }
+                let _ = ty;
+            }
+            Inst::Store { ty, var, src } => {
+                let v = var!(var);
+                match v {
+                    Var::N(r, t) => {
+                        let s = nreg!(*src);
+                        let produced = rg.single(*src) && s >= self.frames[k].n_vars && !self.is_const(k, s) && self.last_writes(false, s);
+                        if *ty == IT::F32 && !(produced && matches!(self.m.code.last(), Some(Ins::RoundF32 { .. }))) && !self.is_const(k, s) {
+                            self.emit(Ins::RoundF32 { d: r, s });
+                        } else if s != r && !(produced && self.retarget(false, s, r)) {
+                            self.emit(Ins::Mov { d: r, s });
+                        }
+                        if t.is_int() {
+                            // every QIR register on the VM register is read once
+                            let once = |x: R| {
+                                let mut on = rg.rmap.iter().enumerate().filter(|(_, g)| matches!(g, Some(Rg::N(y)) if *y == x)).peekable();
+                                on.peek().is_some() && on.all(|(v, _)| rg.single(v as u32))
+                            };
+                            self.fuse_acc(k, r, once);
+                        }
+                    }
+                    Var::S(r) => {
+                        let s = sreg!(*src);
+                        if s != r {
+                            let produced = rg.single(*src) && s & K == 0 && s >= self.frames[k].n_svars && self.last_writes(true, s);
+                            if !(produced && self.retarget(true, s, r)) {
+                                let tmp = s & K == 0 && s >= self.frames[k].n_svars && rg.single(*src);
+                                self.emit(if tmp { Ins::TakeS { d: r, s } } else { Ins::MovS { d: r, s } });
+                            }
+                        }
+                    }
+                    Var::NG(g, _) => {
+                        let s = nreg!(*src);
+                        if *ty == IT::F32 && !self.is_const(k, s) {
+                            let t = self.frames[k].new_n(0);
+                            self.emit(Ins::RoundF32 { d: t, s });
+                            self.emit(Ins::SetG { g, s: t });
+                        } else {
+                            self.emit(Ins::SetG { g, s });
+                        }
+                    }
+                    Var::SG(g) => {
+                        let s = sreg!(*src);
+                        self.emit(Ins::SetGS { g, s });
+                    }
+                    Var::R(r, IT::Str) => {
+                        let s = sreg!(*src);
+                        self.emit(Ins::StRS { r, s });
+                    }
+                    Var::R(r, _) => {
+                        let s = nreg!(*src);
+                        if *ty == IT::F32 && !self.is_const(k, s) {
+                            let t = self.frames[k].new_n(0);
+                            self.emit(Ins::RoundF32 { d: t, s });
+                            self.emit(Ins::StR { r, s: t });
+                        } else {
+                            self.emit(Ins::StR { r, s });
+                        }
+                    }
+                    Var::A(..) => return Err("store to an array".into()),
+                    Var::M(..) | Var::MG(..) => return Err("memory variable outside memory mode".into()),
+                }
+            }
+            Inst::Addr { dst, var } => {
+                let (p, t) = match var!(var) {
+                    Var::N(r, t) => (Place::N(r, vty(t)?), t),
+                    Var::NG(g, t) => (Place::NG(g, vty(t)?), t),
+                    Var::S(r) => (Place::S(r), IT::Str),
+                    Var::SG(g) => (Place::SG(g), IT::Str),
+                    Var::R(r, t) => (Place::R(r, vty(t)?), t),
+                    Var::A(..) => return Err("addr of an array".into()),
+                    Var::M(..) | Var::MG(..) => return Err("memory variable outside memory mode".into()),
+                };
+                reg!(*dst);
+                ptrs[*dst as usize] = Some(Ptr::Place(p));
+                ptr_ty[*dst as usize] = Some(t);
+            }
+            Inst::ARef { dst, var } => {
+                let Var::A(a, t) = var!(var) else { return Err("aref of a scalar".into()) };
+                reg!(*dst);
+                ptrs[*dst as usize] = Some(Ptr::Place(Place::A(a)));
+                ptr_ty[*dst as usize] = Some(t);
+            }
+            Inst::AAddr { dst, var, idx } => {
+                let Var::A(a, ety) = var!(var) else { return Err("aaddr of a scalar".into()) };
+                let n = idx.len() as u32;
+                // one subscript that stays unchanged until the address is used: read it in place
+                // A BYREF argument is copied back after the callee ran, and the callee
+                // may have changed the subscript variable (SHARED): the place then
+                // needs its own copy of the subscript.
+                // A register defined once has all its reads behind it after `uses`
+                // of them: the scans below stop there. Scanning to the next definition
+                // (the end of the function, for such a register) made the loader
+                // quadratic in the number of array accesses of a function.
+                let reads = if rg.defs[*dst as usize] == 1 { rg.uses[*dst as usize] } else { u32::MAX };
+                let mut to_call = false;
+                let mut seen = 0;
+                for i in &body[ii + 1..] {
+                    let (d, us) = regs(i);
+                    if seen >= reads || d == Some(*dst) {
+                        break;
+                    }
+                    seen += us.count(*dst);
+                    if matches!(i, Inst::Call { args, .. } if args.contains(dst)) {
+                        to_call = true;
+                        break;
+                    }
+                }
+                let direct = match idx.as_slice() {
+                    [x] if !to_call => {
+                        let x = *x;
+                        let cnt = if reads == u32::MAX { uses_before_redef(body, ii, *dst) } else { reads };
+                        let var = alias_var[x as usize];
+                        stable_until_uses(body, ii, *dst, cnt, &|i: &Inst| {
+                            regs(i).0 == Some(x) || matches!((i, var), (Inst::Store { var: v, .. }, Some(w)) if v == w)
+                        })
+                    }
+                    _ => false,
+                };
+                let base = if direct {
+                    nreg!(idx[0])
+                } else {
+                    let base = self.frames[k].new_run(n);
+                    for (j, r) in idx.iter().enumerate() {
+                        let s = nreg!(*r);
+                        self.emit(Ins::Mov { d: base + j as R, s });
+                    }
+                    base
+                };
+                reg!(*dst);
+                ptrs[*dst as usize] = Some(Ptr::Elem { a, i: base, n, ety });
+                let read = if reads == u32::MAX { used_before_redef(body, ii, *dst) } else { reads > 0 };
+                if !read {
+                    // address never used: still check the subscripts (error 9)
+                    if ety == IT::Str {
+                        let t = self.frames[k].new_s();
+                        self.emit(if n == 1 { Ins::LdE1S { d: t, a, i: base } } else { Ins::LdES { d: t, a, i: base, n } });
+                    } else {
+                        let t = self.frames[k].new_n(0);
+                        self.emit(if n == 1 { Ins::LdE1 { d: t, a, i: base } } else { Ins::LdE { d: t, a, i: base, n } });
+                    }
+                }
+            }
+            Inst::Ld { ty, dst, ptr, off } | Inst::St { ty, ptr, off, src: dst } => {
+                let store = matches!(ins, Inst::St { .. });
+                if *off != 0 {
+                    return Err("ld/st at an offset".into());
+                }
+                let Some(Ptr::Elem { a, i, n, ety }) = ptrs[*ptr as usize] else {
+                    return Err("ld/st through a pointer that is not an array element".into());
+                };
+                if ety != *ty {
+                    return Err("ld/st type differs from the element type".into());
+                }
+                if *ty == IT::Str {
+                    let s = sreg!(*dst);
+                    self.emit(match (store, n) {
+                        (false, 1) => Ins::LdE1S { d: s, a, i },
+                        (false, _) => Ins::LdES { d: s, a, i, n },
+                        (true, 1) => Ins::StE1S { a, i, s },
+                        (true, _) => Ins::StES { a, i, n, s },
+                    });
+                } else {
+                    let s = nreg!(*dst);
+                    let s = if store && *ty == IT::F32 && !self.is_const(k, s) {
+                        let t = self.frames[k].new_n(0);
+                        self.emit(Ins::RoundF32 { d: t, s });
+                        t
+                    } else {
+                        s
+                    };
+                    self.emit(match (store, n) {
+                        (false, 1) => Ins::LdE1 { d: s, a, i },
+                        (false, _) => Ins::LdE { d: s, a, i, n },
+                        (true, 1) => Ins::StE1 { a, i, s },
+                        (true, _) => Ins::StE { a, i, n, s },
+                    });
+                }
+            }
+            Inst::LdFs { .. } | Inst::StFs { .. } => return Err("STRING * n field".into()),
+            Inst::PAdd { .. } => return Err("pointer arithmetic".into()),
+            Inst::Copy { .. } => return Err("memory copy".into()),
+            Inst::Dim { kind, var, bounds } => {
+                let Var::A(a, _) = var!(var) else { return Err("dim of a scalar".into()) };
+                let n = bounds.len() as u32;
+                let base = self.frames[k].new_run(2 * n);
+                for (j, (lo, hi)) in bounds.iter().enumerate() {
+                    let (lo, hi) = (nreg!(*lo), nreg!(*hi));
+                    self.emit(Ins::Mov { d: base + 2 * j as R, s: lo });
+                    self.emit(Ins::Mov { d: base + 2 * j as R + 1, s: hi });
+                }
+                self.emit(Ins::Dim { a, dims: base, n, mode: dim_mode(*kind) });
+            }
+            Inst::Erase { var } => {
+                let Var::A(a, _) = var!(var) else { return Err("erase of a scalar".into()) };
+                self.emit(Ins::Erase { a });
+            }
+            Inst::LBound { dst, var, dim } | Inst::UBound { dst, var, dim } => {
+                let Var::A(a, _) = var!(var) else { return Err("bound of a scalar".into()) };
+                let (d, dm) = (nreg!(*dst), nreg!(*dim));
+                self.emit(Ins::Bound { d, a, dim: dm, upper: matches!(ins, Inst::UBound { .. }) });
+            }
+            _ => return Err("internal: instruction lowered by the wrong group".into()),
+        }
+        Ok(())
+    }
+
+    /// Jumps, GOSUB, calls of SUBs and FUNCTIONs, and the return.
+    fn lower_flow(&mut self, cx: &mut FnCx<'a>, ii: usize) -> Res<()> {
+        let (k, body) = (cx.k, cx.body);
+        let ins = &body[ii];
+        let ret = cx.ret;
+        let FnCx { rg, ptrs, .. } = cx;
+        reg_macros!(self, rg, k);
+        let fkey = |l: &str| label_key(k, l);
+        match ins {
+            Inst::Jmp(l) => self.jump(Ins::Jmp { t: 0 }, &fkey(l)),
+            Inst::Jz { c, target } | Inst::Jnz { c, target } => {
+                let on_true = matches!(ins, Inst::Jnz { .. });
+                let r = nreg!(*c);
+                let mut j = if on_true { Ins::JnzI { s: r, t: 0 } } else { Ins::JzI { s: r, t: 0 } };
+                if rg.single(*c) && self.pc() > self.barrier {
+                    let fused = match self.m.code.last().copied() {
+                        Some(Ins::CmpI { c: op, d, a, b }) if d == r => Some(Ins::BrI { c: if on_true { op } else { op.inverse() }, a, b, t: 0 }),
+                        Some(Ins::CmpF { c: op, d, a, b }) if d == r => Some(Ins::BrF { c: if on_true { op } else { op.negated() }, a, b, t: 0 }),
+                        // native BrS reads string operands from the frame, not from memory
+                        Some(Ins::CmpS { c: op, d, a, b }) if d == r && !mem_str(a) && !mem_str(b) => Some(Ins::BrS { c: if on_true { op } else { op.inverse() }, a, b, t: 0 }),
+                        Some(Ins::CmpU { c: op, d, a, b }) if d == r => Some(Ins::BrU { c: if on_true { op } else { op.inverse() }, a, b, t: 0 }),
+                        _ => None,
+                    };
+                    if let Some(b) = fused {
+                        self.m.code.pop();
+                        j = b;
+                    }
+                }
+                self.jump(j, &fkey(target));
+            }
+            Inst::Gosub(l) => {
+                let pc = self.emit(Ins::Gosub { t: 0 });
+                self.fixups.push((pc, fkey(l)));
+            }
+            Inst::GRet => {
+                self.emit(Ins::Return);
+            }
+            Inst::GRetL(l) => {
+                let pc = self.emit(Ins::ReturnL { t: 0 });
+                self.fixups.push((pc, fkey(l)));
+            }
+            Inst::Call { func, .. } if self.callee(func).is_none() => {
+                // DECLARE LIBRARY calls pass real addresses: memory mode only
+                return Err(format!("{func}: DECLARE LIBRARY call (memory mode)"));
+            }
+            Inst::Call { dst, func, args } => {
+                let callee = self.callee(func).ok_or_else(|| format!("unknown function {func}"))?;
+                let fi = self.fidx[func.as_str()] as u32;
+                let mut out = Vec::new();
+                for (r, p) in args.iter().zip(&callee.params) {
+                    let byref = matches!(p.kind, VarKind::Param { byref: true }) || p.array;
+                    if byref {
+                        let pl = match ptrs[*r as usize] {
+                            Some(Ptr::Place(pl)) => pl,
+                            Some(Ptr::Elem { a, i, n, ety }) => Place::E { a, i, n, ty: vty(ety)? },
+                            None => return Err(format!("BYREF argument %{r} is not an address")),
+                        };
+                        self.m.places.push(pl);
+                        out.push(Arg::Ref(self.m.places.len() as u32 - 1));
+                    } else {
+                        if !push_value_arg(&mut out, reg!(*r)) {
+                            return Err("pointer passed by value".into());
+                        }
+                    }
+                }
+                let dest = match dst {
+                    Some(d) => Some(result_reg(reg!(*d))?),
+                    None => None,
+                };
+                self.emit_call(fi, out, dest);
+            }
+            Inst::Ret(v) => {
+                if k == 0 {
+                    self.emit(Ins::End);
+                    return Ok(());
+                }
+                if let (Some(v), Some((slot, _))) = (v, ret) {
+                    match (slot, reg!(*v)) {
+                        (Slot::N(d), Rg::N(s)) => {
+                            self.emit(Ins::Mov { d, s });
+                        }
+                        (Slot::S(d), Rg::S(s)) => {
+                            self.emit(Ins::MovS { d, s });
+                        }
+                        (Slot::N(d), Rg::X(s)) => {
+                            self.emit(Ins::MovX { d, s });
+                        }
+                        _ => return Err("bad return value".into()),
+                    }
+                }
+                self.emit(Ins::Ret);
+            }
+            _ => return Err("internal: instruction lowered by the wrong group".into()),
+        }
+        Ok(())
+    }
+
+    /// Builtins of the shared runtime, READ and RESTORE.
+    fn lower_runtime(&mut self, cx: &mut FnCx<'a>, ii: usize) -> Res<()> {
+        let (k, body) = (cx.k, cx.body);
+        let ins = &body[ii];
+        let FnCx { rg, ptrs, ptr_ty, .. } = cx;
+        reg_macros!(self, rg, k);
+        match ins {
+            Inst::Rt { dst: Some(dst), name, args }
+                if matches!(name.as_str(), "LEN" | "LEFT$" | "RIGHT$" | "MID$" | "MID$.n" | "CHR$" | "ASC" | "ASC.n" | "INSTR" | "INSTR.n") =>
+            {
+                // hot string builtins: dedicated instructions, same errors as the shared runtime
+                let native = match (name.as_str(), args.as_slice()) {
+                    ("LEN", [x]) => Ins::LenS { d: nreg!(*dst), s: sreg!(*x) },
+                    ("ASC", [x]) => Ins::Asc { d: nreg!(*dst), s: sreg!(*x) },
+                    ("ASC.n", [x, i]) => Ins::AscAt { d: nreg!(*dst), s: sreg!(*x), i: nreg!(*i) },
+                    ("INSTR", [x, y]) => Ins::Instr { d: nreg!(*dst), start: NONE, a: sreg!(*x), b: sreg!(*y) },
+                    ("INSTR.n", [n, x, y]) => Ins::Instr { d: nreg!(*dst), start: nreg!(*n), a: sreg!(*x), b: sreg!(*y) },
+                    ("CHR$", [x]) => Ins::Chr { d: sreg!(*dst), s: nreg!(*x) },
+                    ("LEFT$", [x, n]) => Ins::Left { d: sreg!(*dst), s: sreg!(*x), n: nreg!(*n) },
+                    ("RIGHT$", [x, n]) => Ins::Right { d: sreg!(*dst), s: sreg!(*x), n: nreg!(*n) },
+                    ("MID$", [x, st]) => Ins::Mid { d: sreg!(*dst), s: sreg!(*x), start: nreg!(*st), n: NONE },
+                    ("MID$.n", [x, st, n]) => Ins::Mid { d: sreg!(*dst), s: sreg!(*x), start: nreg!(*st), n: nreg!(*n) },
+                    _ => return Err(format!("bad arguments for {name}")),
+                };
+                self.emit(native);
+            }
+            Inst::Rt { dst: None, name, args } if !self.mem && is_chain_rt(name) => {
+                // COMMON / CHAIN of a variable or array: no address needed, the
+                // instruction names the variable's place (no memory mode for it)
+                let ptr = args.first().copied().ok_or("CHAIN without a variable")?;
+                let (Some(Ptr::Place(pl)), Some(t)) = (ptrs[ptr as usize], ptr_ty[ptr as usize]) else {
+                    return Err(format!("{name} of something that is not a variable"));
+                };
+                let k = ty_map(t).chain.ok_or_else(|| format!("{name} of a {} variable", t.name()))?;
+                let strs = name.ends_with('S');
+                let whole = matches!(name.as_str(), "CHAINPUTA" | "CHAINGETA" | "CHAINPUTAS" | "CHAINGETAS");
+                if strs != (k == ChainK::Str) || whole != matches!(pl, Place::A(_)) {
+                    return Err(format!("{name} does not match its variable"));
+                }
+                self.m.places.push(pl);
+                let pl = self.m.places.len() as u32 - 1;
+                self.emit(Ins::Chain { pl, get: name.starts_with("CHAINGET"), k });
+            }
+            Inst::Rt { dst, name, args } => {
+                let b = ir::builtins::lookup(name).ok_or_else(|| format!("unknown builtin {name}"))?;
+                let mut regs_ = Vec::new();
+                for (r, t) in args.iter().zip(b.args) {
+                    if *t == IT::Ptr {
+                        if !self.mem {
+                            return Err(format!("builtin {name} takes an address"));
+                        }
+                        regs_.push((nreg!(*r), Ty::I64));
+                        continue;
+                    }
+                    if *t == IT::F80 {
+                        regs_.push((xreg!(*r), Ty::F80));
+                        continue;
+                    }
+                    let vt = vty(*t)?;
+                    let x = match (reg!(*r), vt) {
+                        (Rg::S(x), Ty::Str) => x,
+                        (Rg::N(x), _) => x,
+                        _ => return Err("bad builtin argument".into()),
+                    };
+                    regs_.push((x, if vt == Ty::Str { Ty::Str } else if t.is_float() { Ty::F64 } else { Ty::I64 }));
+                }
+                let rt = match b.ret {
+                    None => None,
+                    Some(t) => Some(if t == IT::Str {
+                        Ty::Str
+                    } else if t == IT::F80 {
+                        Ty::F80
+                    } else if t == IT::Ptr && self.mem {
+                        Ty::I64
+                    } else if t.is_float() {
+                        vty(t)?
+                    } else {
+                        vty(t)?;
+                        Ty::I64
+                    }),
+                };
+                let d = match dst {
+                    Some(d) => match reg!(*d) {
+                        Rg::N(x) | Rg::S(x) | Rg::X(x) => x,
+                        Rg::P => return Err("pointer result".into()),
+                    },
+                    None => NONE,
+                };
+                let f = match self.m.rtfns.iter().position(|(n, t)| *n == b.name && *t == rt) {
+                    Some(f) => f as u32,
+                    None => {
+                        self.m.rtfns.push((b.name, rt));
+                        self.m.rtfns.len() as u32 - 1
+                    }
+                };
+                let d = if rt.is_none() { NONE } else { d };
+                self.m.bargs.push(regs_);
+                let args = self.m.bargs.len() as u32 - 1;
+                self.emit(Ins::Rt { f, d, args });
+            }
+            Inst::Read { ty, dst } => {
+                if *ty == IT::Str {
+                    let d = sreg!(*dst);
+                    self.emit(Ins::ReadS { d });
+                } else {
+                    // QB type code of the target (subs_functions: bits | ISFLOAT | ISUNSIGNED)
+                    use qb_runtime::numparse::{ISFLOAT, ISUNSIGNED};
+                    let typ = match *ty {
+                        IT::I8 => 8,
+                        IT::U8 => 8 | ISUNSIGNED,
+                        IT::I16 => 16,
+                        IT::U16 => 16 | ISUNSIGNED,
+                        IT::I32 => 32,
+                        IT::U32 => 32 | ISUNSIGNED,
+                        IT::I64 => 64,
+                        IT::U64 => 64 | ISUNSIGNED,
+                        IT::F32 => 32 | ISFLOAT,
+                        _ => 64 | ISFLOAT,
+                    };
+                    let d = nreg!(*dst);
+                    self.emit(Ins::ReadN { d, typ });
+                }
+            }
+            Inst::Restore(l) => {
+                let i = match l {
+                    None => 0,
+                    Some(l) => self.ir.data_labels.iter().find(|(n, _)| n == l).map(|(_, i)| *i).ok_or_else(|| format!("unknown data label {l}"))?,
+                };
+                self.emit(Ins::Restore { i: i as u32 });
+            }
+            _ => return Err("internal: instruction lowered by the wrong group".into()),
+        }
+        Ok(())
+    }
+
+    /// Event traps, error handling, END, STOP and SYSTEM.
+    fn lower_events(&mut self, cx: &mut FnCx<'a>, ii: usize) -> Res<()> {
+        let (k, body) = (cx.k, cx.body);
+        let ins = &body[ii];
+        let FnCx { rg, .. } = cx;
+        reg_macros!(self, rg, k);
+        match ins {
+            Inst::OnError(l) => match l {
+                None => {
+                    self.emit(Ins::OnError { t: NONE });
+                }
+                Some(l) => {
+                    let pc = self.emit(Ins::OnError { t: 0 });
+                    self.fixups.push((pc, format!("0\u{1}{l}")));
+                }
+            },
+            Inst::OnTimer { slot, secs, target } => {
+                let (s, x) = (nreg!(*slot), nreg!(*secs));
+                let pc = self.emit(Ins::OnTimer { s, x, t: 0 });
+                self.fixups.push((pc, format!("0\u{1}{target}")));
+            }
+            Inst::OnKey { key, target } => {
+                let s = nreg!(*key);
+                let pc = self.emit(Ins::OnKey { s, t: 0 });
+                self.fixups.push((pc, format!("0\u{1}{target}")));
+            }
+            Inst::OnPlay { n, target } => {
+                let s = nreg!(*n);
+                let pc = self.emit(Ins::OnPlay { s, t: 0 });
+                self.fixups.push((pc, format!("0\u{1}{target}")));
+            }
+            Inst::OnStrig { n, ctl, target } => {
+                let (s, x) = (nreg!(*n), nreg!(*ctl));
+                let pc = self.emit(Ins::OnStrig { s, x, t: 0 });
+                self.fixups.push((pc, format!("0\u{1}{target}")));
+            }
+            Inst::Resume(r) => match r {
+                ResumeKind::Same => {
+                    self.emit(Ins::Resume { k: ResumeK::Same, t: 0 });
+                }
+                ResumeKind::Next => {
+                    self.emit(Ins::Resume { k: ResumeK::Next, t: 0 });
+                }
+                ResumeKind::Label(l) => {
+                    let pc = self.emit(Ins::Resume { k: ResumeK::Label, t: 0 });
+                    self.fixups.push((pc, format!("0\u{1}{l}")));
+                }
+            },
+            Inst::Error(c) => {
+                let s = nreg!(*c);
+                self.emit(Ins::Raise { s });
+            }
+            Inst::End | Inst::Stop => {
+                self.emit(Ins::End);
+            }
+            Inst::System(c) => {
+                let s = match c {
+                    Some(c) => nreg!(*c),
+                    None => NONE,
+                };
+                self.emit(Ins::System { s });
+            }
+            _ => return Err("internal: instruction lowered by the wrong group".into()),
+        }
+        Ok(())
     }
 
     /// Memory mode: the instructions on memory-backed variables and pointers.
