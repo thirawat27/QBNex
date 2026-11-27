@@ -271,15 +271,40 @@ pub fn div(a: F80, b: F80) -> F80 {
         _ => {}
     }
     let (x, y) = (fin_norm(a), fin_norm(b));
-    let n = (x.mant as u128) << 63;
-    let d = y.mant as u128;
-    let q1 = n / d;
-    let r1 = n % d;
-    let n2 = r1 << 64;
-    let q2 = n2 / d;
-    let r2 = n2 % d;
-    let q = (q1 << 64) | q2;
+    // (x.mant << 63) / y.mant in two 64-bit quotient digits: y.mant has bit 63
+    // set, so each partial dividend is below y.mant * 2^64
+    let (q1, r1) = div_128_by_64(x.mant >> 1, x.mant << 63, y.mant);
+    let (q2, r2) = div_128_by_64(r1, 0, y.mant);
+    let q = (u128::from(q1) << 64) | u128::from(q2);
     round_pack(neg, x.exp - y.exp - 63 - 64, q, r2 != 0)
+}
+
+/// Quotient and remainder of `hi * 2^64 + lo` by `d`, for `hi < d` (the
+/// quotient then fits 64 bits). x86_64 has this division in one instruction;
+/// the general `u128` division is a library call there, and was most of the
+/// time of `/` on `_FLOAT` values (and of integer `/`, which QBasic evaluates
+/// as `_FLOAT`).
+#[inline]
+pub(crate) fn div_128_by_64(hi: u64, lo: u64, d: u64) -> (u64, u64) {
+    #[cfg(target_arch = "x86_64")]
+    if hi < d {
+        let (q, r): (u64, u64);
+        // SAFETY: `div` divides rdx:rax by `d`; hi < d (so d != 0 and the quotient
+        // fits rax), which is the only condition under which it can fault.
+        unsafe {
+            core::arch::asm!(
+                "div {d}",
+                d = in(reg) d,
+                inout("rax") lo => q,
+                inout("rdx") hi => r,
+                options(pure, nomem, nostack),
+            );
+        }
+        return (q, r);
+    }
+    let n = (u128::from(hi) << 64) | u128::from(lo);
+    let d = u128::from(d);
+    ((n / d) as u64, (n % d) as u64)
 }
 
 #[must_use]
@@ -448,6 +473,31 @@ mod tests {
         assert_eq!(third, F80::from_parts(false, 0x3FFD, 0xAAAA_AAAA_AAAA_AAAB));
         let tenth = F80::ONE / f(10.0);
         assert_eq!(tenth, F80::from_parts(false, 0x3FFB, 0xCCCC_CCCC_CCCC_CCCD));
+    }
+
+    /// The two-digit division gives what the plain `u128` division gives (the
+    /// previous code), for the extreme and many random significands.
+    #[test]
+    fn division_digits_match_u128_division() {
+        let mut seed: u64 = 0x9E37_79B9_7F4A_7C15;
+        let mut next = move || {
+            seed ^= seed << 13;
+            seed ^= seed >> 7;
+            seed ^= seed << 17;
+            seed
+        };
+        let mut pairs = vec![(1u64 << 63, 1u64 << 63), (u64::MAX, 1 << 63), (1 << 63, u64::MAX), (u64::MAX, u64::MAX)];
+        pairs.extend((0..20_000).map(|_| (next() | 1 << 63, next() | 1 << 63)));
+        for (x, d) in pairs {
+            let n = u128::from(x) << 63;
+            let (q1, r1) = div_128_by_64(x >> 1, x << 63, d);
+            assert_eq!((u128::from(q1), u128::from(r1)), (n / u128::from(d), n % u128::from(d)), "{x:x} / {d:x}");
+            let n2 = u128::from(r1) << 64;
+            let (q2, r2) = div_128_by_64(r1, 0, d);
+            assert_eq!((u128::from(q2), u128::from(r2)), (n2 / u128::from(d), n2 % u128::from(d)), "{x:x} / {d:x}");
+        }
+        // a high part at or above the divisor takes the general path (no fault)
+        assert_eq!(div_128_by_64(5, 0, 3).1, ((5u128 << 64) % 3) as u64);
     }
 
     #[test]
