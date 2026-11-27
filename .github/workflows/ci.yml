@@ -197,6 +197,12 @@ jobs:
         shell: bash
         run: cargo run --locked --release -p qbnex-conformance -- --timeout 60
 
+      # Every example compiles and runs headless for a few seconds without an error
+      # or an internal error (scripts/corpus_check.ps1 also checks a local corpus).
+      - name: Examples run
+        shell: pwsh
+        run: pwsh scripts/corpus_check.ps1 -Dirs examples -Seconds 3 -Strict
+
       # bootstrap/qbnex.qir is the Windows build of the compiler; Linux proves gen2 == gen3.
       - name: Self-host fixpoint (gen2 == gen3)
         if: runner.os == 'Linux'
