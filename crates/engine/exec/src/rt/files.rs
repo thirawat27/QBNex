@@ -2,6 +2,7 @@
 //! INPUT # parsing, PRINT # zones, GET/PUT records and EOF/LOC/SEEK behave as
 //! in QB64.
 
+use qb_runtime::error::code;
 use super::builtins::Host;
 use super::{e, Stop, R, V};
 use qb_runtime::fileio as fio;
@@ -45,7 +46,7 @@ fn num_value(n: &fio::NumRepr) -> R<f64> {
         return Ok(v as f64);
     }
     if n.exp > 308 {
-        return e(6);
+        return e(code::OVERFLOW);
     }
     if n.exp < -324 {
         return Ok(0.0);
@@ -66,7 +67,7 @@ fn num_value(n: &fio::NumRepr) -> R<f64> {
     s.push_str(&format!("E{}", n.exp));
     match s.parse::<f64>() {
         Ok(v) if v.is_finite() => Ok(v),
-        _ => e(6),
+        _ => e(code::OVERFLOW),
     }
 }
 
@@ -102,7 +103,7 @@ fn int_value(n: &fio::NumRepr) -> R<i64> {
     }
     let v = num_value(n)?.round_ties_even();
     if v < -I64_LIMIT || v >= (2.0 * I64_LIMIT) {
-        return e(6);
+        return e(code::OVERFLOW);
     }
     Ok(if v >= I64_LIMIT { v as u64 as i64 } else { v as i64 })
 }
@@ -125,11 +126,11 @@ pub(crate) fn call<'a>(vm: &mut dyn Host<'a>, name: &str, a: &[V]) -> Option<R<O
             let (size, var) = (i(1), a[2].p());
             let rl = vm.rt().reclen.get(&ch0).copied().unwrap_or(0);
             if size < 0 {
-                return Some(e(5));
+                return Some(e(code::ILLEGAL_FUNCTION_CALL));
             }
             let off = vm.rt().field_cur.1;
             if off + size as usize > rl {
-                return Some(e(50));
+                return Some(e(code::FIELD_OVERFLOW));
             }
             vm.rt().field_cur.1 += size as usize;
             if let std::collections::hash_map::Entry::Vacant(v) = vm.rt().field_buf.entry(ch0) {
@@ -275,8 +276,8 @@ pub(crate) fn call<'a>(vm: &mut dyn Host<'a>, name: &str, a: &[V]) -> Option<R<O
                     text.extend_from_slice(format!("E{}", n.exp).as_bytes());
                     Ok(qb_runtime::val::val(&text).map_or(qb_float80::F80::from_f64(0.0), qb_float80::F80::from_bytes))
                 }
-                1 => e(6),
-                2 => e(62),
+                1 => e(code::OVERFLOW),
+                2 => e(code::INPUT_PAST_END_OF_FILE),
                 _ => Ok(qb_float80::F80::from_f64(0.0)),
             };
             Some(v.map(|v| Some(V::X(v))))
@@ -289,8 +290,8 @@ pub(crate) fn call<'a>(vm: &mut dyn Host<'a>, name: &str, a: &[V]) -> Option<R<O
             }
             let v = match r {
                 0 => int_value(&n),
-                1 => e(6),
-                2 => e(62),
+                1 => e(code::OVERFLOW),
+                2 => e(code::INPUT_PAST_END_OF_FILE),
                 _ => Ok(0),
             };
             Some(v.map(|v| Some(V::I(v))))
@@ -303,8 +304,8 @@ pub(crate) fn call<'a>(vm: &mut dyn Host<'a>, name: &str, a: &[V]) -> Option<R<O
             }
             let v = match r {
                 0 => num_value(&n),
-                1 => e(6),
-                2 => e(62),
+                1 => e(code::OVERFLOW),
+                2 => e(code::INPUT_PAST_END_OF_FILE),
                 _ => Ok(0.0),
             };
             Some(v.map(|v| Some(V::F(v))))
@@ -314,7 +315,7 @@ pub(crate) fn call<'a>(vm: &mut dyn Host<'a>, name: &str, a: &[V]) -> Option<R<O
             let n = i(0);
             // the runtime reads at most a LONG count
             if n < 0 || n > i64::from(i32::MAX) {
-                return Some(e(5));
+                return Some(e(code::ILLEGAL_FUNCTION_CALL));
             }
             let (buf, err) = fio::qb_file_input_n(n as i32, i(1) as i32);
             Some(chk(err).map(|_| Some(V::S(buf))))
@@ -328,7 +329,7 @@ pub(crate) fn call<'a>(vm: &mut dyn Host<'a>, name: &str, a: &[V]) -> Option<R<O
                 Err(x) => return Some(Err(x)),
             };
             if total == 0 {
-                return Some(e(9)); // not dimensioned
+                return Some(e(code::SUBSCRIPT_OUT_OF_RANGE)); // not dimensioned
             }
             let r = match vm.bytes(base, total as usize) {
                 Ok(b) => b,
@@ -372,7 +373,7 @@ pub(crate) fn call<'a>(vm: &mut dyn Host<'a>, name: &str, a: &[V]) -> Option<R<O
 /// the system has not the room instead of ending the process.
 fn zeros(n: usize) -> R<Vec<u8>> {
     let mut v = Vec::new();
-    v.try_reserve_exact(n).map_err(|_| Stop::Err(7))?;
+    v.try_reserve_exact(n).map_err(|_| Stop::Err(code::OUT_OF_MEMORY))?;
     v.resize(n, 0);
     Ok(v)
 }

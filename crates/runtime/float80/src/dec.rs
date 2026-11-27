@@ -424,24 +424,35 @@ pub fn parse(s: &[u8]) -> (F80, usize) {
         let at_end = i >= s.len() || s[i] == 0;
         return (if neg && !at_end { F80::NEG_ZERO } else { F80::ZERO }, 0);
     }
-    if j < s.len() && (s[j] | 0x20) == b'e' {
-        let mut k = j + 1;
-        let mut eneg = false;
-        if k < s.len() && (s[k] == b'+' || s[k] == b'-') {
-            eneg = s[k] == b'-';
-            k += 1;
-        }
-        if k < s.len() && s[k].is_ascii_digit() {
-            let mut ev: i64 = 0;
-            while k < s.len() && s[k].is_ascii_digit() {
-                ev = (ev * 10 + (s[k] - b'0') as i64).min(1_000_000_000);
-                k += 1;
-            }
-            e10 += if eneg { -ev } else { ev };
-            j = k;
-        }
+    if let Some((ev, end)) = exponent_suffix(s, j, b'e') {
+        e10 += ev;
+        j = end;
     }
     (decimal_to_f80(neg, &digits, e10, false), j)
+}
+
+/// The exponent part at `s[j..]`: `letter` (either case), an optional sign and at
+/// least one digit. Returns its value (magnitude capped at 10^9) and the position
+/// after it; `None` when there is none (the number then ends at `j`).
+fn exponent_suffix(s: &[u8], j: usize, letter: u8) -> Option<(i64, usize)> {
+    if j >= s.len() || (s[j] | 0x20) != letter {
+        return None;
+    }
+    let mut k = j + 1;
+    let mut eneg = false;
+    if k < s.len() && (s[k] == b'+' || s[k] == b'-') {
+        eneg = s[k] == b'-';
+        k += 1;
+    }
+    if k >= s.len() || !s[k].is_ascii_digit() {
+        return None;
+    }
+    let mut ev: i64 = 0;
+    while k < s.len() && s[k].is_ascii_digit() {
+        ev = (ev * 10 + i64::from(s[k] - b'0')).min(1_000_000_000);
+        k += 1;
+    }
+    Some((if eneg { -ev } else { ev }, k))
 }
 
 /// `nan(...)` of gdtoa's `hexnan`: returns the significand and the bytes used
@@ -529,22 +540,9 @@ fn parse_hex(s: &[u8], neg: bool) -> Option<(F80, usize)> {
     if !seen {
         return None;
     }
-    if j < s.len() && (s[j] | 0x20) == b'p' {
-        let mut k = j + 1;
-        let mut eneg = false;
-        if k < s.len() && (s[k] == b'+' || s[k] == b'-') {
-            eneg = s[k] == b'-';
-            k += 1;
-        }
-        if k < s.len() && s[k].is_ascii_digit() {
-            let mut ev: i64 = 0;
-            while k < s.len() && s[k].is_ascii_digit() {
-                ev = (ev * 10 + (s[k] - b'0') as i64).min(1_000_000_000);
-                k += 1;
-            }
-            exp += if eneg { -ev } else { ev };
-            j = k;
-        }
+    if let Some((ev, end)) = exponent_suffix(s, j, b'p') {
+        exp += ev;
+        j = end;
     }
     if m == 0 {
         return Some((zero(neg), j));
@@ -685,6 +683,11 @@ mod tests {
         assert!(p("nan").is_nan());
         assert_eq!(parse(b"12abc").1, 2);
         assert_eq!(parse(b"1e+").1, 1);
+        // the exponent of either form: letter in either case, sign, digits
+        assert_eq!(p("2E3"), F80::from_f64(2000.0));
+        assert_eq!(p("0x1P+2"), F80::from_f64(4.0));
+        assert_eq!(parse(b"0x1p").1, 3);
+        assert_eq!(parse(b"0x1p-x").1, 3);
         assert_eq!(parse(b".").1, 0);
         assert_eq!(parse(b"0x").1, 1);
     }

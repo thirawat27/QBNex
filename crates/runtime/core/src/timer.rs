@@ -4,11 +4,10 @@
 //! takes as arguments (`GetTicks` and the start-up time of day) come from
 //! [`crate::systime`].
 
+use crate::error::code;
 /// Milliseconds in a day; TIMER wraps at midnight.
 const DAY_MS: u32 = 86_400_000;
 
-/// QBasic error for `TIMER(accuracy)` with `accuracy <= 0`.
-pub const ERR_ILLEGAL_CALL: i32 = 5;
 
 /// `ticks`: current millisecond tick count; `clock_first`: tick count at
 /// program start; `day_first`: milliseconds since midnight at program start.
@@ -18,7 +17,7 @@ pub fn timer(ticks: u32, clock_first: u32, day_first: u32, accuracy: Option<f64>
     let seconds = f64::from(ms) / 1000.0;
     let steps_per_second = match accuracy {
         None => 18.2,
-        Some(a) if a <= 0.0 || a.is_nan() => return Err(ERR_ILLEGAL_CALL),
+        Some(a) if a <= 0.0 || a.is_nan() => return Err(code::ILLEGAL_FUNCTION_CALL),
         Some(a) => 1.0 / a,
     };
     let steps = crate::round::qbr(crate::round::f80_from_f64(seconds * steps_per_second));
@@ -63,7 +62,7 @@ mod tests {
 
     #[test]
     fn non_positive_accuracy_is_illegal_function_call() {
-        assert_eq!(timer(1, 0, 0, Some(0.0)), Err(ERR_ILLEGAL_CALL));
-        assert_eq!(timer(1, 0, 0, Some(-1.0)), Err(ERR_ILLEGAL_CALL));
+        assert_eq!(timer(1, 0, 0, Some(0.0)), Err(code::ILLEGAL_FUNCTION_CALL));
+        assert_eq!(timer(1, 0, 0, Some(-1.0)), Err(code::ILLEGAL_FUNCTION_CALL));
     }
 }

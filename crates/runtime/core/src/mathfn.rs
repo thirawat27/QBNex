@@ -2,12 +2,13 @@
 //!
 //! QB64's `func_exp_single`. The `_FLOAT` variants live in `qb-float80`.
 
+use crate::error::code;
 /// `EXP` for SINGLE/DOUBLE arguments: `Err(6)` above 88.02969.
 pub fn exp_single(x: f64) -> Result<f64, i32> {
     if x <= 88.02969 {
         Ok(x.exp())
     } else {
-        Err(6)
+        Err(code::OVERFLOW)
     }
 }
 

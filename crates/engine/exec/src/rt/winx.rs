@@ -7,6 +7,7 @@
 //! A `$CONSOLE:ONLY` program and the browser runner have no window: there the
 //! statements do nothing and the functions answer as QB64 does without one.
 
+use qb_runtime::error::code;
 use super::builtins::Host;
 use super::{e, R, V};
 use qb_runtime::screen::{LockChange, LockKey};
@@ -62,7 +63,7 @@ fn shell_option(vm: &mut dyn Host<'_>, hide: bool, cmd: &[u8], passed: i64) -> R
     let both = passed & SHELL_BOTH != 0;
     // a hidden shell cannot wait for the user
     if (hide || both) && !given {
-        return e(5);
+        return e(code::ILLEGAL_FUNCTION_CALL);
     }
     vm.rt().flush();
     let mode = Mode { show: !(hide || both), wait: hide && !both, use_console: false };
@@ -145,7 +146,7 @@ pub(crate) fn call(vm: &mut dyn Host<'_>, name: &str, a: &[V]) -> Option<R<Optio
         "sub__keyclear" => {
             let (buf, passed) = (i(0), i(1) != 0);
             if passed && !(1..=3).contains(&buf) {
-                return Some(e(5));
+                return Some(e(code::ILLEGAL_FUNCTION_CALL));
             }
             let all = !passed;
             let rt = vm.rt();
@@ -187,7 +188,7 @@ pub(crate) fn call(vm: &mut dyn Host<'_>, name: &str, a: &[V]) -> Option<R<Optio
         "sub__screenmove" => {
             let passed = i(2);
             if passed != MOVE_MIDDLE && passed != MOVE_TO {
-                return Some(e(5));
+                return Some(e(code::ILLEGAL_FUNCTION_CALL));
             }
             #[cfg(not(target_arch = "wasm32"))]
             if has_window(vm) && super::window::fullscreen().0 == 0 {
@@ -219,7 +220,7 @@ pub(crate) fn call(vm: &mut dyn Host<'_>, name: &str, a: &[V]) -> Option<R<Optio
         // _SCREENICON: -1 while the window is minimized (an error for a hidden screen)
         "func_screenicon" => {
             if vm.rt().display.screen_hide {
-                return Some(e(5));
+                return Some(e(code::ILLEGAL_FUNCTION_CALL));
             }
             #[cfg(not(target_arch = "wasm32"))]
             if has_window(vm) {
@@ -356,10 +357,10 @@ pub(crate) fn call(vm: &mut dyn Host<'_>, name: &str, a: &[V]) -> Option<R<Optio
         "sub__fps" => {
             let (fps, passed) = (a[0].f(), i(1));
             if passed != FPS_AUTO && passed != FPS_VALUE {
-                return Some(e(5));
+                return Some(e(code::ILLEGAL_FUNCTION_CALL));
             }
             if passed == FPS_VALUE && (fps.is_nan() || fps < 1.0) {
-                return Some(e(5));
+                return Some(e(code::ILLEGAL_FUNCTION_CALL));
             }
             #[cfg(not(target_arch = "wasm32"))]
             if let Err(c) = super::window::set_fps((passed == FPS_VALUE).then_some(fps)) {
@@ -378,7 +379,7 @@ pub(crate) fn call(vm: &mut dyn Host<'_>, name: &str, a: &[V]) -> Option<R<Optio
             } else {
                 match cursor_style(a[0].s()) {
                     Some(s) => s,
-                    None => return Some(e(5)),
+                    None => return Some(e(code::ILLEGAL_FUNCTION_CALL)),
                 }
             };
             if name == "sub__mouseshow" {
@@ -422,7 +423,7 @@ pub(crate) fn call(vm: &mut dyn Host<'_>, name: &str, a: &[V]) -> Option<R<Optio
             let set = name == "sub__mapunicode";
             let (unicode, ascii) = if set { (i(0), i(1)) } else { (0, i(0)) };
             if !(0..=65535).contains(&unicode) || !(0..=255).contains(&ascii) {
-                return Some(e(5));
+                return Some(e(code::ILLEGAL_FUNCTION_CALL));
             }
             // SAFETY: one element of the table, read and written on the program thread only.
             unsafe {
@@ -473,18 +474,18 @@ pub(crate) fn call(vm: &mut dyn Host<'_>, name: &str, a: &[V]) -> Option<R<Optio
         // IOCTL sends a control string to a device driver: files have none (error 5
         // for an open file, as QuickBASIC answers for a file that is not a device)
         "func_ioctl" | "sub_ioctl" => match qb_runtime::fileio::fileattr(i(0) as i32, 1) {
-            (_, 0) => e(5),
+            (_, 0) => e(code::ILLEGAL_FUNCTION_CALL),
             (_, err) => e(err),
         },
         // TRON / TROFF print line numbers in the QuickBASIC editor only
         "sub_tron" | "sub_troff" => none,
         // light pen, serial port and user events never happen here
         "func_pen" => {
-            if (0..=9).contains(&i(0)) { int(0) } else { e(5) }
+            if (0..=9).contains(&i(0)) { int(0) } else { e(code::ILLEGAL_FUNCTION_CALL) }
         }
         "sub_pen" | "sub_uevent" => none,
         "sub_com" => {
-            if (1..=2).contains(&i(0)) { none } else { e(5) }
+            if (1..=2).contains(&i(0)) { none } else { e(code::ILLEGAL_FUNCTION_CALL) }
         }
         // _CONSOLETITLE: the title of the console window of a $CONSOLE program
         "sub__consoletitle" => {

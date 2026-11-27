@@ -3,13 +3,14 @@
 //! on negative handles. Sockets, the info parser and addresses are
 //! `qb_runtime::net`; this is the handle table.
 
+use qb_runtime::error::code;
 use super::builtins::Host;
 use super::{e, Stop, R, V};
 use qb_runtime::net::{self as qnet, Conn};
 
 pub(crate) struct Handle {
     conn: Box<Conn>,
-    /// 1 client, 2 listening host, 3 host's connection from a client
+    /// `qnet::CONN_CLIENT`, `CONN_HOST` or `CONN_ACCEPTED`
     ctype: i32,
     inbuf: Vec<u8>,
     /// the last GET of a fixed size could not be filled (EOF(handle) is -1)
@@ -75,8 +76,8 @@ fn update(h: &mut Handle) {
 }
 
 fn open<'a>(vm: &mut dyn Host<'a>, method: i32, info: &[u8]) -> R<i64> {
-    let Ok(parsed) = qnet::parse_info(info, method, false) else { return e(5) };
-    let conn = if method == 0 {
+    let Ok(parsed) = qnet::parse_info(info, method, false) else { return e(code::ILLEGAL_FUNCTION_CALL) };
+    let conn = if method == qnet::METHOD_CLIENT {
         qnet::client_open(&info[parsed.host.unwrap_or_default()], i64::from(parsed.port))
     } else {
         qnet::host_open(i64::from(parsed.port))
@@ -86,7 +87,7 @@ fn open<'a>(vm: &mut dyn Host<'a>, method: i32, info: &[u8]) -> R<i64> {
         vm.rt().net_pending_error = parsed.val_error;
     }
     let Some(conn) = conn else { return Ok(0) };
-    let i = vm.rt().net.register(conn, if method == 0 { 1 } else { 2 });
+    let i = vm.rt().net.register(conn, if method == qnet::METHOD_CLIENT { qnet::CONN_CLIENT } else { qnet::CONN_HOST });
     Ok(i64::from(-1 - i))
 }
 
@@ -99,29 +100,29 @@ pub(crate) fn call<'a>(vm: &mut dyn Host<'a>, name: &str, a: &[V]) -> Option<R<O
             open(vm, m, a[0].s()).map(|v| Some(V::I(v)))
         }
         "_OPENCONNECTION" => (|| {
-            let Some(h) = vm.rt().net.get(h0) else { return e(258) };
-            if h.ctype != 2 {
-                return e(258);
+            let Some(h) = vm.rt().net.get(h0) else { return e(code::INVALID_HANDLE) };
+            if h.ctype != qnet::CONN_HOST {
+                return e(code::INVALID_HANDLE);
             }
             let Some(c) = qnet::accept(&h.conn) else { return Ok(Some(V::I(0))) };
-            let i = vm.rt().net.register(c, 3);
+            let i = vm.rt().net.register(c, qnet::CONN_ACCEPTED);
             Ok(Some(V::I(i64::from(-1 - i))))
         })(),
         "_CONNECTED" => match vm.rt().net.get(h0) {
-            Some(h) if h.ctype == 2 => Ok(Some(V::I(-1))),
+            Some(h) if h.ctype == qnet::CONN_HOST => Ok(Some(V::I(-1))),
             Some(h) => {
                 h.conn.flush();
                 Ok(Some(V::I(h.conn.connected.into())))
             }
-            None => e(52),
+            None => e(code::BAD_FILE_NAME_OR_NUMBER),
         },
         "_CONNECTIONADDRESS$" => match vm.rt().net.get(h0) {
             Some(h) => {
                 // a listener reports the public address (asked from api.ipify.org)
-                let ip = if h.ctype == 2 { qnet::whatismyip() } else { Vec::new() };
+                let ip = if h.ctype == qnet::CONN_HOST { qnet::whatismyip() } else { Vec::new() };
                 Ok(Some(V::S(qnet::address(&h.conn, h.ctype, &ip))))
             }
-            None => e(52),
+            None => e(code::BAD_FILE_NAME_OR_NUMBER),
         },
         "CLOSE" if h0 < 0 => {
             if let Some(slot) = (-(h0 + 1) as usize).checked_sub(1).and_then(|i| vm.rt().net.handles.get_mut(i))
@@ -132,17 +133,17 @@ pub(crate) fn call<'a>(vm: &mut dyn Host<'a>, name: &str, a: &[V]) -> Option<R<O
         }
         "PUTSTR" | "PUTREC" if h0 < 0 => (|| {
             let data: Vec<u8> = if name == "PUTSTR" { a[2].s().to_vec() } else { vm.bytes(a[2].p(), a[3].i() as usize)?.to_vec() };
-            let Some(h) = vm.rt().net.get(h0) else { return e(52) };
-            if h.ctype == 2 {
-                return e(52);
+            let Some(h) = vm.rt().net.get(h0) else { return e(code::BAD_FILE_NAME_OR_NUMBER) };
+            if h.ctype == qnet::CONN_HOST {
+                return e(code::BAD_FILE_NAME_OR_NUMBER);
             }
             h.conn.send(&data);
             Ok(None)
         })(),
         "GETSTR" if h0 < 0 => (|| {
-            let Some(h) = vm.rt().net.get(h0) else { return e(52) };
-            if h.ctype == 2 {
-                return e(52);
+            let Some(h) = vm.rt().net.get(h0) else { return e(code::BAD_FILE_NAME_OR_NUMBER) };
+            if h.ctype == qnet::CONN_HOST {
+                return e(code::BAD_FILE_NAME_OR_NUMBER);
             }
             update(h);
             h.eof = h.inbuf.is_empty();
@@ -150,9 +151,9 @@ pub(crate) fn call<'a>(vm: &mut dyn Host<'a>, name: &str, a: &[V]) -> Option<R<O
         })(),
         "GETREC" if h0 < 0 => (|| {
             let n = a[3].i() as usize;
-            let Some(h) = vm.rt().net.get(h0) else { return e(52) };
-            if h.ctype == 2 {
-                return e(52);
+            let Some(h) = vm.rt().net.get(h0) else { return e(code::BAD_FILE_NAME_OR_NUMBER) };
+            if h.ctype == qnet::CONN_HOST {
+                return e(code::BAD_FILE_NAME_OR_NUMBER);
             }
             update(h);
             h.eof = h.inbuf.len() < n;
@@ -167,13 +168,13 @@ pub(crate) fn call<'a>(vm: &mut dyn Host<'a>, name: &str, a: &[V]) -> Option<R<O
         "PUTARR" | "GETARR" if h0 < 0 => (|| {
             let (base, total) = vm.array_extent(a[2].p())?;
             if total == 0 {
-                return e(9);
+                return e(code::SUBSCRIPT_OUT_OF_RANGE);
             }
             let n = total as usize;
             let data = if name == "PUTARR" { vm.bytes(base, n)?.to_vec() } else { Vec::new() };
-            let Some(h) = vm.rt().net.get(h0) else { return e(52) };
-            if h.ctype == 2 {
-                return e(52);
+            let Some(h) = vm.rt().net.get(h0) else { return e(code::BAD_FILE_NAME_OR_NUMBER) };
+            if h.ctype == qnet::CONN_HOST {
+                return e(code::BAD_FILE_NAME_OR_NUMBER);
             }
             if name == "PUTARR" {
                 h.conn.send(&data);
@@ -190,8 +191,8 @@ pub(crate) fn call<'a>(vm: &mut dyn Host<'a>, name: &str, a: &[V]) -> Option<R<O
         })(),
         // EOF(handle): whether the last GET of a value went without data (as in QB64)
         "EOF" if h0 < 0 => match vm.rt().net.get(h0) {
-            Some(h) if h.ctype != 2 => Ok(Some(V::I(if h.eof { -1 } else { 0 }))),
-            _ => e(52),
+            Some(h) if h.ctype != qnet::CONN_HOST => Ok(Some(V::I(if h.eof { -1 } else { 0 }))),
+            _ => e(code::BAD_FILE_NAME_OR_NUMBER),
         },
         _ => return None,
     };

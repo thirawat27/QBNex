@@ -12,8 +12,9 @@
 
 #![allow(non_upper_case_globals)]
 
+use crate::error::code;
 use super::image::{imgrevert, setup_new_image};
-use super::{ImgStruct, ERR_ILLEGAL_FUNCTION_CALL, IMG_FREEMEM, IMG_FREEPAL};
+use super::{ImgStruct, IMG_FREEMEM, IMG_FREEPAL};
 use std::cell::UnsafeCell;
 
 /// Initial number of slots (legacy `IMG_BUFFERSIZE`).
@@ -243,7 +244,7 @@ pub unsafe fn qb_imgframe(o: *mut u8, x: i32, y: i32, bpp: i32, err: *mut i32) -
     }
     if x > IMG_MAX_SIDE || y > IMG_MAX_SIDE {
         // SAFETY: guaranteed by the caller.
-        unsafe { set_err(err, ERR_ILLEGAL_FUNCTION_CALL) };
+        unsafe { set_err(err, code::ILLEGAL_FUNCTION_CALL) };
         return 0;
     }
     let bytes_per_pixel: i64 = match bpp {
@@ -407,10 +408,10 @@ mod tests {
         // a side over 16 bits would truncate the u16 width/height
         let mut e = 0;
         assert_eq!(unsafe { qb_imgnew(65536, 1, 32, &mut e) }, 0);
-        assert_eq!(e, ERR_ILLEGAL_FUNCTION_CALL);
+        assert_eq!(e, code::ILLEGAL_FUNCTION_CALL);
         let mut e = 0;
         assert_eq!(unsafe { qb_imgnew(1, 70000, 13, &mut e) }, 0);
-        assert_eq!(e, ERR_ILLEGAL_FUNCTION_CALL);
+        assert_eq!(e, code::ILLEGAL_FUNCTION_CALL);
         // over i32::MAX bytes would overflow the i32 pixel offsets
         let mut e = 0;
         assert_eq!(unsafe { qb_imgnew(65535, 65535, 32, &mut e) }, 0);

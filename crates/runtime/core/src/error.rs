@@ -5,6 +5,47 @@
 //! and whether END waits for a key, depends on how the program was started
 //! (see [`no_dialog_policy`] and [`end_prompt_policy`]).
 
+/// The error numbers that the runtime and the VM raise (`ERR`), named after
+/// their [`human_error`] texts.
+pub mod code {
+    pub const SYNTAX_ERROR: i32 = 2;
+    pub const OUT_OF_DATA: i32 = 4;
+    pub const ILLEGAL_FUNCTION_CALL: i32 = 5;
+    pub const OVERFLOW: i32 = 6;
+    pub const OUT_OF_MEMORY: i32 = 7;
+    pub const SUBSCRIPT_OUT_OF_RANGE: i32 = 9;
+    pub const DUPLICATE_DEFINITION: i32 = 10;
+    pub const DIVISION_BY_ZERO: i32 = 11;
+    pub const TYPE_MISMATCH: i32 = 13;
+    pub const OUT_OF_STRING_SPACE: i32 = 14;
+    pub const DEVICE_TIMEOUT: i32 = 24;
+    pub const DEVICE_FAULT: i32 = 25;
+    pub const OUT_OF_PAPER: i32 = 27;
+    pub const FIELD_OVERFLOW: i32 = 50;
+    pub const INTERNAL_ERROR: i32 = 51;
+    pub const BAD_FILE_NAME_OR_NUMBER: i32 = 52;
+    pub const FILE_NOT_FOUND: i32 = 53;
+    pub const BAD_FILE_MODE: i32 = 54;
+    pub const FILE_ALREADY_OPEN: i32 = 55;
+    pub const DEVICE_IO_ERROR: i32 = 57;
+    pub const FILE_ALREADY_EXISTS: i32 = 58;
+    pub const BAD_RECORD_LENGTH: i32 = 59;
+    pub const DISK_FULL: i32 = 61;
+    pub const INPUT_PAST_END_OF_FILE: i32 = 62;
+    pub const BAD_RECORD_NUMBER: i32 = 63;
+    pub const BAD_FILE_NAME: i32 = 64;
+    pub const TOO_MANY_FILES: i32 = 67;
+    pub const DEVICE_UNAVAILABLE: i32 = 68;
+    pub const PERMISSION_DENIED: i32 = 70;
+    pub const PATH_FILE_ACCESS_ERROR: i32 = 75;
+    pub const PATH_NOT_FOUND: i32 = 76;
+    pub const INVALID_HANDLE: i32 = 258;
+    pub const MEMORY_REGION_OUT_OF_RANGE: i32 = 300;
+    pub const INVALID_SIZE: i32 = 301;
+    pub const MEMORY_ALREADY_FREED: i32 = 307;
+    pub const MEMORY_HAS_BEEN_FREED: i32 = 308;
+}
+
 /// Message for an error number (`_ERRORMESSAGE$`).
 pub fn human_error(code: i32) -> &'static str {
     match code {

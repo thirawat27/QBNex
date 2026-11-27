@@ -818,9 +818,9 @@ impl Server {
         for f in Self::type_fields(files, ty).unwrap_or_default() {
             seen.insert(base_name(&f.name));
             items.push(lt::CompletionItem {
-                label: f.name.clone(),
+                label: f.name,
                 kind: Some(lt::CompletionItemKind::FIELD),
-                detail: Some(f.detail.clone()),
+                detail: Some(f.detail),
                 ..Default::default()
             });
         }

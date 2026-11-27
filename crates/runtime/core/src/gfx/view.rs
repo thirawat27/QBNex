@@ -1,15 +1,16 @@
 //! WINDOW, VIEW and PMAP (`qbg_sub_window`, `qbg_sub_view`, `func_pmap`).
 
+use crate::error::code;
 use super::blend::pset;
 use super::line::qb32_boxfill;
-use super::{qbr_f2l, ImgStruct, ERR_ILLEGAL_FUNCTION_CALL};
+use super::{qbr_f2l, ImgStruct};
 
 /// `WINDOW [[SCREEN] (x1, y1)-(x2, y2)]`; passed: 1 = coordinates, 2 = SCREEN.
 ///
 /// # Safety
 /// `im` must be a valid surface.
 pub unsafe fn window(im: &mut ImgStruct, mut x1: f32, mut y1: f32, mut x2: f32, mut y2: f32, passed: i32) -> i32 {
-    const ERR: i32 = ERR_ILLEGAL_FUNCTION_CALL;
+    const ERR: i32 = code::ILLEGAL_FUNCTION_CALL;
     if im.text != 0 {
         return ERR;
     }
@@ -104,7 +105,7 @@ pub unsafe fn view(
     bordercolor: i32,
     passed: i32,
 ) -> i32 {
-    const ERR: i32 = ERR_ILLEGAL_FUNCTION_CALL;
+    const ERR: i32 = code::ILLEGAL_FUNCTION_CALL;
     // A graphics statement: a text page has no pixels (its cells are two bytes each,
     // and the fill and border would be written as 32-bit pixels past its end).
     if im.text != 0 {
@@ -214,7 +215,7 @@ pub fn pmap(im: &ImgStruct, val: f32, option: i32) -> (f32, i32) {
             _ => {}
         }
     }
-    (0.0, ERR_ILLEGAL_FUNCTION_CALL)
+    (0.0, code::ILLEGAL_FUNCTION_CALL)
 }
 
 // --- entry points ----------------------------------------------------------------

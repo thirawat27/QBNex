@@ -335,26 +335,8 @@ fn to_rgba(d: &gltf::image::Data) -> Image {
 fn upload(gpu: &Gpu, img: &Image) -> wgpu::TextureView {
     // short data padded, oversized images scaled down to the device limit
     let (texels, w, h) = crate::fit_texture(img.rgba.as_chunks::<4>().0, img.width, img.height, gpu.max_texture_size());
-    let img = &Image { width: w, height: h, rgba: texels.as_flattened().to_vec() };
-    let size = wgpu::Extent3d { width: img.width.max(1), height: img.height.max(1), depth_or_array_layers: 1 };
-    let tex = gpu.device.create_texture(&wgpu::TextureDescriptor {
-        label: Some("qb-gpu model texture"),
-        size,
-        mip_level_count: 1,
-        sample_count: 1,
-        dimension: wgpu::TextureDimension::D2,
-        format: wgpu::TextureFormat::Rgba8Unorm,
-        usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
-        view_formats: &[],
-    });
-    if img.rgba.len() == (img.width * img.height * 4) as usize && img.width > 0 {
-        gpu.queue.write_texture(
-            wgpu::TexelCopyTextureInfo { texture: &tex, mip_level: 0, origin: wgpu::Origin3d::ZERO, aspect: wgpu::TextureAspect::All },
-            &img.rgba,
-            wgpu::TexelCopyBufferLayout { offset: 0, bytes_per_row: Some(img.width * 4), rows_per_image: Some(img.height) },
-            size,
-        );
-    }
+    // (fit_texture gives at least 1x1 and exactly w*h pixels)
+    let tex = crate::rgba_texture(gpu, "qb-gpu model texture", w, h, texels.as_flattened());
     tex.create_view(&wgpu::TextureViewDescriptor::default())
 }
 
@@ -601,8 +583,6 @@ impl Shader {
     }
 }
 
-pub const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
-
 /// Lit renderer for one colour format.
 ///
 /// Draws are batched: all per-draw uniforms of a frame go into one
@@ -650,27 +630,8 @@ impl SceneRenderer {
                 count: None,
             }],
         });
-        let tex_layout = d.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            label: Some("qb-gpu scene texture"),
-            entries: &[
-                wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Texture {
-                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                        view_dimension: wgpu::TextureViewDimension::D2,
-                        multisampled: false,
-                    },
-                    count: None,
-                },
-                wgpu::BindGroupLayoutEntry {
-                    binding: 1,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                    count: None,
-                },
-            ],
-        });
+        let tex_layout = crate::texture_layout(d, "qb-gpu scene texture");
+
         let pipeline_layout = d.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("qb-gpu scene"),
             bind_group_layouts: &[Some(&frame_layout), Some(&draw_layout), Some(&tex_layout)],
@@ -734,13 +695,8 @@ impl SceneRenderer {
                 })],
             }),
             primitive: wgpu::PrimitiveState::default(),
-            depth_stencil: Some(wgpu::DepthStencilState {
-                format: DEPTH_FORMAT,
-                depth_write_enabled: Some(true),
-                depth_compare: Some(wgpu::CompareFunction::Less),
-                stencil: wgpu::StencilState::default(),
-                bias: wgpu::DepthBiasState::default(),
-            }),
+            depth_stencil: Some(crate::depth_test(true, wgpu::CompareFunction::Less)),
+
             multisample: wgpu::MultisampleState::default(),
             multiview_mask: None,
             cache: None,
@@ -750,16 +706,8 @@ impl SceneRenderer {
 
     fn depth_view(&mut self, gpu: &Gpu, w: u32, h: u32) {
         if self.depth.as_ref().is_none_or(|d| d.1 != w || d.2 != h) {
-            let t = gpu.device.create_texture(&wgpu::TextureDescriptor {
-                label: Some("qb-gpu scene depth"),
-                size: wgpu::Extent3d { width: w.max(1), height: h.max(1), depth_or_array_layers: 1 },
-                mip_level_count: 1,
-                sample_count: 1,
-                dimension: wgpu::TextureDimension::D2,
-                format: DEPTH_FORMAT,
-                usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
-                view_formats: &[],
-            });
+            let t = crate::depth_texture(gpu, "qb-gpu scene depth", w, h);
+
             self.depth = Some((t.create_view(&wgpu::TextureViewDescriptor::default()), w, h));
         }
     }

@@ -12,6 +12,8 @@
 // browser build: no game controllers are attached
 #![cfg_attr(target_arch = "wasm32", allow(dead_code))]
 
+use qb_runtime::error::code;
+
 use super::{e, R};
 use std::collections::VecDeque;
 
@@ -207,7 +209,7 @@ impl Devices {
     fn get(&self, n: i32) -> R<&Device> {
         match usize::try_from(n).ok().filter(|&n| n >= 1).and_then(|n| self.list.get(n - 1)) {
             Some(d) => Ok(d),
-            None => e(5),
+            None => e(code::ILLEGAL_FUNCTION_CALL),
         }
     }
 
@@ -249,7 +251,7 @@ impl Devices {
         let n = if passed { n } else { 1 };
         match usize::try_from(n).ok().filter(|&n| n >= 1).and_then(|n| d.current().buttons.get(n - 1)) {
             Some(&b) => Ok(-i32::from(b != 0)),
-            None => e(5),
+            None => e(code::ILLEGAL_FUNCTION_CALL),
         }
     }
 
@@ -257,7 +259,7 @@ impl Devices {
     pub(crate) fn button_change(&self, n: i32, passed: bool) -> R<i32> {
         let d = self.selected()?;
         let n = if passed { n } else { 1 };
-        let Some(k) = usize::try_from(n).ok().filter(|&n| n >= 1 && n <= d.current().buttons.len()).map(|n| n - 1) else { return e(5) };
+        let Some(k) = usize::try_from(n).ok().filter(|&n| n >= 1 && n <= d.current().buttons.len()).map(|n| n - 1) else { return e(code::ILLEGAL_FUNCTION_CALL) };
         let (now, before) = (d.current().buttons[k], d.events[0].buttons[k]);
         Ok(i32::from(now < before) - i32::from(now > before))
     }
@@ -269,7 +271,7 @@ impl Devices {
         let values = if wheel { &d.current().wheels } else { &d.current().axes };
         match usize::try_from(n).ok().filter(|&n| n >= 1).and_then(|n| values.get(n - 1)) {
             Some(&v) => Ok(v),
-            None => e(5),
+            None => e(code::ILLEGAL_FUNCTION_CALL),
         }
     }
 

@@ -11,6 +11,7 @@
 //! numbers went through `sscanf("%lf")`) or an exact `int64` (hex/oct/bin);
 //! [`NumValue`] keeps both forms so no precision is lost.
 
+use crate::error::code;
 pub use crate::fileio::NumRepr;
 use crate::round::{f80_from_f64, qbr};
 
@@ -54,9 +55,9 @@ fn is_type_suffix(c: u8) -> bool {
 }
 
 /// `n_inputnumberfromdata`: reads one number item of a DATA block at
-/// `*offset`. Returns 0 success, 1 overflow, 2 out of DATA, 3 syntax error.
+/// `*offset`. Errors: Overflow, Out of DATA, Syntax error.
 /// The offset is left where the legacy parser left it; callers restore it.
-pub fn number_from_data(data: &[u8], offset: &mut usize, n: &mut NumRepr) -> i32 {
+pub fn number_from_data(data: &[u8], offset: &mut usize, n: &mut NumRepr) -> Result<(), i32> {
     let size = data.len();
     let mut step = 0;
     let mut negate_exponent = false;
@@ -67,25 +68,25 @@ pub fn number_from_data(data: &[u8], offset: &mut usize, n: &mut NumRepr) -> i32
     n.neg = 0;
     n.hex = 0;
     if *offset >= size {
-        return 2;
+        return Err(code::OUT_OF_DATA);
     }
     let mut c = data[*offset];
 
     if c == b'&' {
         *offset += 1;
         if *offset >= size {
-            return 3;
+            return Err(code::SYNTAX_ERROR);
         }
         c = data[*offset];
         if c == b',' {
             *offset += 1;
-            return 3;
+            return Err(code::SYNTAX_ERROR);
         }
         let (kind, valid): (u8, fn(u8) -> bool) = match c {
             b'H' | b'h' => (1, |c| c.is_ascii_hexdigit()),
             b'O' | b'o' => (2, |c| (b'0'..=b'7').contains(&c)),
             b'B' | b'b' => (3, |c| c == b'0' || c == b'1'),
-            _ => return 3,
+            _ => return Err(code::SYNTAX_ERROR),
         };
         loop {
             *offset += 1;
@@ -99,10 +100,10 @@ pub fn number_from_data(data: &[u8], offset: &mut usize, n: &mut NumRepr) -> i32
             }
             if valid(c) {
                 if step == 5 {
-                    return 3;
+                    return Err(code::SYNTAX_ERROR);
                 }
                 if n.digits == 256 {
-                    return 1;
+                    return Err(code::OVERFLOW);
                 }
                 n.digit[n.digits as usize] = c;
                 n.digits += 1;
@@ -113,7 +114,7 @@ pub fn number_from_data(data: &[u8], offset: &mut usize, n: &mut NumRepr) -> i32
                 step = 5;
                 continue;
             }
-            return 3;
+            return Err(code::SYNTAX_ERROR);
         }
     } else {
         loop {
@@ -131,7 +132,7 @@ pub fn number_from_data(data: &[u8], offset: &mut usize, n: &mut NumRepr) -> i32
                         negate_exponent = true;
                         step = 4;
                     } else {
-                        return 3;
+                        return Err(code::SYNTAX_ERROR);
                     }
                 }
                 b'+' => {
@@ -140,12 +141,12 @@ pub fn number_from_data(data: &[u8], offset: &mut usize, n: &mut NumRepr) -> i32
                     } else if step == 3 {
                         step = 4;
                     } else {
-                        return 3;
+                        return Err(code::SYNTAX_ERROR);
                     }
                 }
                 b'0'..=b'9' => {
                     if step == 5 {
-                        return 3;
+                        return Err(code::SYNTAX_ERROR);
                     }
                     if step <= 1 {
                         step = 1;
@@ -154,7 +155,7 @@ pub fn number_from_data(data: &[u8], offset: &mut usize, n: &mut NumRepr) -> i32
                                 n.exp += 1;
                             }
                             if n.digits == 256 {
-                                return 1;
+                                return Err(code::OVERFLOW);
                             }
                             n.digit[n.digits as usize] = c;
                             n.digits += 1;
@@ -166,7 +167,7 @@ pub fn number_from_data(data: &[u8], offset: &mut usize, n: &mut NumRepr) -> i32
                         }
                         if n.digits != 0 || c > b'0' {
                             if n.digits == 256 {
-                                return 1;
+                                return Err(code::OVERFLOW);
                             }
                             n.digit[n.digits as usize] = c;
                             n.digits += 1;
@@ -176,7 +177,7 @@ pub fn number_from_data(data: &[u8], offset: &mut usize, n: &mut NumRepr) -> i32
                         step = 4;
                         if exponent_digits != 0 || c > b'0' {
                             if exponent_digits == 18 {
-                                return 1;
+                                return Err(code::OVERFLOW);
                             }
                             exponent_value = exponent_value * 10 + i64::from(c - b'0');
                             exponent_digits += 1;
@@ -185,7 +186,7 @@ pub fn number_from_data(data: &[u8], offset: &mut usize, n: &mut NumRepr) -> i32
                 }
                 b'.' => {
                     if step > 1 {
-                        return 3;
+                        return Err(code::SYNTAX_ERROR);
                     }
                     if n.digits == 0 {
                         n.exp = -1;
@@ -194,12 +195,12 @@ pub fn number_from_data(data: &[u8], offset: &mut usize, n: &mut NumRepr) -> i32
                 }
                 b'D' | b'E' | b'd' | b'e' => {
                     if step > 2 {
-                        return 3;
+                        return Err(code::SYNTAX_ERROR);
                     }
                     step = 3;
                 }
                 _ if is_type_suffix(c) && step <= 5 => step = 5,
-                _ => return 3,
+                _ => return Err(code::SYNTAX_ERROR),
             }
             // nextchr
             *offset += 1;
@@ -219,7 +220,7 @@ pub fn number_from_data(data: &[u8], offset: &mut usize, n: &mut NumRepr) -> i32
         n.exp = 0;
         n.neg = 0;
     }
-    0
+    Ok(())
 }
 
 /// Accumulates hex/oct/bin digits exactly like the legacy loops (wrapping,
@@ -449,48 +450,19 @@ fn convert(v: NumValue, typ: i32, hex: bool) -> Option<NumValue> {
 /// `func_read_float`: READ into a numeric variable of type `typ`.
 /// On error the offset is restored as legacy did (not for "Out of DATA").
 pub fn read_float(data: &[u8], offset: &mut usize, typ: i32) -> Result<NumValue, i32> {
-    let old = *offset;
-    let mut n = NumRepr::default();
-    match number_from_data(data, offset, &mut n) {
-        2 => return Err(4),
-        3 => {
-            *offset = old;
-            return Err(2);
-        }
-        1 => {
-            *offset = old;
-            return Err(6);
-        }
-        _ => {}
-    }
-    match n_float(&n).and_then(|v| convert(v, typ, n.hex != 0)) {
-        Some(v) => Ok(v),
-        None => {
-            *offset = old;
-            Err(6)
-        }
-    }
+    read_with(data, offset, |n| n_float(n).and_then(|v| convert(v, typ, n.hex != 0)))
 }
 
-fn read_with<T>(data: &[u8], offset: &mut usize, f: fn(&NumRepr) -> Option<T>) -> Result<T, i32> {
+/// Reads one DATA number item and converts it with `f` (`None`: Overflow). After
+/// an error the offset is back at the start of the item, except for Out of DATA.
+fn read_with<T>(data: &[u8], offset: &mut usize, f: impl FnOnce(&NumRepr) -> Option<T>) -> Result<T, i32> {
     let old = *offset;
     let mut n = NumRepr::default();
-    match number_from_data(data, offset, &mut n) {
-        2 => return Err(4),
-        3 => {
-            *offset = old;
-            return Err(2);
-        }
-        1 => {
-            *offset = old;
-            return Err(6);
-        }
-        _ => {}
-    }
-    f(&n).ok_or_else(|| {
+    let r = number_from_data(data, offset, &mut n).and_then(|()| f(&n).ok_or(code::OVERFLOW));
+    if matches!(r, Err(e) if e != code::OUT_OF_DATA) {
         *offset = old;
-        6
-    })
+    }
+    r
 }
 
 /// `func_read_int64`.

@@ -1,8 +1,9 @@
 //! LINE: `lineclip`, `fast_line`, `qb32_line`, `qb32_boxfill`,
 //! `fast_boxfill` and `sub_line`, as in QB64.
 
+use crate::error::code;
 use super::blend::{blend_onto, pset};
-use super::{cvt_i32, map_point_f2l, qbr_f2l, ImgStruct, ERR_ILLEGAL_FUNCTION_CALL};
+use super::{cvt_i32, map_point_f2l, qbr_f2l, ImgStruct};
 
 /// Result of the legacy `lineclip` (it used globals `lineclip_*`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -295,7 +296,7 @@ pub unsafe fn sub_line(
     passed: i32,
 ) -> i32 {
     if im.text != 0 {
-        return ERR_ILLEGAL_FUNCTION_CALL;
+        return code::ILLEGAL_FUNCTION_CALL;
     }
     if passed & 1 != 0 {
         if passed & 4 != 0 {

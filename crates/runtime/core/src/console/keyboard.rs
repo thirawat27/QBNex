@@ -2,6 +2,7 @@
 //! head/tail words at 0x41A/0x41C, as on a PC) and INPUT$ from the keyboard.
 //! Functions take the BIOS data area base (`cmem+0x400`).
 
+use crate::error::code;
 use super::Host;
 
 /// `_KEYCLEAR 1` / start-up: empties the ring.
@@ -49,7 +50,7 @@ pub unsafe fn pop(bios: *mut u8) -> Option<Vec<u8>> {
 /// result stays 0.
 pub unsafe fn input_n(h: &mut dyn Host, n: i32) -> Vec<u8> {
     if n < 0 {
-        h.error(52);
+        h.error(code::BAD_FILE_NAME_OR_NUMBER);
         return Vec::new();
     }
     let mut out = vec![0u8; n as usize];

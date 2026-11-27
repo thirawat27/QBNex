@@ -1,7 +1,8 @@
 //! PSET, PRESET and POINT (`sub_pset`, `sub_preset`, `point`, `func_point`).
 
+use crate::error::code;
 use super::blend::pset;
-use super::{map_point_f2l, qbr_f2l, qbr_i32, ImgStruct, ERR_ILLEGAL_FUNCTION_CALL};
+use super::{map_point_f2l, qbr_f2l, qbr_i32, ImgStruct};
 
 /// `PSET [STEP](x, y)[, color]`; passed: 1 = STEP, 2 = color.
 ///
@@ -9,7 +10,7 @@ use super::{map_point_f2l, qbr_f2l, qbr_i32, ImgStruct, ERR_ILLEGAL_FUNCTION_CAL
 /// `im` must be a valid surface whose VIEW lies inside it.
 pub unsafe fn sub_pset(im: &mut ImgStruct, x: f32, y: f32, mut col: u32, passed: i32) -> i32 {
     if im.compatible_mode == 0 {
-        return ERR_ILLEGAL_FUNCTION_CALL;
+        return code::ILLEGAL_FUNCTION_CALL;
     }
     if passed & 1 != 0 {
         im.x += x;
@@ -87,7 +88,7 @@ pub unsafe fn point(im: &ImgStruct, x: i32, y: i32) -> u32 {
 /// # Safety
 /// Both surfaces must be valid.
 pub unsafe fn func_point(write: &ImgStruct, read: &ImgStruct, x: f32, y: f32, passed: i32) -> (f64, i32) {
-    const ERR: (f64, i32) = (0.0, ERR_ILLEGAL_FUNCTION_CALL);
+    const ERR: (f64, i32) = (0.0, code::ILLEGAL_FUNCTION_CALL);
     if passed == 0 {
         if write.text != 0 {
             return ERR;

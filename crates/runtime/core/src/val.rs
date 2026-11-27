@@ -6,10 +6,9 @@
 //! `&B` literals are parsed as 64-bit integers; too many digits is error 6
 //! (overflow).
 
+use crate::error::code;
 use crate::round::F80;
 
-/// QBasic error code raised by `VAL` on an oversized `&H`/`&O`/`&B` literal.
-pub const ERR_OVERFLOW: i32 = 6;
 
 /// Significant digits kept exactly; any further non-zero digit only makes
 /// the value "a little larger" for rounding. QB64 overran a 256-byte
@@ -163,7 +162,7 @@ fn literal(s: &[u8]) -> Result<i64, i32> {
             _ => count > 22 || (count == 22 && body[k + 1 - 22] > b'1'),
         };
         if too_long {
-            return Err(ERR_OVERFLOW);
+            return Err(code::OVERFLOW);
         }
     }
     Ok(value)
@@ -226,7 +225,7 @@ mod tests {
     #[test]
     fn returns_value_or_error_code() {
         assert_eq!(val(b"  -12.5e1xyz"), Ok(int_to_f80(-125)));
-        assert_eq!(val(b"&H10000000000000000"), Err(ERR_OVERFLOW));
+        assert_eq!(val(b"&H10000000000000000"), Err(code::OVERFLOW));
         assert_eq!(val(b""), Ok([0; 10]));
     }
 
@@ -338,9 +337,9 @@ mod tests {
 
     #[test]
     fn oversized_literals_are_overflow_errors() {
-        assert_eq!(val(b"&H10000000000000000"), Err(ERR_OVERFLOW));
-        assert_eq!(val(b"&O2000000000000000000000"), Err(ERR_OVERFLOW));
+        assert_eq!(val(b"&H10000000000000000"), Err(code::OVERFLOW));
+        assert_eq!(val(b"&O2000000000000000000000"), Err(code::OVERFLOW));
         assert_eq!(v("&O1777777777777777777777"), int(-1));
-        assert_eq!(val(&[b"&B1".as_slice(), &[b'0'; 64]].concat()), Err(ERR_OVERFLOW));
+        assert_eq!(val(&[b"&B1".as_slice(), &[b'0'; 64]].concat()), Err(code::OVERFLOW));
     }
 }

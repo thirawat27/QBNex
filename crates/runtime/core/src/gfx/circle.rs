@@ -1,17 +1,15 @@
 //! CIRCLE (`sub_circle`): circles, ellipses, arcs and pie slices.
 
+use crate::error::code;
 use super::blend::pset_and_clip;
 use super::line::fast_line;
-use super::{cvt_i32, ImgStruct, ERR_ILLEGAL_FUNCTION_CALL};
+use super::{cvt_i32, ImgStruct};
 
 /// `CIRCLE [STEP](x, y), r[, color[, start[, end[, aspect]]]]`;
 /// passed: 1 = STEP, 2 = color, 4 = start, 8 = end, 16 = aspect.
 ///
 /// # Safety
 /// `im` must be a valid surface whose VIEW lies inside it.
-// The aspect expressions copy the legacy arithmetic; the one-shot loop is
-// the legacy `plot:` goto target.
-#[allow(clippy::eq_op, clippy::never_loop)]
 pub unsafe fn sub_circle(
     im: &mut ImgStruct,
     mut x: f64,
@@ -27,7 +25,7 @@ pub unsafe fn sub_circle(
     const PI: f64 = std::f64::consts::PI;
     const PI2: f64 = std::f64::consts::TAU;
     if im.text != 0 {
-        return ERR_ILLEGAL_FUNCTION_CALL;
+        return code::ILLEGAL_FUNCTION_CALL;
     }
     if passed & 4 == 0 {
         start = 0.0;
@@ -46,7 +44,7 @@ pub unsafe fn sub_circle(
         end = -end;
     }
     if start > PI2 || end > PI2 {
-        return ERR_ILLEGAL_FUNCTION_CALL;
+        return code::ILLEGAL_FUNCTION_CALL;
     }
     // end < start draws the part that start..end would not have drawn
     let mut exclusive = false;
@@ -83,7 +81,8 @@ pub unsafe fn sub_circle(
             1 | 7 | 13 => 4.0 * (200.0 / 320.0) / 3.0,
             2 | 8 => 4.0 * (200.0 / 640.0) / 3.0,
             9 | 10 => 4.0 * (350.0 / 640.0) / 3.0,
-            11 | 12 => 4.0 * (480.0 / 640.0) / 3.0,
+            // 4/3 * 480/640: square pixels
+            11 | 12 => 1.0,
             _ => 1.0,
         };
     }
@@ -146,51 +145,38 @@ pub unsafe fn sub_circle(
             }
         }
     };
-    // Literal translation of the legacy goto structure (drawcircle/plot/allplotted).
-    'drawcircle: loop {
+    // One quarter of the curve, mirrored into the four quadrants. A point is
+    // plotted once the curve has moved two pixels away from the last one
+    // plotted; the first and the last point always are (legacy order).
+    loop {
         let x2 = cvt_i32(px * xspan + 0.5);
         let y2 = cvt_i32(py * yspan - 0.5);
-        let mut do_plot = false;
         if i == 0 {
-            lastchecked_x2 = x2;
-            lastchecked_y2 = y2;
-            do_plot = true;
-        } else if x2.wrapping_sub(lastplotted_x2).wrapping_abs() >= 2 || y2.wrapping_sub(lastplotted_y2).wrapping_abs() >= 2 {
-            do_plot = true;
+            (lastchecked_x2, lastchecked_y2) = (x2, y2);
         }
-        if do_plot {
-            // "plot:" label
-            loop {
-                plot(arc1, arc2, arc3, arc4, lastchecked_x2, lastchecked_y2);
-                if i > pixels {
-                    break 'drawcircle;
-                }
-                lastplotted_x2 = lastchecked_x2;
-                lastplotted_y2 = lastchecked_y2;
+        if i == 0 || x2.wrapping_sub(lastplotted_x2).wrapping_abs() >= 2 || y2.wrapping_sub(lastplotted_y2).wrapping_abs() >= 2 {
+            plot(arc1, arc2, arc3, arc4, lastchecked_x2, lastchecked_y2);
+            if i > pixels {
                 break;
             }
+            (lastplotted_x2, lastplotted_y2) = (lastchecked_x2, lastchecked_y2);
         }
-        lastchecked_x2 = x2;
-        lastchecked_y2 = y2;
-        if i <= pixels {
-            i += 1;
-            if i > pixels {
-                // goto plot (with the values just checked)
-                plot(arc1, arc2, arc3, arc4, lastchecked_x2, lastchecked_y2);
-                break 'drawcircle; // i > pixels -> allplotted
-            }
-            let px2 = px * cosb + py * sinb;
-            py = py * cosb - px * sinb;
-            px = px2;
-            if i != 0 {
-                arc1 += arcinc;
-                arc2 -= arcinc;
-                arc3 += arcinc;
-                arc4 -= arcinc;
-            }
-            continue 'drawcircle;
+        (lastchecked_x2, lastchecked_y2) = (x2, y2);
+        if i > pixels {
+            break;
         }
-        break;
+        i += 1;
+        if i > pixels {
+            plot(arc1, arc2, arc3, arc4, lastchecked_x2, lastchecked_y2);
+            break;
+        }
+        let px2 = px * cosb + py * sinb;
+        py = py * cosb - px * sinb;
+        px = px2;
+        arc1 += arcinc;
+        arc2 -= arcinc;
+        arc3 += arcinc;
+        arc4 -= arcinc;
     }
     if line_from_end {
         let (px, py) = (end.cos(), end.sin());

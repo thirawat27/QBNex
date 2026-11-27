@@ -2,6 +2,7 @@
 //! (`&`, `!`, `\ \`, `#.#`, `+`, `-`, `$$`, `**`, `,`, `^^^^`), and the text each
 //! field gives a value.
 
+use qb_runtime::error::code;
 use super::builtins::{screen_out, suffix_ty, Host};
 use super::{e, R, V};
 use qb_ir::Ty;
@@ -17,7 +18,7 @@ pub(crate) struct Using {
 
 /// Minimal PRINT USING: literal text, `&`, `!`, `\ \`, and numeric fields `#.#`, `+`, `-`, `$$`, `**`, `,`, `^^^^`.
 pub(crate) fn using<'a>(vm: &mut dyn Host<'a>, name: &str, a: &[V]) -> R<Option<V>> {
-    let Some(mut u) = vm.rt().using.take() else { return e(5) };
+    let Some(mut u) = vm.rt().using.take() else { return e(code::ILLEGAL_FUNCTION_CALL) };
     let ch = u.ch;
     let mut out = Vec::new();
     if name == "USINGEND" {
@@ -34,7 +35,7 @@ pub(crate) fn using<'a>(vm: &mut dyn Host<'a>, name: &str, a: &[V]) -> R<Option<
         u.pos = next;
         if u.pos >= u.fmt.len() {
             if wrapped || !u.used && u.pos == 0 {
-                return e(5);
+                return e(code::ILLEGAL_FUNCTION_CALL);
             }
             wrapped = true;
             u.pos = 0;
@@ -63,7 +64,7 @@ pub(crate) fn using<'a>(vm: &mut dyn Host<'a>, name: &str, a: &[V]) -> R<Option<
         (b'N', n) if n.starts_with("USINGN.") => {
             out.extend_from_slice(&format_num(&fmt, &a[0], suffix_ty(n)));
         }
-        _ => return e(13),
+        _ => return e(code::TYPE_MISMATCH),
     }
     using_out(vm, ch, out)?;
     vm.rt().using = Some(u);

@@ -545,7 +545,7 @@ impl Builder<'_> {
                     return;
                 }
                 if (count as usize) > available {
-                    self.error(range.clone(), format!("{} closes more blocks than are open", kind.closer()));
+                    self.error(range, format!("{} closes more blocks than are open", kind.closer()));
                 }
                 let n = (count as usize).min(available);
                 for k in 0..n {

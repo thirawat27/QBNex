@@ -432,6 +432,89 @@ impl Readback {
     }
 }
 
+/// Depth buffer format of every renderer.
+pub const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
+
+/// Depth test of a pipeline: `compare` against the depth buffer, writing it when `write`.
+pub(crate) fn depth_test(write: bool, compare: wgpu::CompareFunction) -> wgpu::DepthStencilState {
+    wgpu::DepthStencilState {
+        format: DEPTH_FORMAT,
+        depth_write_enabled: Some(write),
+        depth_compare: Some(compare),
+        stencil: wgpu::StencilState::default(),
+        bias: wgpu::DepthBiasState::default(),
+    }
+}
+
+/// A depth buffer of `width`×`height` (at least 1×1) for render passes.
+pub(crate) fn depth_texture(gpu: &Gpu, label: &str, width: u32, height: u32) -> wgpu::Texture {
+    gpu.device.create_texture(&wgpu::TextureDescriptor {
+        label: Some(label),
+        size: wgpu::Extent3d { width: width.max(1), height: height.max(1), depth_or_array_layers: 1 },
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: DEPTH_FORMAT,
+        usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+        view_formats: &[],
+    })
+}
+
+/// An RGBA8 texture that shaders sample, holding `rgba` (`width`×`height`
+/// pixels of 4 bytes, as [`fit_texture`] gives them).
+pub(crate) fn rgba_texture(gpu: &Gpu, label: &str, width: u32, height: u32, rgba: &[u8]) -> wgpu::Texture {
+    let size = wgpu::Extent3d { width, height, depth_or_array_layers: 1 };
+    let tex = gpu.device.create_texture(&wgpu::TextureDescriptor {
+        label: Some(label),
+        size,
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: wgpu::TextureFormat::Rgba8Unorm,
+        usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+        view_formats: &[],
+    });
+    gpu.queue.write_texture(
+        wgpu::TexelCopyTextureInfo { texture: &tex, mip_level: 0, origin: wgpu::Origin3d::ZERO, aspect: wgpu::TextureAspect::All },
+        rgba,
+        wgpu::TexelCopyBufferLayout { offset: 0, bytes_per_row: Some(width * 4), rows_per_image: Some(height) },
+        size,
+    );
+    tex
+}
+
+/// Layout entry of a filterable 2D texture that the fragment shader samples.
+pub(crate) const fn fragment_texture_entry(binding: u32) -> wgpu::BindGroupLayoutEntry {
+    wgpu::BindGroupLayoutEntry {
+        binding,
+        visibility: wgpu::ShaderStages::FRAGMENT,
+        ty: wgpu::BindingType::Texture {
+            sample_type: wgpu::TextureSampleType::Float { filterable: true },
+            view_dimension: wgpu::TextureViewDimension::D2,
+            multisampled: false,
+        },
+        count: None,
+    }
+}
+
+/// Layout entry of the filtering sampler that goes with [`fragment_texture_entry`].
+pub(crate) const fn fragment_sampler_entry(binding: u32) -> wgpu::BindGroupLayoutEntry {
+    wgpu::BindGroupLayoutEntry {
+        binding,
+        visibility: wgpu::ShaderStages::FRAGMENT,
+        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+        count: None,
+    }
+}
+
+/// Bind group layout of one texture (binding 0) and its sampler (binding 1).
+pub(crate) fn texture_layout(d: &wgpu::Device, label: &str) -> wgpu::BindGroupLayout {
+    d.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        label: Some(label),
+        entries: &[fragment_texture_entry(0), fragment_sampler_entry(1)],
+    })
+}
+
 /// Size that fits `max` on both sides keeping the aspect ratio (at least 1×1).
 pub fn fit_size(w: u32, h: u32, max: u32) -> (u32, u32) {
     let (w, h, max) = (w.max(1), h.max(1), max.max(1));

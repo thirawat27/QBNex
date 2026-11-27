@@ -108,24 +108,7 @@ impl Texture {
     /// Short data is padded, sides above the device limit are scaled down.
     pub fn from_rgba(gpu: &Gpu, r: &Renderer3d, width: u32, height: u32, rgba: &[u8], smooth: bool) -> Texture {
         let (texels, width, height) = crate::fit_texture(rgba.as_chunks::<4>().0, width, height, gpu.max_texture_size());
-        let rgba = texels.as_flattened();
-        let size = wgpu::Extent3d { width, height, depth_or_array_layers: 1 };
-        let tex = gpu.device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("qb-gpu texture"),
-            size,
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Rgba8Unorm,
-            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
-            view_formats: &[],
-        });
-        gpu.queue.write_texture(
-            wgpu::TexelCopyTextureInfo { texture: &tex, mip_level: 0, origin: wgpu::Origin3d::ZERO, aspect: wgpu::TextureAspect::All },
-            rgba,
-            wgpu::TexelCopyBufferLayout { offset: 0, bytes_per_row: Some(width * 4), rows_per_image: Some(height) },
-            size,
-        );
+        let tex = crate::rgba_texture(gpu, "qb-gpu texture", width, height, texels.as_flattened());
         let view = tex.create_view(&wgpu::TextureViewDescriptor::default());
         let filter = if smooth { wgpu::FilterMode::Linear } else { wgpu::FilterMode::Nearest };
         let sampler = gpu.device.create_sampler(&wgpu::SamplerDescriptor {
@@ -185,8 +168,6 @@ fn fs(o: Out) -> @location(0) vec4<f32> {
 }
 "#;
 
-pub const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
-
 /// Textured triangles with a depth buffer.
 pub struct Renderer3d {
     pipeline: wgpu::RenderPipeline,
@@ -215,27 +196,8 @@ impl Renderer3d {
                 count: None,
             }],
         });
-        let tex_layout = d.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            label: Some("qb-gpu 3d texture"),
-            entries: &[
-                wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Texture {
-                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                        view_dimension: wgpu::TextureViewDimension::D2,
-                        multisampled: false,
-                    },
-                    count: None,
-                },
-                wgpu::BindGroupLayoutEntry {
-                    binding: 1,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                    count: None,
-                },
-            ],
-        });
+        let tex_layout = crate::texture_layout(d, "qb-gpu 3d texture");
+
         let pl = d.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("qb-gpu 3d"),
             bind_group_layouts: &[Some(&uni_layout), Some(&tex_layout)],
@@ -261,13 +223,8 @@ impl Renderer3d {
                 })],
             }),
             primitive: wgpu::PrimitiveState { cull_mode: None, ..Default::default() },
-            depth_stencil: Some(wgpu::DepthStencilState {
-                format: DEPTH_FORMAT,
-                depth_write_enabled: Some(true),
-                depth_compare: Some(wgpu::CompareFunction::Less),
-                stencil: wgpu::StencilState::default(),
-                bias: wgpu::DepthBiasState::default(),
-            }),
+            depth_stencil: Some(crate::depth_test(true, wgpu::CompareFunction::Less)),
+
             multisample: wgpu::MultisampleState::default(),
             multiview_mask: None,
             cache: None,
@@ -277,16 +234,8 @@ impl Renderer3d {
 
     fn depth_view(&mut self, gpu: &Gpu, w: u32, h: u32) -> &wgpu::TextureView {
         if self.depth.as_ref().is_none_or(|d| d.1 != w || d.2 != h) {
-            let t = gpu.device.create_texture(&wgpu::TextureDescriptor {
-                label: Some("qb-gpu depth"),
-                size: wgpu::Extent3d { width: w, height: h, depth_or_array_layers: 1 },
-                mip_level_count: 1,
-                sample_count: 1,
-                dimension: wgpu::TextureDimension::D2,
-                format: DEPTH_FORMAT,
-                usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
-                view_formats: &[],
-            });
+            let t = crate::depth_texture(gpu, "qb-gpu depth", w, h);
+
             self.depth = Some((t.create_view(&wgpu::TextureViewDescriptor::default()), w, h));
         }
         &self.depth.as_ref().expect("depth").0

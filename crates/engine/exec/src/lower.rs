@@ -265,6 +265,13 @@ impl Frame {
         self.num_init.push(init);
         self.num_init.len() as R - 1
     }
+    /// `n` new numeric registers in a row (subscripts, DIM bounds), zero at the
+    /// start: the first of them.
+    fn new_run(&mut self, n: u32) -> R {
+        let base = self.num_init.len() as R;
+        self.num_init.resize(self.num_init.len() + n as usize, 0);
+        base
+    }
     fn new_s(&mut self) -> R {
         self.n_str += 1;
         self.n_str - 1
@@ -594,6 +601,13 @@ impl<'a> Lw<'a> {
     fn emit(&mut self, i: Ins) -> u32 {
         self.m.code.push(i);
         self.pc() - 1
+    }
+
+    /// A call of SUB/FUNCTION `f` with its argument registers and result register.
+    fn emit_call(&mut self, f: u32, args: Vec<Arg>, dest: Option<R>) {
+        self.m.calls.push(CallDesc { args, dest });
+        let desc = self.m.calls.len() as u32 - 1;
+        self.emit(Ins::Call { f, desc });
     }
 
     fn kstr(&mut self, s: &[u8]) -> R {
@@ -1211,10 +1225,7 @@ impl<'a> Lw<'a> {
                     let base = if direct {
                         nreg!(idx[0])
                     } else {
-                        let base = self.frames[k].num_init.len() as R;
-                        for _ in 0..n {
-                            self.frames[k].new_n(0);
-                        }
+                        let base = self.frames[k].new_run(n);
                         for (j, r) in idx.iter().enumerate() {
                             let s = nreg!(*r);
                             self.emit(Ins::Mov { d: base + j as R, s });
@@ -1277,22 +1288,13 @@ impl<'a> Lw<'a> {
                 Inst::Dim { kind, var, bounds } => {
                     let Var::A(a, _) = var!(var) else { return Err("dim of a scalar".into()) };
                     let n = bounds.len() as u32;
-                    let base = self.frames[k].num_init.len() as R;
-                    for _ in 0..2 * n {
-                        self.frames[k].new_n(0);
-                    }
+                    let base = self.frames[k].new_run(2 * n);
                     for (j, (lo, hi)) in bounds.iter().enumerate() {
                         let (lo, hi) = (nreg!(*lo), nreg!(*hi));
                         self.emit(Ins::Mov { d: base + 2 * j as R, s: lo });
                         self.emit(Ins::Mov { d: base + 2 * j as R + 1, s: hi });
                     }
-                    let mode = match kind {
-                        DimKind::Dim => DimMode::Dim,
-                            DimKind::Static => DimMode::Static,
-                        DimKind::Redim => DimMode::Redim,
-                        DimKind::RedimPreserve => DimMode::RedimPreserve,
-                    };
-                    self.emit(Ins::Dim { a, dims: base, n, mode });
+                    self.emit(Ins::Dim { a, dims: base, n, mode: dim_mode(*kind) });
                 }
                 Inst::Erase { var } => {
                     let Var::A(a, _) = var!(var) else { return Err("erase of a scalar".into()) };
@@ -1354,27 +1356,16 @@ impl<'a> Lw<'a> {
                             self.m.places.push(pl);
                             out.push(Arg::Ref(self.m.places.len() as u32 - 1));
                         } else {
-                            match reg!(*r) {
-                                Rg::N(x) => out.push(Arg::N(x)),
-                                Rg::S(x) => out.push(Arg::S(x)),
-                                Rg::X(x) => {
-                                    out.push(Arg::N(x));
-                                    out.push(Arg::N(x + 1));
-                                }
-                                Rg::P => return Err("pointer passed by value".into()),
+                            if !push_value_arg(&mut out, reg!(*r)) {
+                                return Err("pointer passed by value".into());
                             }
                         }
                     }
                     let dest = match dst {
-                        Some(d) => Some(match reg!(*d) {
-                            Rg::N(x) | Rg::S(x) | Rg::X(x) => x,
-                            Rg::P => return Err("pointer result".into()),
-                        }),
+                        Some(d) => Some(result_reg(reg!(*d))?),
                         None => None,
                     };
-                    self.m.calls.push(CallDesc { args: out, dest });
-                    let desc = self.m.calls.len() as u32 - 1;
-                    self.emit(Ins::Call { f: fi, desc });
+                    self.emit_call(fi, out, dest);
                 }
                 Inst::Ret(v) => {
                     if k == 0 {
@@ -1650,10 +1641,7 @@ impl<'a> Lw<'a> {
                 let base = if n == 1 {
                     nreg!(idx[0])
                 } else {
-                    let base = self.frames[k].num_init.len() as R;
-                    for _ in 0..n {
-                        self.frames[k].new_n(0);
-                    }
+                    let base = self.frames[k].new_run(n);
                     for (j, r) in idx.iter().enumerate() {
                         let s = nreg!(*r);
                         self.emit(Ins::Mov { d: base + j as R, s });
@@ -1708,22 +1696,13 @@ impl<'a> Lw<'a> {
             Inst::Dim { kind, var, bounds } => {
                 let (p, _) = mvar(var).ok_or_else(|| format!("array {var} without storage"))?;
                 let n = bounds.len() as u32;
-                let base = self.frames[k].num_init.len() as R;
-                for _ in 0..2 * n {
-                    self.frames[k].new_n(0);
-                }
+                let base = self.frames[k].new_run(2 * n);
                 for (j, (lo, hi)) in bounds.iter().enumerate() {
                     let (lo, hi) = (nreg!(*lo), nreg!(*hi));
                     self.emit(Ins::Mov { d: base + 2 * j as R, s: lo });
                     self.emit(Ins::Mov { d: base + 2 * j as R + 1, s: hi });
                 }
-                let mode = match kind {
-                    DimKind::Dim => DimMode::Dim,
-                    DimKind::Static => DimMode::Static,
-                    DimKind::Redim => DimMode::Redim,
-                    DimKind::RedimPreserve => DimMode::RedimPreserve,
-                };
-                self.emit(Ins::DimM { a: p, dims: base, n, mode });
+                self.emit(Ins::DimM { a: p, dims: base, n, mode: dim_mode(*kind) });
                 return Ok(true);
             }
             Inst::Erase { var } => {
@@ -1764,26 +1743,15 @@ impl<'a> Lw<'a> {
                 let fi = self.fidx[func.as_str()] as u32;
                 let mut out = Vec::new();
                 for (r, _p) in args.iter().zip(&callee.params) {
-                    match reg!(*r) {
-                        Rg::N(x) => out.push(Arg::N(x)),
-                        Rg::S(x) => out.push(Arg::S(x)),
-                        Rg::X(x) => {
-                            out.push(Arg::N(x));
-                            out.push(Arg::N(x + 1));
-                        }
-                        Rg::P => return Err("pointer argument".into()),
+                    if !push_value_arg(&mut out, reg!(*r)) {
+                        return Err("pointer argument".into());
                     }
                 }
                 let dest = match dst {
-                    Some(d) => Some(match reg!(*d) {
-                        Rg::N(x) | Rg::S(x) | Rg::X(x) => x,
-                        Rg::P => return Err("pointer result".into()),
-                    }),
+                    Some(d) => Some(result_reg(reg!(*d))?),
                     None => None,
                 };
-                self.m.calls.push(CallDesc { args: out, dest });
-                let desc = self.m.calls.len() as u32 - 1;
-                self.emit(Ins::Call { f: fi, desc });
+                self.emit_call(fi, out, dest);
                 return Ok(true);
             }
             _ => {}
@@ -2209,6 +2177,37 @@ fn fuse_for_tests(code: &mut [Ins], range: std::ops::Range<usize>, zero: &dyn Fn
 /// locals) first, then the module-level variables.
 fn lookup_var(own: &HashMap<&str, Var>, globals: &HashMap<String, Var>, k: usize, n: &str) -> Option<Var> {
     own.get(n).copied().or_else(|| globals.get(n).map(|&v| if k == 0 { v } else { to_global(v) }))
+}
+
+fn dim_mode(kind: DimKind) -> DimMode {
+    match kind {
+        DimKind::Dim => DimMode::Dim,
+        DimKind::Static => DimMode::Static,
+        DimKind::Redim => DimMode::Redim,
+        DimKind::RedimPreserve => DimMode::RedimPreserve,
+    }
+}
+
+/// Adds a by-value argument (a `_FLOAT` as its register pair); false for a pointer.
+fn push_value_arg(out: &mut Vec<Arg>, r: Rg) -> bool {
+    match r {
+        Rg::N(x) => out.push(Arg::N(x)),
+        Rg::S(x) => out.push(Arg::S(x)),
+        Rg::X(x) => {
+            out.push(Arg::N(x));
+            out.push(Arg::N(x + 1));
+        }
+        Rg::P => return false,
+    }
+    true
+}
+
+/// The register a SUB/FUNCTION result goes to.
+fn result_reg(r: Rg) -> Res<R> {
+    match r {
+        Rg::N(x) | Rg::S(x) | Rg::X(x) => Ok(x),
+        Rg::P => Err("pointer result".into()),
+    }
 }
 
 fn to_global(v: Var) -> Var {

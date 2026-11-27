@@ -20,6 +20,23 @@ pub enum Fit {
     Stretch,
 }
 
+/// A render pass into `frame` that starts by filling it with black.
+fn black_pass<'e>(enc: &'e mut wgpu::CommandEncoder, frame: &Frame, label: &str) -> wgpu::RenderPass<'e> {
+    enc.begin_render_pass(&wgpu::RenderPassDescriptor {
+        label: Some(label),
+        color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+            view: &frame.view,
+            depth_slice: None,
+            resolve_target: None,
+            ops: wgpu::Operations { load: wgpu::LoadOp::Clear(wgpu::Color::BLACK), store: wgpu::StoreOp::Store },
+        })],
+        depth_stencil_attachment: None,
+        timestamp_writes: None,
+        occlusion_query_set: None,
+        multiview_mask: None,
+    })
+}
+
 /// The rectangle (x, y, w, h) a `fw`×`fh` framebuffer occupies in a `tw`×`th` target.
 pub fn fit_rect(fw: u32, fh: u32, tw: u32, th: u32, fit: Fit) -> (u32, u32, u32, u32) {
     if fw == 0 || fh == 0 {
@@ -114,22 +131,8 @@ impl Blitter {
         let layout = d.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("qb-gpu blit"),
             entries: &[
-                wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Texture {
-                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                        view_dimension: wgpu::TextureViewDimension::D2,
-                        multisampled: false,
-                    },
-                    count: None,
-                },
-                wgpu::BindGroupLayoutEntry {
-                    binding: 1,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                    count: None,
-                },
+                crate::fragment_texture_entry(0),
+                crate::fragment_sampler_entry(1),
                 wgpu::BindGroupLayoutEntry {
                     binding: 2,
                     visibility: wgpu::ShaderStages::VERTEX,
@@ -198,19 +201,7 @@ impl Blitter {
     /// Fills `frame` with black.
     pub fn clear(&self, gpu: &Gpu, frame: &Frame) {
         let mut enc = gpu.device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("qb-gpu clear") });
-        enc.begin_render_pass(&wgpu::RenderPassDescriptor {
-            label: Some("qb-gpu clear"),
-            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                view: &frame.view,
-                depth_slice: None,
-                resolve_target: None,
-                ops: wgpu::Operations { load: wgpu::LoadOp::Clear(wgpu::Color::BLACK), store: wgpu::StoreOp::Store },
-            })],
-            depth_stencil_attachment: None,
-            timestamp_writes: None,
-            occlusion_query_set: None,
-            multiview_mask: None,
-        });
+        black_pass(&mut enc, frame, "qb-gpu clear");
         gpu.queue.submit([enc.finish()]);
     }
 
@@ -270,19 +261,8 @@ impl Blitter {
         gpu.queue.write_buffer(&self.uniform, 0, bytemuck::cast_slice(&u));
         let mut enc = gpu.device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("qb-gpu blit") });
         {
-            let mut pass = enc.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("qb-gpu blit"),
-                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: &frame.view,
-                    depth_slice: None,
-                    resolve_target: None,
-                    ops: wgpu::Operations { load: wgpu::LoadOp::Clear(wgpu::Color::BLACK), store: wgpu::StoreOp::Store },
-                })],
-                depth_stencil_attachment: None,
-                timestamp_writes: None,
-                occlusion_query_set: None,
-                multiview_mask: None,
-            });
+            let mut pass = black_pass(&mut enc, frame, "qb-gpu blit");
+
             if w > 0 && h > 0 && frame.width > 0 && frame.height > 0 {
                 pass.set_pipeline(&self.pipeline);
                 pass.set_bind_group(0, &t.groups[usize::from(self.smooth)], &[]);

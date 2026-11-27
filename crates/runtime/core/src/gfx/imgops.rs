@@ -2,7 +2,8 @@
 //! `_RGB`, `_RGBA`, `_RED`/`_GREEN`/`_BLUE`/`_ALPHA` and `matchcol`.
 //! The caller resolves handles; these functions get the surface.
 
-use super::{ImgStruct, ERR_ILLEGAL_FUNCTION_CALL};
+use crate::error::code;
+use super::{ImgStruct};
 
 /// Nearest palette index to (r, g, b) by Manhattan distance (`matchcol`);
 /// the first index wins ties.
@@ -86,7 +87,7 @@ pub unsafe fn component(im: &ImgStruct, col: u32, which: Component) -> (i32, i32
     // A palette has 256 entries whatever the mask says: the mask of a text page covers
     // a whole cell (character and attribute).
     if col > im.mask.min(255) {
-        return (0, ERR_ILLEGAL_FUNCTION_CALL);
+        return (0, code::ILLEGAL_FUNCTION_CALL);
     }
     if which == Component::Alpha {
         return (if im.transparent_color as u32 == col { 0 } else { 255 }, 0);
@@ -107,7 +108,7 @@ pub unsafe fn component(im: &ImgStruct, col: u32, which: Component) -> (i32, i32
 /// `im` must be a valid surface.
 pub unsafe fn setalpha(im: &mut ImgStruct, a: i32, c: u32, c2: u32, passed: i32) -> i32 {
     if !im.pal.is_null() || !(0..=255).contains(&a) {
-        return ERR_ILLEGAL_FUNCTION_CALL;
+        return code::ILLEGAL_FUNCTION_CALL;
     }
     let n = usize::from(im.width) * usize::from(im.height);
     // SAFETY: a 32-bit surface owns n pixels.
@@ -154,7 +155,7 @@ pub unsafe fn setalpha(im: &mut ImgStruct, a: i32, c: u32, c2: u32, passed: i32)
 /// # Safety
 /// `im` must be a valid surface.
 pub unsafe fn clearcolor(im: &mut ImgStruct, c: u32, passed: i32) -> i32 {
-    const ERR: i32 = ERR_ILLEGAL_FUNCTION_CALL;
+    const ERR: i32 = code::ILLEGAL_FUNCTION_CALL;
     let none = passed & 1 != 0;
     let color = passed & 2 != 0;
     if im.text != 0 {
@@ -200,7 +201,7 @@ pub unsafe fn clearcolor(im: &mut ImgStruct, c: u32, passed: i32) -> i32 {
 /// `im` must be a valid surface.
 pub unsafe fn palettecolor_get(im: &ImgStruct, n: i32) -> (u32, i32) {
     if im.pal.is_null() || !(0..=255).contains(&n) {
-        return (0, ERR_ILLEGAL_FUNCTION_CALL);
+        return (0, code::ILLEGAL_FUNCTION_CALL);
     }
     // SAFETY: palettes hold 256 entries.
     (unsafe { *im.pal.add(n as usize) } | 0xFF00_0000, 0)
@@ -212,7 +213,7 @@ pub unsafe fn palettecolor_get(im: &ImgStruct, n: i32) -> (u32, i32) {
 /// `im` must be a valid surface.
 pub unsafe fn palettecolor_set(im: &mut ImgStruct, n: i32, c: u32) -> i32 {
     if im.pal.is_null() || !(0..=255).contains(&n) {
-        return ERR_ILLEGAL_FUNCTION_CALL;
+        return code::ILLEGAL_FUNCTION_CALL;
     }
     // SAFETY: palettes hold 256 entries.
     unsafe { *im.pal.add(n as usize) = c };

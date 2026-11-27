@@ -408,30 +408,18 @@ impl Engine {
 
     /// `_SNDOPEN` once the file has been decoded (decoding happens outside the lock).
     pub fn open_decoded(&mut self, pcm: Option<Pcm>, flags: u32) -> i32 {
-        if !self.initialized {
-            return INVALID_SOUND_HANDLE;
-        }
-        let h = self.allocate();
-        if h < 1 {
-            return INVALID_SOUND_HANDLE;
-        }
-        let hd = &mut self.handles[h as usize];
-        hd.kind = SoundKind::Static;
-        hd.flags = flags;
-        match pcm {
-            Some(p) => {
-                hd.sound = Some(Playback::new(Arc::new(p)));
-                h
-            }
-            None => {
-                hd.used = false;
-                INVALID_SOUND_HANDLE
-            }
-        }
+        // a file that did not decode takes no handle
+        let Some(p) = pcm else { return INVALID_SOUND_HANDLE };
+        self.open_static(Playback::new(Arc::new(p)), flags)
     }
 
     /// `_SNDOPEN(f$, "STREAM")` and `_SNDPLAYFILE` of a file decoded while it plays.
     pub fn open_stream(&mut self, stream: Stream, flags: u32) -> i32 {
+        self.open_static(Playback::streamed(stream), flags)
+    }
+
+    /// A new handle of a static (file) sound playing `sound`.
+    fn open_static(&mut self, sound: Playback, flags: u32) -> i32 {
         if !self.initialized {
             return INVALID_SOUND_HANDLE;
         }
@@ -442,7 +430,7 @@ impl Engine {
         let hd = &mut self.handles[h as usize];
         hd.kind = SoundKind::Static;
         hd.flags = flags;
-        hd.sound = Some(Playback::streamed(stream));
+        hd.sound = Some(sound);
         h
     }
 

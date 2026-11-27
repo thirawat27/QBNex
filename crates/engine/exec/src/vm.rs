@@ -17,6 +17,7 @@
 //!   the VM looks at it only at safe points (backward jumps, NEXT, CALL) and
 //!   runs the handler as an implicit GOSUB at module level.
 
+use qb_runtime::error::code;
 use std::io::Write;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Arc;
@@ -169,14 +170,14 @@ impl Arr {
         let mut count: usize = 1;
         for &(lb, ub) in &dims {
             if ub < lb {
-                return Err(9);
+                return Err(code::SUBSCRIPT_OUT_OF_RANGE);
             }
             // checked: (i64::MIN TO i64::MAX) wraps to 0 elements with bounds that accept every subscript
             let n = ub.checked_sub(lb).and_then(|d| d.checked_add(1)).ok_or(7)?;
             count = count.checked_mul(usize::try_from(n).map_err(|_| 7)?).ok_or(7)?;
         }
         if count > (1 << 31) {
-            return Err(7); // out of memory
+            return Err(code::OUT_OF_MEMORY); // out of memory
         }
         let data = match ty {
             Ty::I16 => ArrData::I16(filled(count, 0)?),
@@ -185,7 +186,7 @@ impl Arr {
             Ty::F32 => ArrData::F32(filled(count, 0.0)?),
             Ty::F64 => ArrData::F64(filled(count, 0.0)?),
             Ty::Str => ArrData::Str(filled(count, Vec::new())?),
-            Ty::F80 => return Err(5), // _FLOAT arrays live in memory mode
+            Ty::F80 => return Err(code::ILLEGAL_FUNCTION_CALL), // _FLOAT arrays live in memory mode
         };
         Ok(Arr::with_data(dims, data))
     }

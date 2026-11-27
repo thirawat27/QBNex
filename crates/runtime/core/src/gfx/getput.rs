@@ -3,7 +3,8 @@
 //! 1 bit (SCREEN 2/11), 2 bit (SCREEN 1/10), 4 planes (SCREEN 7/8/9/12),
 //! 8 bit (SCREEN 13/256) and 32-bit pixels, after a 4-byte width/height header.
 
-use super::{map_point_f2l, ImgStruct, ERR_ILLEGAL_FUNCTION_CALL};
+use crate::error::code;
+use super::{map_point_f2l, ImgStruct};
 
 /// `GET [STEP](x1,y1)-[STEP](x2,y2), array`; passed: 1 STEP 1, 2 STEP 2,
 /// 4 out-of-range pixels allowed (read as `mask`). `data`/`len` is the array
@@ -22,7 +23,7 @@ pub unsafe fn graphics_get(
     mut mask: u32,
     passed: i32,
 ) -> i32 {
-    const ERR: i32 = ERR_ILLEGAL_FUNCTION_CALL;
+    const ERR: i32 = code::ILLEGAL_FUNCTION_CALL;
     if im.text != 0 {
         return ERR;
     }
@@ -246,7 +247,7 @@ pub unsafe fn graphics_put(
     mut mask: u32,
     mut passed: i32,
 ) -> i32 {
-    const ERR: i32 = ERR_ILLEGAL_FUNCTION_CALL;
+    const ERR: i32 = code::ILLEGAL_FUNCTION_CALL;
     let step = passed & 1 != 0;
     let clip = passed & 2 != 0;
     passed &= !3;
@@ -411,7 +412,7 @@ pub unsafe fn graphics_put(
 /// # Safety
 /// Both surfaces must be valid.
 pub unsafe fn pcopy(s: &ImgStruct, d: &ImgStruct) -> i32 {
-    const ERR: i32 = ERR_ILLEGAL_FUNCTION_CALL;
+    const ERR: i32 = code::ILLEGAL_FUNCTION_CALL;
     if core::ptr::eq(s, d) {
         return 0;
     }
@@ -484,16 +485,16 @@ mod tests {
             let mut buf = vec![0xAAu8; 64];
             for (x1, y1, x2, y2) in [(-1e9f32, -1e9, 1e9, 1e9), (0.0, 0.0, 70000.0, 70000.0), (0.0, 0.0, 46341.0, 46341.0), (-3e4, -3e4, 3e4, 3e4)] {
                 let r = unsafe { graphics_get(&mut a.img, x1, y1, x2, y2, buf.as_mut_ptr(), 32, 0, 4) };
-                assert_eq!(r, ERR_ILLEGAL_FUNCTION_CALL, "mode {mode} ({x1},{y1})-({x2},{y2})");
+                assert_eq!(r, code::ILLEGAL_FUNCTION_CALL, "mode {mode} ({x1},{y1})-({x2},{y2})");
                 assert!(buf[32..].iter().all(|&b| b == 0xAA), "mode {mode} wrote past len");
             }
             // PUT: forged 65535 x 65535 header in a 64-byte array.
             let mut hdr = [0u8; 64];
             hdr[..4].copy_from_slice(&[0xF8, 0xFF, 0xFF, 0xFF]);
             let r = unsafe { graphics_put(&mut a.img, 0.0, 0.0, hdr.as_ptr(), 64, 0, 0, 2) };
-            assert_eq!(r, ERR_ILLEGAL_FUNCTION_CALL, "mode {mode}");
+            assert_eq!(r, code::ILLEGAL_FUNCTION_CALL, "mode {mode}");
             let r = unsafe { graphics_put(&mut a.img, 2e9, 0.0, hdr.as_ptr(), 64, 0, 0, 0) };
-            assert_eq!(r, ERR_ILLEGAL_FUNCTION_CALL, "mode {mode}");
+            assert_eq!(r, code::ILLEGAL_FUNCTION_CALL, "mode {mode}");
         }
     }
 
@@ -508,7 +509,7 @@ mod tests {
             assert_eq!(get(&mut a, &mut buf, max), 0, "mode {mode}");
             let hw = u16::from_le_bytes([buf[0], buf[1]]) as i32;
             assert_eq!(hw, if mode == 13 { max * 8 } else { max * 2 });
-            assert_eq!(get(&mut a, &mut buf, max + 1), ERR_ILLEGAL_FUNCTION_CALL, "mode {mode}");
+            assert_eq!(get(&mut a, &mut buf, max + 1), code::ILLEGAL_FUNCTION_CALL, "mode {mode}");
         }
     }
 

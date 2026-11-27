@@ -8,8 +8,9 @@
 //! tiling test of the third source y uses `< 0` instead of `< 16`, and the
 //! upward texture shift compares with the source width.
 
+use crate::error::code;
 use super::blend::blend_onto;
-use super::{cvt_i32, qbr_f2l, ImgStruct, ERR_ILLEGAL_FUNCTION_CALL};
+use super::{cvt_i32, qbr_f2l, ImgStruct};
 
 #[derive(Clone, Copy, Default)]
 struct Point {
@@ -54,7 +55,7 @@ pub unsafe fn maptriangle(
     d: [f32; 6],
     seamless: bool,
 ) -> i32 {
-    const ERR: i32 = ERR_ILLEGAL_FUNCTION_CALL;
+    const ERR: i32 = code::ILLEGAL_FUNCTION_CALL;
     let dx = [qbr_f2l(d[0]), qbr_f2l(d[2]), qbr_f2l(d[4])];
     let dy = [qbr_f2l(d[1]), qbr_f2l(d[3]), qbr_f2l(d[5])];
     if src.text != 0 || dst.text != 0 {

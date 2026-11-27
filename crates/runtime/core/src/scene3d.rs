@@ -15,10 +15,9 @@
 //! Errors: an unknown mesh/light handle is error 258 (invalid handle),
 //! bad arguments error 5. Functions creating handles return -1 on failure.
 
+use crate::error::code;
 use std::sync::Mutex;
 
-pub const ERR_ILLEGAL: i32 = 5;
-pub const ERR_HANDLE: i32 = 258;
 
 /// Draws queued in one frame at most (a runaway loop without `_DISPLAY`).
 const MAX_QUEUE: usize = 1 << 20;
@@ -275,10 +274,10 @@ pub fn qb_3d_mesh_begin() {
 /// Vertices are numbered from 0. Error 5 without `_MESHBEGIN`.
 pub fn qb_3d_mesh_vertex(x: f32, y: f32, z: f32, u: f32, v: f32) -> i32 {
     let mut s = state();
-    let Some(b) = s.builder.as_mut() else { return ERR_ILLEGAL };
+    let Some(b) = s.builder.as_mut() else { return code::ILLEGAL_FUNCTION_CALL };
     // as _DRAW3D: a vertex that is not a finite number is an illegal function call
     if ![x, y, z, u, v].iter().all(|c| c.is_finite()) {
-        return ERR_ILLEGAL;
+        return code::ILLEGAL_FUNCTION_CALL;
     }
     b.pos.push([x, y, z]);
     b.uv.push([u, v]);
@@ -289,10 +288,10 @@ pub fn qb_3d_mesh_vertex(x: f32, y: f32, z: f32, u: f32, v: f32) -> i32 {
 /// or for a vertex not given yet.
 pub fn qb_3d_mesh_triangle(a: i32, b: i32, c: i32) -> i32 {
     let mut s = state();
-    let Some(bl) = s.builder.as_mut() else { return ERR_ILLEGAL };
+    let Some(bl) = s.builder.as_mut() else { return code::ILLEGAL_FUNCTION_CALL };
     let n = bl.pos.len() as i32;
     if [a, b, c].iter().any(|&i| i < 0 || i >= n) {
-        return ERR_ILLEGAL;
+        return code::ILLEGAL_FUNCTION_CALL;
     }
     bl.idx.extend([a as u32, b as u32, c as u32]);
     0
@@ -311,7 +310,7 @@ pub fn qb_3d_mesh_end() -> i32 {
 /// `_MESHCOLOR mesh&, colour~&` (`_RGBA32` value; multiplies the texture).
 pub fn qb_3d_mesh_color(h: i32, color: u32) -> i32 {
     let mut s = state();
-    let Some(m) = slot(&mut s.meshes, h) else { return ERR_HANDLE };
+    let Some(m) = slot(&mut s.meshes, h) else { return code::INVALID_HANDLE };
     m.color = Some(rgba(color));
     #[cfg(feature = "gpu")]
     {
@@ -324,11 +323,11 @@ pub fn qb_3d_mesh_color(h: i32, color: u32) -> i32 {
 /// `_MESHTEXTURE mesh&, image&` with the image's 32-bit pixels (`w*hh`).
 pub fn qb_3d_mesh_texture(h: i32, px: &[u32], w: i32, hh: i32) -> i32 {
     if w <= 0 || hh <= 0 || px.len() < w as usize * hh as usize {
-        return ERR_ILLEGAL;
+        return code::ILLEGAL_FUNCTION_CALL;
     }
     let v = px[..w as usize * hh as usize].to_vec();
     let mut s = state();
-    let Some(m) = slot(&mut s.meshes, h) else { return ERR_HANDLE };
+    let Some(m) = slot(&mut s.meshes, h) else { return code::INVALID_HANDLE };
     m.texture = Some((v, w as u32, hh as u32));
     #[cfg(feature = "gpu")]
     {
@@ -342,7 +341,7 @@ pub fn qb_3d_mesh_texture(h: i32, px: &[u32], w: i32, hh: i32) -> i32 {
 pub fn qb_3d_free_mesh(h: i32) -> i32 {
     let mut s = state();
     if slot(&mut s.meshes, h).is_none() {
-        return ERR_HANDLE;
+        return code::INVALID_HANDLE;
     }
     s.meshes[h as usize - 1] = None;
     s.queue.retain(|d| d.mesh != h);
@@ -387,9 +386,9 @@ pub fn shader_error() -> String {
 /// `_SHADERPARAM shader&, index&, value!` (index 0..15 = `i.params[index / 4][index % 4]`).
 pub fn qb_3d_shader_param(h: i32, index: i32, value: f32) -> i32 {
     let mut s = state();
-    let Some(sh) = slot(&mut s.shaders, h) else { return ERR_HANDLE };
+    let Some(sh) = slot(&mut s.shaders, h) else { return code::INVALID_HANDLE };
     if !(0..16).contains(&index) || !value.is_finite() {
-        return ERR_ILLEGAL;
+        return code::ILLEGAL_FUNCTION_CALL;
     }
     sh.params[index as usize] = value;
     s.generation += 1;
@@ -400,9 +399,9 @@ pub fn qb_3d_shader_param(h: i32, index: i32, value: f32) -> i32 {
 pub fn qb_3d_mesh_shader(mesh: i32, shader: i32) -> i32 {
     let mut s = state();
     if shader != 0 && slot(&mut s.shaders, shader).is_none() {
-        return ERR_HANDLE;
+        return code::INVALID_HANDLE;
     }
-    let Some(m) = slot(&mut s.meshes, mesh) else { return ERR_HANDLE };
+    let Some(m) = slot(&mut s.meshes, mesh) else { return code::INVALID_HANDLE };
     m.shader = shader;
     s.generation += 1;
     0
@@ -412,7 +411,7 @@ pub fn qb_3d_mesh_shader(mesh: i32, shader: i32) -> i32 {
 pub fn qb_3d_free_shader(h: i32) -> i32 {
     let mut s = state();
     if slot(&mut s.shaders, h).is_none() {
-        return ERR_HANDLE;
+        return code::INVALID_HANDLE;
     }
     s.shaders[h as usize - 1] = None;
     for m in s.meshes.iter_mut().flatten() {
@@ -436,11 +435,11 @@ pub fn mesh_shader(mesh: i32) -> Option<i32> {
 pub fn qb_3d_draw(h: i32, x: f32, y: f32, z: f32, rx: f32, ry: f32, rz: f32, sx: f32, sy: f32, sz: f32) -> i32 {
     let mut s = state();
     if slot(&mut s.meshes, h).is_none() {
-        return ERR_HANDLE;
+        return code::INVALID_HANDLE;
     }
     let t = [x, y, z, rx, ry, rz, sx, sy, sz];
     if t.iter().any(|v| !v.is_finite()) {
-        return ERR_ILLEGAL;
+        return code::ILLEGAL_FUNCTION_CALL;
     }
     if s.queue.len() < MAX_QUEUE {
         s.queue.push(Draw3 { mesh: h, t });
@@ -455,11 +454,11 @@ pub fn qb_3d_draw(h: i32, x: f32, y: f32, z: f32, rx: f32, ry: f32, rz: f32, sx:
 pub fn qb_3d_camera(ex: f32, ey: f32, ez: f32, tx: f32, ty: f32, tz: f32, fov_or_height: f32, ortho: i32) -> i32 {
     let v = [ex, ey, ez, tx, ty, tz, fov_or_height];
     if v.iter().any(|x| !x.is_finite()) || (ex, ey, ez) == (tx, ty, tz) {
-        return ERR_ILLEGAL;
+        return code::ILLEGAL_FUNCTION_CALL;
     }
     let ok = if ortho != 0 { fov_or_height > 0.0 } else { (1.0..=179.0).contains(&fov_or_height) };
     if !ok {
-        return ERR_ILLEGAL;
+        return code::ILLEGAL_FUNCTION_CALL;
     }
     let mut s = state();
     let (near, far) = (s.camera.near, s.camera.far);
@@ -471,7 +470,7 @@ pub fn qb_3d_camera(ex: f32, ey: f32, ez: f32, tx: f32, ty: f32, tz: f32, fov_or
 /// `_CAMERARANGE near!, far!` (0 < near < far).
 pub fn qb_3d_camera_range(near: f32, far: f32) -> i32 {
     if !(near.is_finite() && far.is_finite() && near > 0.0 && far > near) {
-        return ERR_ILLEGAL;
+        return code::ILLEGAL_FUNCTION_CALL;
     }
     let mut s = state();
     s.camera.near = near;
@@ -483,7 +482,7 @@ pub fn qb_3d_camera_range(near: f32, far: f32) -> i32 {
 /// `_AMBIENT colour~& [, intensity!]` (intensity defaults to 1).
 pub fn qb_3d_ambient(color: u32, intensity: f32) -> i32 {
     if !intensity.is_finite() || intensity < 0.0 {
-        return ERR_ILLEGAL;
+        return code::ILLEGAL_FUNCTION_CALL;
     }
     let c = rgba(color);
     let mut s = state();
@@ -515,7 +514,7 @@ pub fn qb_3d_light(kind: i32, x: f32, y: f32, z: f32, color: u32, intensity: f32
 /// `_LIGHTON light&, on&` (0 off, else on).
 pub fn qb_3d_light_on(h: i32, on: i32) -> i32 {
     let mut s = state();
-    let Some(l) = slot(&mut s.lights, h) else { return ERR_HANDLE };
+    let Some(l) = slot(&mut s.lights, h) else { return code::INVALID_HANDLE };
     l.on = on != 0;
     s.generation += 1;
     0
@@ -525,7 +524,7 @@ pub fn qb_3d_light_on(h: i32, on: i32) -> i32 {
 pub fn qb_3d_free_light(h: i32) -> i32 {
     let mut s = state();
     if slot(&mut s.lights, h).is_none() {
-        return ERR_HANDLE;
+        return code::INVALID_HANDLE;
     }
     s.lights[h as usize - 1] = None;
     s.generation += 1;
@@ -790,18 +789,18 @@ mod tests {
         assert_eq!(qb_3d_mesh_cube(0.0), -1);
         assert_eq!(qb_3d_mesh_plane(-1.0, 1.0), -1);
         assert_eq!(qb_3d_free_mesh(a), 0);
-        assert_eq!(qb_3d_free_mesh(a), ERR_HANDLE);
-        assert_eq!(qb_3d_mesh_color(a, 0xFFFF_0000), ERR_HANDLE);
-        assert_eq!(qb_3d_draw(a, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0), ERR_HANDLE);
+        assert_eq!(qb_3d_free_mesh(a), code::INVALID_HANDLE);
+        assert_eq!(qb_3d_mesh_color(a, 0xFFFF_0000), code::INVALID_HANDLE);
+        assert_eq!(qb_3d_draw(a, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0), code::INVALID_HANDLE);
         assert_eq!(qb_3d_mesh_cube(1.0), 1, "freed slot reused");
-        assert_eq!(qb_3d_free_mesh(0), ERR_HANDLE);
-        assert_eq!(qb_3d_free_mesh(99), ERR_HANDLE);
+        assert_eq!(qb_3d_free_mesh(0), code::INVALID_HANDLE);
+        assert_eq!(qb_3d_free_mesh(99), code::INVALID_HANDLE);
     }
 
     #[test]
     fn mesh_builder() {
         let _g = fresh();
-        assert_eq!(qb_3d_mesh_vertex(0.0, 0.0, 0.0, 0.0, 0.0), ERR_ILLEGAL, "no _MESHBEGIN");
+        assert_eq!(qb_3d_mesh_vertex(0.0, 0.0, 0.0, 0.0, 0.0), code::ILLEGAL_FUNCTION_CALL, "no _MESHBEGIN");
         assert_eq!(qb_3d_mesh_end(), -1);
         qb_3d_mesh_begin();
         assert_eq!(qb_3d_mesh_end(), -1, "no triangles");
@@ -809,11 +808,11 @@ mod tests {
         for v in [[0.0, 0.0], [1.0, 0.0], [0.0, 1.0]] {
             assert_eq!(qb_3d_mesh_vertex(v[0], v[1], 0.0, v[0], v[1]), 0);
         }
-        assert_eq!(qb_3d_mesh_triangle(0, 1, 3), ERR_ILLEGAL, "vertex 3 not given");
+        assert_eq!(qb_3d_mesh_triangle(0, 1, 3), code::ILLEGAL_FUNCTION_CALL, "vertex 3 not given");
         assert_eq!(qb_3d_mesh_triangle(0, 1, 2), 0);
         let m = qb_3d_mesh_end();
         assert_eq!(m, 1);
-        assert_eq!(qb_3d_mesh_triangle(0, 1, 2), ERR_ILLEGAL, "builder closed");
+        assert_eq!(qb_3d_mesh_triangle(0, 1, 2), code::ILLEGAL_FUNCTION_CALL, "builder closed");
         let s = state();
         let Some(Some(mesh)) = s.meshes.first() else { panic!() };
         assert_eq!(mesh.shape, Shape::Built { pos: vec![[0.0; 3], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]], uv: vec![[0.0, 0.0], [1.0, 0.0], [0.0, 1.0]], idx: vec![0, 1, 2] });
@@ -824,7 +823,7 @@ mod tests {
         let _g = fresh();
         let m = qb_3d_mesh_cube(1.0);
         assert_eq!(qb_3d_draw(m, 1.0, 2.0, 3.0, 0.0, 90.0, 0.0, 1.0, 1.0, 1.0), 0);
-        assert_eq!(qb_3d_draw(m, 0.0, 0.0, f32::NAN, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0), ERR_ILLEGAL);
+        assert_eq!(qb_3d_draw(m, 0.0, 0.0, f32::NAN, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0), code::ILLEGAL_FUNCTION_CALL);
         assert_eq!(queued().len(), 1);
         frame_done();
         assert_eq!((queued().len(), shown().len()), (0, 1));
@@ -846,11 +845,11 @@ mod tests {
     #[test]
     fn camera_and_lights() {
         let _g = fresh();
-        assert_eq!(qb_3d_camera(0.0, 0.0, 5.0, 0.0, 0.0, 5.0, 60.0, 0), ERR_ILLEGAL, "eye = target");
-        assert_eq!(qb_3d_camera(0.0, 0.0, 5.0, 0.0, 0.0, 0.0, 180.0, 0), ERR_ILLEGAL);
-        assert_eq!(qb_3d_camera(0.0, 0.0, 5.0, 0.0, 0.0, 0.0, 0.0, 1), ERR_ILLEGAL);
+        assert_eq!(qb_3d_camera(0.0, 0.0, 5.0, 0.0, 0.0, 5.0, 60.0, 0), code::ILLEGAL_FUNCTION_CALL, "eye = target");
+        assert_eq!(qb_3d_camera(0.0, 0.0, 5.0, 0.0, 0.0, 0.0, 180.0, 0), code::ILLEGAL_FUNCTION_CALL);
+        assert_eq!(qb_3d_camera(0.0, 0.0, 5.0, 0.0, 0.0, 0.0, 0.0, 1), code::ILLEGAL_FUNCTION_CALL);
         assert_eq!(qb_3d_camera(1.0, 2.0, 3.0, 0.0, 0.0, 0.0, 45.0, 0), 0);
-        assert_eq!(qb_3d_camera_range(1.0, 0.5), ERR_ILLEGAL);
+        assert_eq!(qb_3d_camera_range(1.0, 0.5), code::ILLEGAL_FUNCTION_CALL);
         assert_eq!(qb_3d_camera_range(0.5, 50.0), 0);
         let c = camera();
         assert_eq!((c.eye, c.fov_or_height, c.ortho, c.near, c.far), ([1.0, 2.0, 3.0], 45.0, false, 0.5, 50.0));
@@ -864,8 +863,8 @@ mod tests {
         assert_eq!(qb_3d_light_on(l, 0), 0);
         assert!(!light(l).unwrap().on);
         assert_eq!(qb_3d_free_light(l), 0);
-        assert_eq!(qb_3d_light_on(l, 1), ERR_HANDLE);
-        assert_eq!(qb_3d_ambient(0xFFFF_FFFF, -1.0), ERR_ILLEGAL);
+        assert_eq!(qb_3d_light_on(l, 1), code::INVALID_HANDLE);
+        assert_eq!(qb_3d_ambient(0xFFFF_FFFF, -1.0), code::ILLEGAL_FUNCTION_CALL);
     }
 
     #[test]
@@ -942,16 +941,16 @@ mod tests {
         let sh = shader("fn shade(i: ShadeIn) -> vec4<f32> { return vec4<f32>(i.params[0].xyz, 1.0); }");
         assert_eq!(sh, 1);
         assert_eq!(shader_error(), "");
-        assert_eq!(qb_3d_shader_param(sh, 16, 1.0), ERR_ILLEGAL);
+        assert_eq!(qb_3d_shader_param(sh, 16, 1.0), code::ILLEGAL_FUNCTION_CALL);
         assert_eq!(qb_3d_shader_param(sh, 0, 0.5), 0);
-        assert_eq!(qb_3d_shader_param(9, 0, 0.5), ERR_HANDLE);
+        assert_eq!(qb_3d_shader_param(9, 0, 0.5), code::INVALID_HANDLE);
         let m = qb_3d_mesh_cube(1.0);
-        assert_eq!(qb_3d_mesh_shader(m, 7), ERR_HANDLE);
+        assert_eq!(qb_3d_mesh_shader(m, 7), code::INVALID_HANDLE);
         assert_eq!(qb_3d_mesh_shader(m, sh), 0);
         assert_eq!(mesh_shader(m), Some(sh));
         assert_eq!(qb_3d_free_shader(sh), 0);
         assert_eq!(mesh_shader(m), Some(0), "back to the lit default");
-        assert_eq!(qb_3d_free_shader(sh), ERR_HANDLE);
+        assert_eq!(qb_3d_free_shader(sh), code::INVALID_HANDLE);
         assert_eq!(qb_3d_mesh_shader(m, 0), 0);
     }
 

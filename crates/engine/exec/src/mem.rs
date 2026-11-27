@@ -8,6 +8,7 @@
 //! - a `str` slot in memory is an 8-byte handle into `strs` (0 = empty string)
 //! - element layout: first subscript varies fastest (QB64)
 
+use qb_runtime::error::code;
 use crate::bytecode::{DimMode, MTy, MVar};
 
 pub(crate) enum Block {
@@ -36,6 +37,8 @@ pub(crate) struct Mem {
     free_blocks: Vec<u32>,
     strs: Vec<Vec<u8>>,
     free_strs: Vec<u64>,
+    /// Capacity of the buffers that freed string handles keep (`FREE_STR_KEEP_TOTAL` at most).
+    kept_str_bytes: usize,
     /// Set by the VM while a SUB/FUNCTION is active: the bytes of an array that is
     /// redimensioned or erased go to `retired` and are not freed at once. A BYREF
     /// parameter is the address of an element, and the callee (or a SUB it calls)
@@ -55,6 +58,9 @@ pub(crate) struct Mem {
 
 /// Largest buffer a freed string handle keeps for its next string.
 const FREE_STR_KEEP: usize = 1 << 14;
+/// Most bytes all freed string handles keep together: without a bound, ERASE of an
+/// array of 100 000 strings of 10 KB kept its whole gigabyte for the rest of the run.
+const FREE_STR_KEEP_TOTAL: usize = 1 << 22;
 
 /// Largest variable whose storage `Mem::var_pool` keeps, and how many per size.
 const VAR_POOL_MAX: usize = 1 << 16;
@@ -172,12 +178,15 @@ impl Mem {
 
     fn free_str(&mut self, h: u64) {
         if h != 0 && (h as usize) < self.strs.len() {
-            // a small buffer stays with the handle for the next new_str
+            // a small buffer stays with the handle for the next new_str, while the
+            // kept buffers stay under their total
             let v = &mut self.strs[h as usize];
-            if v.capacity() > FREE_STR_KEEP {
+            let cap = v.capacity();
+            if cap > FREE_STR_KEEP || self.kept_str_bytes + cap > FREE_STR_KEEP_TOTAL {
                 *v = Vec::new();
             } else {
                 v.clear();
+                self.kept_str_bytes += cap;
             }
             self.free_strs.push(h);
         }
@@ -189,6 +198,7 @@ impl Mem {
         }
         if let Some(h) = self.free_strs.pop() {
             let v = &mut self.strs[h as usize];
+            self.kept_str_bytes = self.kept_str_bytes.saturating_sub(v.capacity());
             v.clear();
             v.extend_from_slice(s);
             h
@@ -250,7 +260,7 @@ impl Mem {
     /// not checked beyond null and array references).
     pub(crate) fn bytes(&mut self, p: u64, len: usize) -> R<&mut [u8]> {
         if p == 0 || p & ARR_TAG != 0 {
-            return Err(5);
+            return Err(code::ILLEGAL_FUNCTION_CALL);
         }
         // SAFETY: QIR pointers come from addr/aaddr/padd on live storage (or
         // _MEM blocks of qb-runtime); validated programs keep them in range.
@@ -268,7 +278,7 @@ impl Mem {
             return Ok(qb_float80::F80 { mant, se }.to_f64().to_bits());
         }
         if p == 0 || p & ARR_TAG != 0 {
-            return Err(5);
+            return Err(code::ILLEGAL_FUNCTION_CALL);
         }
         // SAFETY: as `bytes`: `p` is `t.size()` bytes of live storage (unaligned reads,
         // little-endian like the former byte copy on the supported targets)
@@ -297,7 +307,7 @@ impl Mem {
             return Ok(());
         }
         if p == 0 || p & ARR_TAG != 0 {
-            return Err(5);
+            return Err(code::ILLEGAL_FUNCTION_CALL);
         }
         // SAFETY: as `ld`; the low `t.size()` bytes of the value, little-endian
         unsafe {
@@ -392,11 +402,11 @@ impl Mem {
 
     fn arr(&mut self, desc: u64) -> R<&mut MArr> {
         if desc & ARR_TAG == 0 {
-            return Err(9);
+            return Err(code::SUBSCRIPT_OUT_OF_RANGE);
         }
         match self.blocks.get_mut((desc & !ARR_TAG) as usize) {
             Some(Block::Arr(a)) => Ok(a),
-            _ => Err(9),
+            _ => Err(code::SUBSCRIPT_OUT_OF_RANGE),
         }
     }
 
@@ -404,7 +414,7 @@ impl Mem {
         let mut n: u64 = 1;
         for (lo, hi) in &bounds {
             if hi < lo {
-                return Err(9);
+                return Err(code::SUBSCRIPT_OUT_OF_RANGE);
             }
             // checked: (i64::MIN TO i64::MAX) wraps to 0 elements with bounds that accept every subscript
             let k = hi.checked_sub(*lo).and_then(|d| d.checked_add(1)).ok_or(7)?;
@@ -416,7 +426,7 @@ impl Mem {
                 return Ok(()); // a static array is dimensioned once
             }
             if kind == DimMode::Dim && a.data.is_some() {
-                return Err(10);
+                return Err(code::DUPLICATE_DEFINITION);
             }
             (a.esize, a.strs, a.data.take(), std::mem::take(&mut a.dims))
         };
@@ -426,7 +436,7 @@ impl Mem {
                 a.data = old;
                 a.dims = olddims;
             }
-            return Err(7);
+            return Err(code::OUT_OF_MEMORY);
         }
         // at least one byte: element addresses of an array of a 0-byte TYPE point
         // into a real block (an empty Vec has none, only a dangling address)
@@ -496,7 +506,7 @@ impl Mem {
             && let (Some(d), &[(lo, hi)]) = (a.data, a.dims.as_slice())
         {
             if i < lo || i > hi {
-                return Err(9);
+                return Err(code::SUBSCRIPT_OUT_OF_RANGE);
             }
             let off = (i - lo) * i64::from(a.esize);
             return Ok(self.block_addr(d).wrapping_add(off as u64));
@@ -507,15 +517,15 @@ impl Mem {
             self.dim(desc, DimMode::Dim, vec![(self.option_base, 10); idx.len()])?;
         }
         let a = self.arr(desc)?;
-        let Some(d) = a.data else { return Err(9) };
+        let Some(d) = a.data else { return Err(code::SUBSCRIPT_OUT_OF_RANGE) };
         if idx.len() != a.dims.len() {
-            return Err(9);
+            return Err(code::SUBSCRIPT_OUT_OF_RANGE);
         }
         let mut off: i64 = 0;
         let mut mul: i64 = 1;
         for (i, (lo, hi)) in idx.iter().zip(&a.dims) {
             if i < lo || i > hi {
-                return Err(9);
+                return Err(code::SUBSCRIPT_OUT_OF_RANGE);
             }
             off += (i - lo) * mul;
             mul *= hi - lo + 1;
@@ -546,7 +556,7 @@ impl Mem {
     pub(crate) fn bound(&mut self, desc: u64, k: i64, upper: bool) -> R<i64> {
         let a = self.arr(desc)?;
         if a.data.is_none() || k < 1 || k as usize > a.dims.len() {
-            return Err(9);
+            return Err(code::SUBSCRIPT_OUT_OF_RANGE);
         }
         let (lo, hi) = a.dims[k as usize - 1];
         Ok(if upper { hi } else { lo })
@@ -579,5 +589,23 @@ mod tests {
         // the data block has a real byte there (an empty Vec has only a dangling address)
         let d = m.arr(desc).unwrap().data.unwrap();
         assert!(matches!(&m.blocks[d as usize], Block::Bytes { data, .. } if !data.is_empty() && data.as_ptr() as u64 == p));
+    }
+
+    #[test]
+    fn freed_strings_keep_a_bounded_total() {
+        let mut m = Mem::new();
+        let big = vec![b'x'; 10_000];
+        let handles: Vec<u64> = (0..2_000).map(|_| m.new_str(&big)).collect();
+        for &h in &handles {
+            m.free_str(h);
+        }
+        let kept: usize = handles.iter().map(|&h| m.strs[h as usize].capacity()).sum();
+        assert!(kept <= FREE_STR_KEEP_TOTAL, "{kept} bytes kept after freeing 20 MB of strings");
+        assert_eq!(kept, m.kept_str_bytes);
+        // reusing the handles gives their buffers back to the strings
+        for _ in 0..handles.len() {
+            m.new_str(b"y");
+        }
+        assert_eq!(m.kept_str_bytes, 0);
     }
 }

@@ -24,6 +24,7 @@
 //! program closes its files, stops its audio and hides its window, waits for
 //! the next program and ends with that program's exit code.
 
+use qb_runtime::error::code;
 use super::builtins::{Host, DBLOCK};
 use super::{e, R, V};
 use std::time::Instant;
@@ -297,7 +298,7 @@ fn varptr(vm: &mut dyn Host<'_>, addr: u64, desc: u64, size: usize) -> R<i64> {
             // the mirror stays inside the 64 KB segment
             let len = len.min(0x10000usize.saturating_sub(off));
             if len == 0 {
-                return e(7);
+                return e(code::OUT_OF_MEMORY);
             }
             rt.cmem_next += len;
             rt.dos.mirrors.push(Mirror { off, addr: base, len, desc, extent });
@@ -306,7 +307,7 @@ fn varptr(vm: &mut dyn Host<'_>, addr: u64, desc: u64, size: usize) -> R<i64> {
     };
     let at = off + (addr - base) as usize;
     if at >= 0x10000 {
-        return e(7);
+        return e(code::OUT_OF_MEMORY);
     }
     sync_in(vm, DBLOCK + at, DBLOCK + at + size.max(1))?;
     Ok(at as i64)
@@ -333,7 +334,7 @@ fn pal_entry(vm: &mut dyn Host<'_>, i: u8) -> Option<*mut u32> {
 /// INP; `None` = a port the runtime does not emulate.
 fn inp(vm: &mut dyn Host<'_>, port: i64) -> R<Option<i64>> {
     if !(-65536..=65535).contains(&port) {
-        return e(6);
+        return e(code::OVERFLOW);
     }
     match port & 0xFFFF {
         0x3C9 => {
@@ -412,14 +413,14 @@ fn bload(vm: &mut dyn Host<'_>, file: &[u8], offset: i64, passed: bool) -> R<()>
     let mut offset = offset;
     if passed {
         if !(-65536..=65535).contains(&offset) {
-            return e(6);
+            return e(code::OVERFLOW);
         }
         offset &= 0xFFFF;
     }
     // as OPEN reads a name: "data\pic.bin" on Linux and macOS too
-    let data = std::fs::read(qb_runtime::gfs::user_path(file)).or_else(|_| e(53))?;
+    let data = std::fs::read(qb_runtime::gfs::user_path(file)).or_else(|_| e(code::FILE_NOT_FOUND))?;
     if data.len() < 7 || data[0] != 253 {
-        return e(54);
+        return e(code::BAD_FILE_MODE);
     }
     let le = |i: usize| usize::from(u16::from_le_bytes([data[i], data[i + 1]]));
     let (seg, off) = (le(1), le(3));
@@ -431,12 +432,12 @@ fn bload(vm: &mut dyn Host<'_>, file: &[u8], offset: i64, passed: bool) -> R<()>
         }
     }
     if data.len() - 7 < size {
-        return e(54);
+        return e(code::BAD_FILE_MODE);
     }
     let at = if passed { seg_at(vm, offset) } else { seg * 16 + off };
     let rt = vm.rt();
     if at + size > rt.cmem.len() {
-        return e(54);
+        return e(code::BAD_FILE_MODE);
     }
     rt.cmem[at..at + size].copy_from_slice(&data[7..7 + size]);
     sync_out(vm, at, at + size)
@@ -444,7 +445,7 @@ fn bload(vm: &mut dyn Host<'_>, file: &[u8], offset: i64, passed: bool) -> R<()>
 
 fn bsave(vm: &mut dyn Host<'_>, file: &[u8], offset: i64, size: i64) -> R<()> {
     if !(-65536..=65535).contains(&offset) || !(-65536..=65536).contains(&size) {
-        return e(6);
+        return e(code::OVERFLOW);
     }
     let size = if size == 65536 { 65536 } else { (size & 0xFFFF) as usize };
     let at = seg_at(vm, offset & 0xFFFF);
@@ -457,7 +458,7 @@ fn bsave(vm: &mut dyn Host<'_>, file: &[u8], offset: i64, size: i64) -> R<()> {
     b.extend_from_slice(&(if size > 65535 { 0 } else { size as u16 }).to_le_bytes());
     let end = (at + size).min(rt.cmem.len());
     b.extend_from_slice(&rt.cmem[at..end]);
-    std::fs::write(qb_runtime::gfs::user_path(file), b).or_else(|_| e(64))
+    std::fs::write(qb_runtime::gfs::user_path(file), b).or_else(|_| e(code::BAD_FILE_NAME))
 }
 
 /// What this program holds that the next one may need, released before
@@ -522,7 +523,7 @@ fn chain_file(common: &[u8]) -> Option<std::path::PathBuf> {
 fn run_program(vm: &mut dyn Host<'_>, cmd: &str, exe: &str) -> R<()> {
     let found = std::path::Path::new(exe).is_file() || (cfg!(windows) && std::path::Path::new(&format!("{exe}.exe")).is_file());
     if !found {
-        return e(53);
+        return e(code::FILE_NOT_FOUND);
     }
     // shell_command keeps the quotes of "C:\Program Files (x86)\next.exe" "a b" itself
     let mut c = super::builtins::shell_command(cmd.as_bytes());
@@ -530,7 +531,7 @@ fn run_program(vm: &mut dyn Host<'_>, cmd: &str, exe: &str) -> R<()> {
     let file = if common.is_empty() {
         None
     } else {
-        let Some(f) = chain_file(&common) else { return e(75) };
+        let Some(f) = chain_file(&common) else { return e(code::PATH_FILE_ACCESS_ERROR) };
         Some(f)
     };
     match &file {
@@ -558,11 +559,11 @@ fn run_program(vm: &mut dyn Host<'_>, cmd: &str, exe: &str) -> R<()> {
         use std::os::unix::process::CommandExt;
         // returns only when the shell could not be started
         let _ = c.exec();
-        e(53)
+        e(code::FILE_NOT_FOUND)
     }
     #[cfg(not(unix))]
     {
-        let Ok(st) = c.status() else { return e(53) };
+        let Ok(st) = c.status() else { return e(code::FILE_NOT_FOUND) };
         vm.rt().dos.end_code = Some(st.code().unwrap_or(1));
         Ok(())
     }
@@ -679,7 +680,7 @@ fn clear(vm: &mut dyn Host<'_>, run: bool) -> R<()> {
 fn files(vm: &mut dyn Host<'_>, spec: &[u8], passed: bool) -> R<()> {
     let (err, lines) = qb_runtime::fsops::files(passed.then_some(spec));
     if err == 5 {
-        return e(5);
+        return e(code::ILLEGAL_FUNCTION_CALL);
     }
     let Some((dir, rest)) = lines.split_first() else { return Ok(()) };
     let p = |vm: &mut dyn Host<'_>, s: &[u8], nl: bool| -> R<()> {
@@ -720,7 +721,7 @@ pub(crate) fn call(vm: &mut dyn Host<'_>, name: &str, a: &[V]) -> Option<R<Optio
         "sub_wait" => {
             let (port, and, xor, passed) = (i(0), i(1), i(2), i(3) != 0);
             if !(-65536..=65535).contains(&port) || !(-32768..=65535).contains(&and) || (passed && !(-32768..=65535).contains(&xor)) {
-                return Some(e(6));
+                return Some(e(code::OVERFLOW));
             }
             loop {
                 match inp(vm, port) {
@@ -808,7 +809,7 @@ pub(crate) fn call(vm: &mut dyn Host<'_>, name: &str, a: &[V]) -> Option<R<Optio
         "CHAIN" => {
             let f = String::from_utf8_lossy(a[0].s()).into_owned();
             if f.is_empty() {
-                return Some(e(53));
+                return Some(e(code::FILE_NOT_FOUND));
             }
             let (cmd, exe) = chain_command(&f);
             run_program(vm, &cmd, &exe).map(|_| None)

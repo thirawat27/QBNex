@@ -112,10 +112,6 @@ pub const IMG_FREEPAL: u32 = 1;
 pub const IMG_SCREEN: u32 = 2;
 pub const IMG_FREEMEM: u32 = 4;
 
-/// QBasic "Illegal function call".
-pub const ERR_ILLEGAL_FUNCTION_CALL: i32 = 5;
-/// QBNex "Invalid handle".
-pub const ERR_INVALID_HANDLE: i32 = 258;
 
 /// QB64's `qbr` (round to nearest even) applied to a value that started as a
 /// float/double expression (exact widening), truncated to `int32` the way the

@@ -5,6 +5,7 @@
 //! keyword has optional parts). `_DISPLAY` needs nothing here: the frame
 //! capture hook moves the queued draws to the shown layer.
 
+use qb_runtime::error::code;
 use super::builtins::Host;
 use super::{Stop, R, V};
 use qb_runtime::gfx::registry as reg;
@@ -85,11 +86,11 @@ pub(crate) fn call<'a>(vm: &mut dyn Host<'a>, name: &str, a: &[V]) -> Option<R<O
             if let Err(e) = super::display::chk(d) {
                 return Some(Err(e));
             }
-            let Some(x) = x else { return Some(Err(Stop::Err(258))) };
+            let Some(x) = x else { return Some(Err(Stop::Err(code::INVALID_HANDLE))) };
             // SAFETY: a resolved registry entry.
             let im = unsafe { &*reg::img.add(x as usize) };
             if im.bytes_per_pixel != 4 || im.text != 0 {
-                return Some(Err(Stop::Err(5)));
+                return Some(Err(Stop::Err(code::ILLEGAL_FUNCTION_CALL)));
             }
             // SAFETY: a 32-bit surface owns width*height pixels.
             let px = unsafe { std::slice::from_raw_parts(im.offset as *const u32, usize::from(im.width) * usize::from(im.height)) };
@@ -126,7 +127,7 @@ pub(crate) fn call<'a>(vm: &mut dyn Host<'a>, name: &str, a: &[V]) -> Option<R<O
             let range = if i(7) & 1 != 0 { f(6) } else { 0.0 };
             let h = s3::qb_3d_light(i(0), f(1), f(2), f(3), u(4), f(5), range);
             if h < 0 {
-                return Some(Err(Stop::Err(5)));
+                return Some(Err(Stop::Err(code::ILLEGAL_FUNCTION_CALL)));
             }
             return int(h);
         }

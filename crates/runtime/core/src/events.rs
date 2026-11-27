@@ -10,6 +10,7 @@
 
 #![allow(non_upper_case_globals)]
 
+use crate::error::code;
 use core::ptr::addr_of_mut;
 use std::sync::{Mutex, MutexGuard};
 
@@ -59,11 +60,11 @@ impl TimerTable {
 
     fn check(&mut self, i: i32) -> Result<&mut Timer, i32> {
         if i < 0 || i >= self.nextfree {
-            return Err(5);
+            return Err(code::ILLEGAL_FUNCTION_CALL);
         }
         let t = self.slot(i);
         if !t.allocated {
-            return Err(5);
+            return Err(code::ILLEGAL_FUNCTION_CALL);
         }
         Ok(t)
     }
@@ -97,7 +98,7 @@ impl TimerTable {
     pub fn setup(&mut self, i: i32, seconds: f64, id: u32, pass: i64) -> Result<(), i32> {
         // an interval of 0, below 0 or NaN: the handler ran on every tick (or never)
         if seconds.is_nan() || seconds <= 0.0 {
-            return Err(5);
+            return Err(code::ILLEGAL_FUNCTION_CALL);
         }
         let t = self.check(i)?;
         if t.state == 1 {
@@ -125,7 +126,7 @@ impl TimerTable {
             3 => t.active = 2,
             4 => {
                 if i == 0 {
-                    return Err(5);
+                    return Err(code::ILLEGAL_FUNCTION_CALL);
                 }
                 t.active = 0;
                 if t.state == 1 {
@@ -240,7 +241,7 @@ impl OnPlay {
     /// `ON PLAY(n) GOSUB`: `n` is 1..32 as in QBasic (error 5 otherwise).
     pub fn setup(&mut self, n: i32, id: u32) -> Result<(), i32> {
         if !(1..=32).contains(&n) {
-            return Err(5);
+            return Err(code::ILLEGAL_FUNCTION_CALL);
         }
         self.id = id;
         self.n = n;
@@ -261,7 +262,7 @@ impl OnPlay {
                 }
             }
             3 => self.active = 2,
-            _ => return Err(5),
+            _ => return Err(code::ILLEGAL_FUNCTION_CALL),
         }
         Ok(())
     }
@@ -361,7 +362,7 @@ fn switch(active: &mut u8, state: &mut u8, option: i32) -> bool {
 /// `onkey_setup`: `ON KEY(i) GOSUB/CALL`.
 pub fn onkey_setup(keys: &mut [OnKey], i: i32, id: u32, pass: i64) -> Result<(), i32> {
     if !(1..=31).contains(&i) {
-        return Err(5);
+        return Err(code::ILLEGAL_FUNCTION_CALL);
     }
     let k = &mut keys[i as usize];
     k.state = 0;
@@ -374,7 +375,7 @@ pub fn onkey_setup(keys: &mut [OnKey], i: i32, id: u32, pass: i64) -> Result<(),
 /// to set `qbevent`.
 pub fn key_statement(keys: &mut [OnKey], i: i32, option: i32) -> Result<bool, i32> {
     if !(0..=31).contains(&i) {
-        return Err(5);
+        return Err(code::ILLEGAL_FUNCTION_CALL);
     }
     let (i1, i2) = if i == 0 { (0, 31) } else { (i, i) };
     let mut ev = false;
@@ -388,12 +389,12 @@ pub fn key_statement(keys: &mut [OnKey], i: i32, option: i32) -> Result<bool, i3
 /// `Ok(None)` for ranges that are accepted but not supported (no error).
 fn strig_slot(i: i32, controller: i32, controller_passed: bool) -> Result<Option<usize>, i32> {
     if !(0..=65_535).contains(&i) {
-        return Err(5);
+        return Err(code::ILLEGAL_FUNCTION_CALL);
     }
     let (mut i, mut controller) = (i, controller);
     if controller_passed {
         if !(1..=65_535).contains(&controller) {
-            return Err(5);
+            return Err(code::ILLEGAL_FUNCTION_CALL);
         }
     } else {
         controller = 1;
@@ -404,7 +405,7 @@ fn strig_slot(i: i32, controller: i32, controller_passed: bool) -> Result<Option
     }
     let button = (i >> 2) + 1;
     if i & 1 != 0 {
-        return Err(5);
+        return Err(code::ILLEGAL_FUNCTION_CALL);
     }
     if controller > 256 || button > 256 {
         return Ok(None);

@@ -17,6 +17,7 @@
 //! * resize, focus, dropped files: the window layer's callbacks record them for
 //!   `_RESIZE`, `_WINDOWHASFOCUS` and `_DROPPEDFILE$`.
 
+use qb_runtime::error::code;
 use super::display::Display;
 use crate::vm::EventHandle;
 use qb_runtime::gfx::data::{charset8x16, charset8x8};
@@ -245,7 +246,7 @@ pub(crate) fn set_fps(fps: Option<f64>) -> Result<(), i32> {
     let ms = match fps {
         None => DEFAULT_FRAME_MS,
         // (also a value that is not a number)
-        Some(f) if f.is_nan() || f < 1.0 => return Err(5),
+        Some(f) if f.is_nan() || f < 1.0 => return Err(code::ILLEGAL_FUNCTION_CALL),
         Some(f) => (1000.0 / f.min(MAX_FPS)).round() as u32,
     };
     FRAME_MS.store(ms.max(1), Ordering::Relaxed);

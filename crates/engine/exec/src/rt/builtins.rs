@@ -1,5 +1,6 @@
 //! `rt` builtins (table: `qb_ir::builtins`), called by the VM through [`Host`].
 
+use qb_runtime::error::code;
 use super::{cvt, e, Stop, R, V};
 use qb_ir::Ty;
 use std::collections::HashMap;
@@ -337,17 +338,17 @@ pub(crate) fn suffix_ty(name: &str) -> Ty {
 }
 
 fn count(v: &V) -> R<usize> {
-    usize::try_from(v.i()).or_else(|_| e(5))
+    usize::try_from(v.i()).or_else(|_| e(code::ILLEGAL_FUNCTION_CALL))
 }
 
 /// `n` copies of byte `c` (SPACE$, STRING$): error 14 (out of string space) past the
 /// longest string or when the system has not the room, instead of ending the process.
 fn repeat(c: u8, n: usize) -> R<Vec<u8>> {
     if n > crate::vm::MAX_STR {
-        return e(14);
+        return e(code::OUT_OF_STRING_SPACE);
     }
     let mut v = Vec::new();
-    v.try_reserve_exact(n).or_else(|_| e(14))?;
+    v.try_reserve_exact(n).or_else(|_| e(code::OUT_OF_STRING_SPACE))?;
     v.resize(n, c);
     Ok(v)
 }
@@ -356,9 +357,9 @@ fn float1(a: &V, f: impl Fn(f64) -> f64) -> V {
     V::F(f(a.f()))
 }
 
-fn mid(s: &[u8], start: i64, len: Option<i64>) -> R<Vec<u8>> {
+fn mid(s: &[u8], start: i64, len: Option<i64>) -> Vec<u8> {
     let (a, b) = mid_range(s.len(), start, len);
-    Ok(s[a..b].to_vec())
+    s[a..b].to_vec()
 }
 
 /// Byte range of `MID$(s, start[, l])` exactly as `qb_func_mid` (no errors:
@@ -401,14 +402,14 @@ pub(crate) fn mid_range(len: usize, start: i64, l: Option<i64>) -> (usize, usize
 
 fn midset(t: &[u8], start: i64, len: Option<i64>, r: &[u8]) -> R<Vec<u8>> {
     if start < 1 || start as usize > t.len() {
-        return e(5);
+        return e(code::ILLEGAL_FUNCTION_CALL);
     }
     let mut out = t.to_vec();
     let st = (start - 1) as usize;
     let mut n = r.len().min(t.len() - st);
     if let Some(l) = len {
         if l < 0 {
-            return e(5);
+            return e(code::ILLEGAL_FUNCTION_CALL);
         }
         n = n.min(l as usize);
     }
@@ -429,7 +430,7 @@ fn trim_r(s: &[u8]) -> Vec<u8> {
 fn fixed<const N: usize>(s: &[u8]) -> R<[u8; N]> {
     match s.get(..N).and_then(|b| b.try_into().ok()) {
         Some(b) => Ok(b),
-        None => e(5),
+        None => e(code::ILLEGAL_FUNCTION_CALL),
     }
 }
 
@@ -597,19 +598,19 @@ fn num_call(n: NumFn, v: &V) -> R<V> {
         NumFn::IntF32 => V::F(f64::from((x as f32).floor())),
         NumFn::IntF64 => V::F(x.floor()),
         NumFn::Fix => V::F(x.trunc()),
-        NumFn::Sqr if x < 0.0 => return Err(Stop::Err(5)),
+        NumFn::Sqr if x < 0.0 => return Err(Stop::Err(code::ILLEGAL_FUNCTION_CALL)),
         NumFn::Sqr => V::F(x.sqrt()),
         NumFn::Sin => V::F(x.sin()),
         NumFn::Cos => V::F(x.cos()),
         NumFn::Tan => V::F(x.tan()),
         NumFn::Atn => V::F(x.atan()),
-        NumFn::Log if x <= 0.0 => return Err(Stop::Err(5)),
+        NumFn::Log if x <= 0.0 => return Err(Stop::Err(code::ILLEGAL_FUNCTION_CALL)),
         NumFn::Log => V::F(x.ln()),
         NumFn::ExpS => V::F(qb_runtime::mathfn::exp_single(x).map_err(Stop::Err)?),
         NumFn::Exp => {
             let r = x.exp();
             if r.is_infinite() {
-                return Err(Stop::Err(6));
+                return Err(Stop::Err(code::OVERFLOW));
             }
             V::F(r)
         }
@@ -738,7 +739,7 @@ pub(crate) fn call_from<'a>(vm: &mut dyn Host<'a>, name: &'static str, id: super
         let rt = vm.rt();
         if rt.varptr_slots == 0 {
             if rt.cmem_next + 16 * 16 > 0x1_0000 {
-                return e(7);
+                return e(code::OUT_OF_MEMORY);
             }
             rt.varptr_slots = rt.cmem_next;
             rt.cmem_next += 16 * 16;
@@ -812,7 +813,7 @@ pub(crate) fn call_from<'a>(vm: &mut dyn Host<'a>, name: &'static str, id: super
             _ => 32,
         };
         if s.len() < need {
-            return e(5);
+            return e(code::ILLEGAL_FUNCTION_CALL);
         }
         let v = match t {
             "i8" => V::I(i64::from(s[0] as i8)),
@@ -864,7 +865,7 @@ pub(crate) fn call_from<'a>(vm: &mut dyn Host<'a>, name: &'static str, id: super
                 let d = rt.cmem_next;
                 // descriptors are near pointers into DBLOCK (one 64 KB segment)
                 if d + 4 > 0x1_0000 {
-                    return e(7);
+                    return e(code::OUT_OF_MEMORY);
                 }
                 rt.cmem_next += 4;
                 rt.cmem_strs.insert(p, d);
@@ -883,7 +884,7 @@ pub(crate) fn call_from<'a>(vm: &mut dyn Host<'a>, name: &'static str, id: super
             // 16-bit offset, and a failed SADD must not use up the segment for later ones
             let fresh = if rt.cmem_next == d + 4 && cap == 0 { d + 4 } else { rt.cmem_next };
             if !(s.len() <= cap && off != 0) && fresh + s.len().max(1) > 0x1_0000 {
-                return e(7);
+                return e(code::OUT_OF_MEMORY);
             }
             let off = if s.len() <= cap && off != 0 {
                 off
@@ -899,7 +900,7 @@ pub(crate) fn call_from<'a>(vm: &mut dyn Host<'a>, name: &'static str, id: super
                 o
             };
             if DBLOCK + off + s.len() > rt.cmem.len() {
-                return e(7);
+                return e(code::OUT_OF_MEMORY);
             }
             rt.cmem[DBLOCK + off..DBLOCK + off + s.len()].copy_from_slice(&s);
             rt.cmem[DBLOCK + d..DBLOCK + d + 2].copy_from_slice(&(s.len() as u16).to_le_bytes());
@@ -919,7 +920,7 @@ pub(crate) fn call_from<'a>(vm: &mut dyn Host<'a>, name: &'static str, id: super
         let off = rt.cmem_next;
         // the arguments are near pointers into DBLOCK (one 64 KB segment)
         if off + size > 0x1_0000 || DBLOCK + off + size > rt.cmem.len() {
-            return e(7);
+            return e(code::OUT_OF_MEMORY);
         }
         if rt.abs_args.is_empty() {
             rt.abs_mark = Some(off);
@@ -942,7 +943,7 @@ pub(crate) fn call_from<'a>(vm: &mut dyn Host<'a>, name: &'static str, id: super
         let b = DBLOCK + off;
         let size = if ty == "i16" { 2 } else if ty == "i32" || ty == "f32" { 4 } else { 8 };
         if b + size > rt.cmem.len() {
-            return e(7);
+            return e(code::OUT_OF_MEMORY);
         }
         let m = &rt.cmem;
         let v = match ty {
@@ -1073,7 +1074,7 @@ fn call_main_id<'a>(vm: &mut dyn Host<'a>, name: &'static str, id: super::ids::I
         ids::WRITESEP => rt.write(i(0) as i32, b",")?,
         ids::USINGBEGIN => {
             if s(1).is_empty() {
-                return e(5);
+                return e(code::ILLEGAL_FUNCTION_CALL);
             }
             rt.using = Some(super::using::Using { ch: i(0) as i32, fmt: s(1).to_vec(), pos: 0, used: false })
         }
@@ -1103,19 +1104,19 @@ fn call_main_id<'a>(vm: &mut dyn Host<'a>, name: &'static str, id: super::ids::I
         ids::CVS => return ok(V::F(f32::from_le_bytes(fixed(s(0))?).into())),
         ids::CVD => return ok(V::F(f64::from_le_bytes(fixed(s(0))?))),
         ids::MKSMBF_S => {
-            let b = qb_runtime::mbf::fieee_to_msbin((f(0) as f32).to_le_bytes()).map_err(|_| Stop::Err(5))?;
+            let b = qb_runtime::mbf::fieee_to_msbin((f(0) as f32).to_le_bytes()).map_err(|_| Stop::Err(code::ILLEGAL_FUNCTION_CALL))?;
             return ok(V::S(b.to_vec()));
         }
         ids::MKDMBF_S => {
-            let b = qb_runtime::mbf::dieee_to_msbin(f(0).to_le_bytes()).map_err(|_| Stop::Err(5))?;
+            let b = qb_runtime::mbf::dieee_to_msbin(f(0).to_le_bytes()).map_err(|_| Stop::Err(code::ILLEGAL_FUNCTION_CALL))?;
             return ok(V::S(b.to_vec()));
         }
         ids::CVSMBF => {
-            let b = qb_runtime::mbf::fmsbin_to_ieee(fixed(s(0))?).map_err(|_| Stop::Err(5))?;
+            let b = qb_runtime::mbf::fmsbin_to_ieee(fixed(s(0))?).map_err(|_| Stop::Err(code::ILLEGAL_FUNCTION_CALL))?;
             return ok(V::F(f32::from_le_bytes(b).into()));
         }
         ids::CVDMBF => {
-            let b = qb_runtime::mbf::dmsbin_to_ieee(fixed(s(0))?).map_err(|_| Stop::Err(5))?;
+            let b = qb_runtime::mbf::dmsbin_to_ieee(fixed(s(0))?).map_err(|_| Stop::Err(code::ILLEGAL_FUNCTION_CALL))?;
             return ok(V::F(f64::from_le_bytes(b)));
         }
         ids::LEN => return ok(V::I(s(0).len() as i64)),
@@ -1129,25 +1130,25 @@ fn call_main_id<'a>(vm: &mut dyn Host<'a>, name: &'static str, id: super::ids::I
             let n = i(1).clamp(0, t.len() as i64) as usize;
             return ok(V::S(t[t.len() - n..].to_vec()));
         }
-        ids::MID_S => return ok(V::S(mid(s(0), i(1), None)?)),
-        ids::MID_S_N => return ok(V::S(mid(s(0), i(1), Some(i(2)))?)),
+        ids::MID_S => return ok(V::S(mid(s(0), i(1), None))),
+        ids::MID_S_N => return ok(V::S(mid(s(0), i(1), Some(i(2))))),
         ids::MIDSET => return ok(V::S(midset(s(0), i(1), None, s(2))?)),
         ids::MIDSET_N => return ok(V::S(midset(s(0), i(1), Some(i(2)), s(3))?)),
         ids::CHR_S => {
             let c = i(0);
             if !(0..=255).contains(&c) {
-                return e(5);
+                return e(code::ILLEGAL_FUNCTION_CALL);
             }
             return ok(V::S(vec![c as u8]));
         }
-        ids::ASC => return ok(V::I(i64::from(*s(0).first().ok_or(Stop::Err(5))?))),
+        ids::ASC => return ok(V::I(i64::from(*s(0).first().ok_or(Stop::Err(code::ILLEGAL_FUNCTION_CALL))?))),
         ids::ASC_N => {
             let k = i(1);
             if k < 1 {
-                return e(5);
+                return e(code::ILLEGAL_FUNCTION_CALL);
             }
             // qbs_asc: a position past the end is an illegal function call too
-            return ok(V::I(i64::from(*s(0).get(k as usize - 1).ok_or(Stop::Err(5))?)));
+            return ok(V::I(i64::from(*s(0).get(k as usize - 1).ok_or(Stop::Err(code::ILLEGAL_FUNCTION_CALL))?)));
         }
         // qb_func_instr / qb_func__instrrev semantics (start < 1 is allowed)
         ids::INSTR => return ok(V::I(qb_instr(1, s(0), s(1), false).into())),
@@ -1163,12 +1164,12 @@ fn call_main_id<'a>(vm: &mut dyn Host<'a>, name: &'static str, id: super::ids::I
         ids::STRING_S => {
             let c = i(1);
             if !(0..=255).contains(&c) {
-                return e(5);
+                return e(code::ILLEGAL_FUNCTION_CALL);
             }
             return ok(V::S(repeat(c as u8, count(&a[0])?)?));
         }
         ids::STRING_S_S => {
-            let c = *s(1).first().ok_or(Stop::Err(5))?;
+            let c = *s(1).first().ok_or(Stop::Err(code::ILLEGAL_FUNCTION_CALL))?;
             return ok(V::S(repeat(c, count(&a[0])?)?));
         }
         ids::LSET => {
@@ -1208,7 +1209,7 @@ fn call_main_id<'a>(vm: &mut dyn Host<'a>, name: &'static str, id: super::ids::I
         ids::FIX_F80 => return ok(V::X(qb_float80::qb::fix_float(a[0].x()))),
         ids::SQR => {
             if f(0) < 0.0 {
-                return e(5);
+                return e(code::ILLEGAL_FUNCTION_CALL);
             }
             return ok(float1(&a[0], f64::sqrt));
         }
@@ -1218,7 +1219,7 @@ fn call_main_id<'a>(vm: &mut dyn Host<'a>, name: &'static str, id: super::ids::I
         ids::ATN => return ok(float1(&a[0], f64::atan)),
         ids::LOG => {
             if f(0) <= 0.0 {
-                return e(5);
+                return e(code::ILLEGAL_FUNCTION_CALL);
             }
             return ok(float1(&a[0], f64::ln));
         }
@@ -1229,7 +1230,7 @@ fn call_main_id<'a>(vm: &mut dyn Host<'a>, name: &'static str, id: super::ids::I
         ids::EXP => {
             let r = f(0).exp();
             if r.is_infinite() {
-                return e(6);
+                return e(code::OVERFLOW);
             }
             return ok(V::F(r));
         }
@@ -1273,7 +1274,7 @@ fn call_main_id<'a>(vm: &mut dyn Host<'a>, name: &'static str, id: super::ids::I
             // console (none left at its end: what was read, like INPUT's empty line)
             let n = i(0);
             if n < 0 {
-                return e(5);
+                return e(code::ILLEGAL_FUNCTION_CALL);
             }
             let n = n as usize;
             if rt.display.started {
@@ -1392,42 +1393,42 @@ fn call_main_id<'a>(vm: &mut dyn Host<'a>, name: &'static str, id: super::ids::I
             let spec = os_path(s(0));
             let files = super::glob::glob_files(&spec);
             if files.is_empty() {
-                return e(53);
+                return e(code::FILE_NOT_FOUND);
             }
             for f in files {
                 if std::fs::remove_file(&f).is_err() {
-                    return e(75);
+                    return e(code::PATH_FILE_ACCESS_ERROR);
                 }
             }
         }
         ids::NAME => {
             let (from, to) = (os_path(s(0)), os_path(s(1)));
             if std::fs::symlink_metadata(&from).is_err() {
-                return e(53);
+                return e(code::FILE_NOT_FOUND);
             }
             // NAME does not replace a file (`rename` does, without a word): error 58,
             // unless both names are the one file (a change of letter case on Windows)
             let same = || matches!((std::fs::canonicalize(&from), std::fs::canonicalize(&to)), (Ok(a), Ok(b)) if a == b);
             if std::fs::symlink_metadata(&to).is_ok() && !same() {
-                return e(58);
+                return e(code::FILE_ALREADY_EXISTS);
             }
             if std::fs::rename(&from, &to).is_err() {
-                return e(53);
+                return e(code::FILE_NOT_FOUND);
             }
         }
         ids::MKDIR => {
             if std::fs::create_dir(os_path(s(0))).is_err() {
-                return e(75);
+                return e(code::PATH_FILE_ACCESS_ERROR);
             }
         }
         ids::RMDIR => {
             if std::fs::remove_dir(os_path(s(0))).is_err() {
-                return e(75);
+                return e(code::PATH_FILE_ACCESS_ERROR);
             }
         }
         ids::CHDIR => {
             if std::env::set_current_dir(os_path(s(0))).is_err() {
-                return e(76);
+                return e(code::PATH_NOT_FOUND);
             }
         }
         ids::FILEEXISTS => {
@@ -1487,7 +1488,7 @@ fn call_main_id<'a>(vm: &mut dyn Host<'a>, name: &'static str, id: super::ids::I
             let mut t = s(0).to_vec();
             let p = i(1);
             if p < 1 || p as usize > t.len() {
-                return e(5);
+                return e(code::ILLEGAL_FUNCTION_CALL);
             }
             t[p as usize - 1] = i(2) as u8;
             return ok(V::S(t));
@@ -1523,7 +1524,7 @@ fn call_main_id<'a>(vm: &mut dyn Host<'a>, name: &'static str, id: super::ids::I
                 let v = if t.as_bytes()[p] == b' ' { t[p + 1..].trim_start() } else { &t[p + 1..] };
                 // names and values set_var/remove_var panic on
                 if k.is_empty() || k.contains(['=', '\0']) || v.contains('\0') {
-                    return e(5);
+                    return e(code::ILLEGAL_FUNCTION_CALL);
                 }
                 // the program's bytes as the system's string, as ENVIRON$ reads them back
                 let (k, v) = (qb_runtime::osstr::os_string(k.as_bytes()), qb_runtime::osstr::os_string(v.as_bytes()));
@@ -1560,7 +1561,7 @@ fn call_main_id<'a>(vm: &mut dyn Host<'a>, name: &'static str, id: super::ids::I
                     size += 10_000_000;
                 }
                 if size > INFLATE_CAP {
-                    return e(7);
+                    return e(code::OUT_OF_MEMORY);
                 }
                 let mut dst = vec![0u8; size as usize];
                 let (r, out_len) = qb_runtime::compress::inflate(src, &mut dst);
@@ -2044,7 +2045,7 @@ fn read_line(f: &mut Reader) -> R<Vec<u8>> {
     let b = &f.rbuf;
     let mut p = f.rpos;
     if p >= b.len() || b[p] == 26 {
-        return e(62);
+        return e(code::INPUT_PAST_END_OF_FILE);
     }
     let mut line = Vec::new();
     while p < b.len() && b[p] != b'\n' && b[p] != b'\r' && b[p] != 26 {
@@ -2088,7 +2089,7 @@ fn read_item(f: &mut Reader, numeric: bool) -> R<Vec<u8>> {
         p += 1;
     }
     if end(p) {
-        return e(62);
+        return e(code::INPUT_PAST_END_OF_FILE);
     }
     let mut item = Vec::new();
     if b[p] == b'"' {
@@ -2197,7 +2198,7 @@ fn input_call<'a>(vm: &mut dyn Host<'a>, name: &str, a: &[V]) -> Option<R<Option
             rt.input.pump(cm);
             let x = a[0].i();
             if x <= 0 {
-                return Some(e(5));
+                return Some(e(code::ILLEGAL_FUNCTION_CALL));
             }
             V::I(if qb_runtime::keybuf::qb_keyheld(x as u32) != 0 { -1 } else { 0 })
         }
@@ -2230,7 +2231,7 @@ fn input_call<'a>(vm: &mut dyn Host<'a>, name: &str, a: &[V]) -> Option<R<Option
             rt.input.pump(cm);
             let i = a[0].i();
             if i < 1 {
-                return Some(e(5));
+                return Some(e(code::ILLEGAL_FUNCTION_CALL));
             }
             match rt.input.queue(a[1].i(), a[2].i() != 0) {
                 Ok(q) => V::I(if rt.input.mousebutton(q, i as i32) { -1 } else { 0 }),
@@ -2265,7 +2266,7 @@ fn input_call<'a>(vm: &mut dyn Host<'a>, name: &str, a: &[V]) -> Option<R<Option
                 _ => {
                     let (option, passed) = (a[1].i(), a[2].i() != 0);
                     if !(0..=65535).contains(&a[0].i()) || (passed && !(1..=65535).contains(&option)) {
-                        e(5)
+                        e(code::ILLEGAL_FUNCTION_CALL)
                     } else if name == "func_stick" {
                         Ok(V::I(i64::from(d.stick(n, if passed { option as i32 } else { 1 }))))
                     } else {
@@ -2288,7 +2289,7 @@ fn input_call<'a>(vm: &mut dyn Host<'a>, name: &str, a: &[V]) -> Option<R<Option
             // KEY(n) ON|OFF|STOP (n, option 1..3): the VM delivers trapped keys at safe points
             let k = a[0].i();
             if !(0..=31).contains(&k) {
-                return Some(e(5));
+                return Some(e(code::ILLEGAL_FUNCTION_CALL));
             }
             if let Err(c) = qb_runtime::events::key_statement(qb_runtime::events::onkeys(), k as i32, a[1].i() as i32) {
                 return Some(e(c));
@@ -2299,7 +2300,7 @@ fn input_call<'a>(vm: &mut dyn Host<'a>, name: &str, a: &[V]) -> Option<R<Option
             // _DELAY s: the deadline in ms; the emitter loops on DELAYSTEP so events run
             let s = a[0].f();
             if !(0.0..=2147483.647).contains(&s) {
-                return Some(e(5));
+                return Some(e(code::ILLEGAL_FUNCTION_CALL));
             }
             if rt.web && rt.display.started && rt.display.autodisplay != 0 {
                 rt.display.capture(qb_runtime::gfx::capture::KIND_DISPLAY);
@@ -2322,7 +2323,7 @@ fn input_call<'a>(vm: &mut dyn Host<'a>, name: &str, a: &[V]) -> Option<R<Option
             let fps = a[0].f();
             rt.input.pump(cm);
             if fps <= 0.0 || 1000.0 / fps > 60000.0 {
-                return Some(e(5));
+                return Some(e(code::ILLEGAL_FUNCTION_CALL));
             }
             if fps > 0.0 {
                 // browser runner: the frame drawn so far is shown before the wait
@@ -2360,7 +2361,7 @@ fn input_call<'a>(vm: &mut dyn Host<'a>, name: &str, a: &[V]) -> Option<R<Option
 fn math_call(name: &str, a: &[V]) -> Option<R<Option<V>>> {
     let x = |k: usize| a[k].f();
     let f80 = |v: f64| Some(Ok(Some(V::X(qb_float80::F80::from_f64(v)))));
-    let bad = || Some(e(5));
+    let bad = || Some(e(code::ILLEGAL_FUNCTION_CALL));
     let v = a.first().map_or(0.0, V::f);
     match name {
         "acos" => f80(v.acos()),

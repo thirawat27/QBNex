@@ -1,8 +1,9 @@
 //! Palettes and colors: `restorepalette`, `qbg_palette` (PALETTE),
 //! `qbg_sub_color` (COLOR, graphics surfaces), `defaultcolors`.
 
+use crate::error::code;
 use super::data::{palette_256, palette_64};
-use super::{qbr_i64, ImgStruct, ERR_ILLEGAL_FUNCTION_CALL};
+use super::{qbr_i64, ImgStruct};
 
 /// Legacy `restorepalette`: default palette for the surface's mode.
 ///
@@ -58,7 +59,7 @@ fn vga_color(col: u32) -> u32 {
 /// # Safety
 /// `im` must be a valid surface.
 pub unsafe fn palette(im: &mut ImgStruct, attribute: u32, col: u32, passed: i32) -> i32 {
-    const ERR: i32 = ERR_ILLEGAL_FUNCTION_CALL;
+    const ERR: i32 = code::ILLEGAL_FUNCTION_CALL;
     if passed == 0 {
         // SAFETY: guaranteed by the caller.
         unsafe { restorepalette(im) };
@@ -110,7 +111,7 @@ pub unsafe fn palette(im: &mut ImgStruct, attribute: u32, col: u32, passed: i32)
 /// # Safety
 /// `im` must be a valid surface.
 pub unsafe fn color(im: &mut ImgStruct, col1: u32, col2: u32, passed: i32) -> i32 {
-    const ERR: i32 = ERR_ILLEGAL_FUNCTION_CALL;
+    const ERR: i32 = code::ILLEGAL_FUNCTION_CALL;
     if passed == 0 {
         return 0;
     }

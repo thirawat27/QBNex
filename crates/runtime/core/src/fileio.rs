@@ -8,6 +8,7 @@
 //! to raise. When QB64 raised an error and carried on, the first error is the
 //! one returned (QB64's `error()` keeps only the first one, too).
 
+use crate::error::code;
 use crate::gfs::{table, Table};
 
 /// `sub_file_print` result: the file is "SCRN:", print to the screen instead.
@@ -42,7 +43,7 @@ impl Ctx {
 /// Validates file number `i` and returns its table index (error 52 otherwise).
 fn index(t: &mut Table, i: i32) -> Result<i32, i32> {
     if t.fileno_valid(i) != 1 {
-        return Err(52);
+        return Err(code::BAD_FILE_NAME_OR_NUMBER);
     }
     Ok(t.fileno_index(i))
 }
@@ -343,10 +344,10 @@ fn nextitem(t: &mut Table, i: i32, lastc: i32, cx: &mut Ctx) {
 fn input_index(t: &mut Table, fileno: i32) -> Result<i32, i32> {
     let x = index(t, fileno)?;
     if t.f(x).type_ != 3 {
-        return Err(54);
+        return Err(code::BAD_FILE_MODE);
     }
     if t.f(x).read == 0 {
-        return Err(75);
+        return Err(code::PATH_FILE_ACCESS_ERROR);
     }
     Ok(x)
 }
@@ -784,7 +785,7 @@ fn record_offset(type_: u8, record_length: i64, offset: i64, passed: bool) -> Re
         return Ok(-1);
     }
     if offset < 1 {
-        return Err(63);
+        return Err(code::BAD_RECORD_NUMBER);
     }
     let o = offset - 1;
     if type_ != 1 {

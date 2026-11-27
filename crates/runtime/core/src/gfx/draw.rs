@@ -4,12 +4,11 @@
 //! conventional memory block `cmem` (offset 1280 = DBLOCK), so the caller
 //! passes `cmem`.
 
+use crate::error::code;
 use super::line::fast_line;
 use super::paint::paint_color;
-use super::{qbr_i32, ImgStruct, ERR_ILLEGAL_FUNCTION_CALL};
+use super::{qbr_i32, ImgStruct};
 
-/// QBasic "Overflow" (X-stack exhausted).
-const ERR_OVERFLOW: i32 = 6;
 const DBLOCK: usize = 1280;
 const STACK_MAX: usize = 8192;
 
@@ -166,9 +165,8 @@ fn vectors(r: f64, ta: f64) -> [f64; 8] {
 /// `len` bytes; `cmem` must be the conventional memory block when the string
 /// uses `VARPTR$` (it may be null otherwise). No terminator is needed: the
 /// parser never reads at or past `len`.
-#[allow(clippy::eq_op)] // aspect expressions copy the legacy arithmetic
 pub unsafe fn draw(im: &mut ImgStruct, s: *const u8, len: i32, cmem: *const u8) -> i32 {
-    const ERR: i32 = ERR_ILLEGAL_FUNCTION_CALL;
+    const ERR: i32 = code::ILLEGAL_FUNCTION_CALL;
     if im.text != 0 {
         return ERR;
     }
@@ -178,7 +176,8 @@ pub unsafe fn draw(im: &mut ImgStruct, s: *const u8, len: i32, cmem: *const u8) 
         1 | 7 | 13 => 4.0 / ((3.0 / 200.0) * 320.0),
         2 | 8 => 4.0 / ((3.0 / 200.0) * 640.0),
         9 | 10 => 4.0 / ((3.0 / 350.0) * 640.0),
-        11 | 12 => 4.0 / ((3.0 / 480.0) * 640.0),
+        // 4 / (3/480 * 640): square pixels
+        11 | 12 => 1.0,
         m if m <= 13 => 1.0, // unreachable modes; legacy kept a stale static
         _ => 1.0,
     };
@@ -411,7 +410,7 @@ pub unsafe fn draw(im: &mut ImgStruct, s: *const u8, len: i32, cmem: *const u8) 
                 let offset = p.at(p.i + 2) as usize * 256 + p.at(p.i + 1) as usize;
                 p.i += 3;
                 if stack.len() == STACK_MAX {
-                    return ERR_OVERFLOW;
+                    return code::OVERFLOW;
                 }
                 stack.push((p.cp, p.len, p.i));
                 // string descriptor in DBLOCK: u16 length, u16 offset

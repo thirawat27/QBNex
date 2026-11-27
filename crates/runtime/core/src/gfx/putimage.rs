@@ -4,8 +4,9 @@
 //! Handle resolution and the "source is the destination" detour belong to
 //! the caller; it passes the two surfaces here.
 
+use crate::error::code;
 use super::blend::blend_onto;
-use super::{qbr_d2l, qbr_f2l, ImgStruct, ERR_ILLEGAL_FUNCTION_CALL};
+use super::{qbr_d2l, qbr_f2l, ImgStruct};
 
 /// `_PUTIMAGE` coordinates as passed by generated code.
 #[repr(C)]
@@ -213,7 +214,7 @@ pub unsafe fn putimage(s: &mut ImgStruct, d: &mut ImgStruct, c: PutCoords, passe
             }
         }
     } else if passed & 64 != 0 {
-        return ERR_ILLEGAL_FUNCTION_CALL;
+        return code::ILLEGAL_FUNCTION_CALL;
     } else if passed & 1 != 0 {
         sx2 = sw - 1;
         sy2 = sh - 1;

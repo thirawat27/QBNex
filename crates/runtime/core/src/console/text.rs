@@ -3,6 +3,7 @@
 //! QB64. Surfaces are accessed through raw pointers that are
 //! re-read from the host after every call that may change them.
 
+use crate::error::code;
 use super::{cells, stdio, utf8, Host};
 use super::{lpos, lprint, lprint_buffered, no_control_characters, no_control_characters2, width_lprint};
 use crate::gfx::data::{charset8x16, charset8x8};
@@ -514,7 +515,7 @@ pub unsafe fn view_print(h: &mut dyn Host, top: i32, bottom: i32, passed: i32) {
         return;
     }
     if top <= 0 || top > maxrows || bottom < top || bottom > maxrows {
-        h.error(5);
+        h.error(code::ILLEGAL_FUNCTION_CALL);
         return;
     }
     (*w).top_row = top as i16;
@@ -576,14 +577,14 @@ pub unsafe fn cls(h: &mut dyn Host, method: i32, mut use_color: u32, passed: i32
     }
     if passed & 2 != 0 {
         if (*w).bytes_per_pixel != 4 && use_color > (*w).mask {
-            h.error(5);
+            h.error(code::ILLEGAL_FUNCTION_CALL);
             return;
         }
     } else {
         use_color = (*w).background_color;
     }
     if passed & 1 != 0 && !(0..=2).contains(&method) {
-        h.error(5);
+        h.error(code::ILLEGAL_FUNCTION_CALL);
         return;
     }
     (*w).cursor_y = (*w).top_row;
@@ -681,7 +682,7 @@ pub unsafe fn locate(h: &mut dyn Host, row: i32, column: i32, cursor: i32, mut s
         ((*w).height as i32, (*w).width as i32)
     };
     let w = wp(h);
-    let bad = |h: &mut dyn Host| h.error(5);
+    let bad = |h: &mut dyn Host| h.error(code::ILLEGAL_FUNCTION_CALL);
     if passed & 1 != 0 {
         if row < (*w).top_row as i32 {
             return bad(h);
@@ -802,7 +803,7 @@ pub unsafe fn screen(h: &mut dyn Host, y: i32, x: i32, mut returncol: i32, passe
     }
     if (*r).text != 0 {
         if y < 1 || y > (*r).height as i32 || x < 1 || x > (*r).width as i32 {
-            h.error(5);
+            h.error(code::ILLEGAL_FUNCTION_CALL);
             return 0;
         }
         let k = (((y - 1) * (*r).width as i32 + x - 1) * 2) as usize;
@@ -810,7 +811,7 @@ pub unsafe fn screen(h: &mut dyn Host, y: i32, x: i32, mut returncol: i32, passe
     }
     let f = (*r).font;
     if f != 8 && f != 14 && f != 16 {
-        h.error(5);
+        h.error(code::ILLEGAL_FUNCTION_CALL);
         return 0;
     }
     let fw = h.font_width(f);
@@ -819,7 +820,7 @@ pub unsafe fn screen(h: &mut dyn Host, y: i32, x: i32, mut returncol: i32, passe
     let cols = (*r).width as i32 / fw;
     let rows = (*r).height as i32 / fh;
     if y < 1 || y > rows || x < 1 || x > cols {
-        h.error(5);
+        h.error(code::ILLEGAL_FUNCTION_CALL);
         return 0;
     }
     let (x, y) = (x - 1, y - 1);

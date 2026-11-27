@@ -9,8 +9,9 @@
 //! grows the lists instead of overrunning them (legacy wrote past the end of
 //! its 65536-entry lists, undefined behaviour, on very large frontiers).
 
+use crate::error::code;
 use super::blend::blend_onto;
-use super::{map_point_f2l, ImgStruct, ERR_ILLEGAL_FUNCTION_CALL};
+use super::{map_point_f2l, ImgStruct};
 
 /// Breadth-first fill shared by every PAINT variant. `test(offset)` decides
 /// whether a not-yet-visited pixel is filled; `plot(offset)` paints it. The
@@ -86,7 +87,7 @@ fn start_point(im: &mut ImgStruct, x: f32, y: f32, passed: i32) -> Option<(i32, 
 /// `im` must be a valid surface whose VIEW lies inside it.
 pub unsafe fn paint_color(im: &mut ImgStruct, x: f32, y: f32, mut fillcol: u32, mut bordercol: u32, passed: i32) -> i32 {
     if im.text != 0 || passed & 8 != 0 {
-        return ERR_ILLEGAL_FUNCTION_CALL;
+        return code::ILLEGAL_FUNCTION_CALL;
     }
     if passed & 2 == 0 {
         fillcol = im.color;
@@ -185,7 +186,7 @@ impl Pattern {
 /// `im` must be a valid surface whose VIEW lies inside it.
 pub unsafe fn paint_tile(im: &mut ImgStruct, x: f32, y: f32, tile: &[u8], mut bordercol: u32, passed: i32) -> i32 {
     if passed & 2 == 0 || tile.is_empty() {
-        return ERR_ILLEGAL_FUNCTION_CALL;
+        return code::ILLEGAL_FUNCTION_CALL;
     }
     let pat = Pattern::for_mode(im.compatible_mode);
     let (sx, sy) = pat.size(tile.len());

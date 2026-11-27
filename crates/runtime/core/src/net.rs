@@ -282,6 +282,12 @@ pub struct Info {
 pub const METHOD_CLIENT: i32 = 0;
 pub const METHOD_HOST: i32 = 1;
 
+/// Kinds of TCP/IP handle: `_OPENCLIENT`, `_OPENHOST` (listening) and a
+/// connection that `_OPENCONNECTION` accepted on a host.
+pub const CONN_CLIENT: i32 = 1;
+pub const CONN_HOST: i32 = 2;
+pub const CONN_ACCEPTED: i32 = 3;
+
 /// Parses `"TCP/IP:port"` (host) or `"TCP/IP:port:address"` (client).
 /// `Err(val_error)` is legacy's -1 ("invalid arguments", error 5); `val_error`
 /// is the error `VAL` raised on the port before the rejection (0 if none).
@@ -331,9 +337,9 @@ pub fn format_address(conn_type: i32, port: i32, ip4: [u8; 4], hostname: &[u8], 
     s.extend_from_slice(crate::numfmt::str_i64(i64::from(port)).trim_ascii_start());
     s.push(b':');
     match conn_type {
-        2 if listener_ip.is_empty() => s.extend_from_slice(b"127.0.0.1"),
-        2 => s.extend_from_slice(listener_ip),
-        3 => {
+        CONN_HOST if listener_ip.is_empty() => s.extend_from_slice(b"127.0.0.1"),
+        CONN_HOST => s.extend_from_slice(listener_ip),
+        CONN_ACCEPTED => {
             let ip = ip4.map(|o| o.to_string()).join(".");
             s.extend_from_slice(ip.as_bytes());
         }

@@ -1,7 +1,7 @@
 //! The bundle carried by an installer: a zip appended to the executable, then the
 //! zip's length (u64 little endian) and [`MAGIC`].
 
-use std::io::{Cursor, Read, Write};
+use std::io::{Cursor, Write};
 use std::path::{Component, Path, PathBuf};
 
 use zip::write::SimpleFileOptions;
@@ -119,8 +119,7 @@ pub fn pack(src: &Path, out: &Path) -> Result<usize, String> {
         let name = rel.components().map(|c| c.as_os_str().to_string_lossy().into_owned()).collect::<Vec<_>>().join("/");
         let opts = SimpleFileOptions::default().compression_method(CompressionMethod::Deflated).unix_permissions(mode_of(p));
         w.start_file(name, opts).map_err(|e| e.to_string())?;
-        let mut data = Vec::new();
-        std::fs::File::open(p).and_then(|mut f| f.read_to_end(&mut data)).map_err(|e| format!("cannot read {}: {e}", p.display()))?;
+        let data = std::fs::read(p).map_err(|e| format!("cannot read {}: {e}", p.display()))?;
         w.write_all(&data).map_err(|e| e.to_string())?;
     }
     let zip = w.finish().map_err(|e| e.to_string())?.into_inner();

@@ -153,22 +153,11 @@ pub struct DepthBuffer {
     pending_clear: bool,
 }
 
-pub const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
-
 impl DepthBuffer {
     /// Sides above the device limit are clamped like [crate::Target::offscreen].
     pub fn new(gpu: &Gpu, width: u32, height: u32) -> DepthBuffer {
         let (width, height) = crate::fit_size(width, height, gpu.max_texture_size());
-        let texture = gpu.device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("qb-gpu maptriangle depth"),
-            size: wgpu::Extent3d { width: width.max(1), height: height.max(1), depth_or_array_layers: 1 },
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format: DEPTH_FORMAT,
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
-            view_formats: &[],
-        });
+        let texture = crate::depth_texture(gpu, "qb-gpu maptriangle depth", width, height);
         let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
         DepthBuffer { _texture: texture, view, width, height, pending_clear: true }
     }
@@ -254,27 +243,8 @@ impl MapTriangle3d {
                 count: None,
             }],
         });
-        let tex_layout = d.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            label: Some("qb-gpu maptriangle texture"),
-            entries: &[
-                wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Texture {
-                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                        view_dimension: wgpu::TextureViewDimension::D2,
-                        multisampled: false,
-                    },
-                    count: None,
-                },
-                wgpu::BindGroupLayoutEntry {
-                    binding: 1,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                    count: None,
-                },
-            ],
-        });
+        let tex_layout = crate::texture_layout(d, "qb-gpu maptriangle texture");
+
         let pipeline_layout = d.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("qb-gpu maptriangle"),
             bind_group_layouts: &[Some(&uniform_layout), Some(&tex_layout)],
@@ -401,13 +371,7 @@ impl MapTriangle3d {
                     targets: &[Some(wgpu::ColorTargetState { format, blend, write_mask: wgpu::ColorWrites::ALL })],
                 }),
                 primitive: wgpu::PrimitiveState { front_face, cull_mode, ..Default::default() },
-                depth_stencil: Some(wgpu::DepthStencilState {
-                    format: DEPTH_FORMAT,
-                    depth_write_enabled: Some(write),
-                    depth_compare: Some(compare),
-                    stencil: wgpu::StencilState::default(),
-                    bias: wgpu::DepthBiasState::default(),
-                }),
+                depth_stencil: Some(crate::depth_test(write, compare)),
                 multisample: wgpu::MultisampleState::default(),
                 multiview_mask: None,
                 cache: None,

@@ -17,6 +17,8 @@
 // browser build: the window callbacks that feed events are not compiled in
 #![cfg_attr(target_arch = "wasm32", allow(dead_code))]
 
+use qb_runtime::error::code;
+
 use super::devices::{self, Devices};
 use super::scancodes::SCANCODE_LOOKUP;
 use super::{e, R};
@@ -398,7 +400,7 @@ impl Input {
         }
         match usize::try_from(context - 1).ok().filter(|&q| self.queues.get(q).is_some_and(|q| q.open)) {
             Some(q) => Ok(q),
-            None => e(258),
+            None => e(code::INVALID_HANDLE),
         }
     }
 
@@ -412,7 +414,7 @@ impl Input {
 
     /// `_MOUSEINPUTPIPE`: hands the current message of pipe `q` on to the queue behind it.
     pub(crate) fn pipe_pass(&mut self, q: usize) -> R<()> {
-        let Some(child) = self.queues[q].child else { return e(5) };
+        let Some(child) = self.queues[q].child else { return e(code::ILLEGAL_FUNCTION_CALL) };
         let msg = self.queues[q].message();
         self.queues[child].add(|_| msg);
         Ok(())
@@ -420,7 +422,7 @@ impl Input {
 
     /// `_MOUSEPIPECLOSE`: removes pipe `q`; the queue behind it gets the messages again.
     pub(crate) fn pipe_close(&mut self, q: usize) -> R<()> {
-        let Some(child) = self.queues[q].child else { return e(5) };
+        let Some(child) = self.queues[q].child else { return e(code::ILLEGAL_FUNCTION_CALL) };
         if self.first == q {
             self.first = child;
         }

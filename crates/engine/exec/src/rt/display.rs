@@ -4,6 +4,7 @@
 //! at END); the surfaces, drawing, text console and capture are qb-runtime
 //! (`gfx`, `console`).
 
+use qb_runtime::error::code;
 use super::builtins::Host as VmIface;
 use super::{Stop, R, V};
 use qb_runtime::console::{self, Host};
@@ -245,7 +246,7 @@ impl Display {
     pub(crate) fn resolve(&mut self, handle: i32) -> Option<u32> {
         if handle > MAX_PAGE {
             // a page number, not a size to allocate a table for
-            self.err(258);
+            self.err(code::INVALID_HANDLE);
             return None;
         }
         if handle >= 0 {
@@ -256,7 +257,7 @@ impl Display {
         let h = handle.checked_neg().unwrap_or(i32::MAX);
         // SAFETY: registry read.
         if h >= nextimg() || unsafe { (*im(h as u32)).valid } == 0 {
-            self.err(258);
+            self.err(code::INVALID_HANDLE);
             return None;
         }
         Some(h as u32)
@@ -298,7 +299,7 @@ impl Display {
 
     pub(crate) fn newimage(&mut self, x: i32, y: i32, mut bpp: i32, passed: i32) -> i32 {
         if x <= 0 || y <= 0 {
-            self.err(5);
+            self.err(code::ILLEGAL_FUNCTION_CALL);
             return 0;
         }
         let w = self.wp();
@@ -306,7 +307,7 @@ impl Display {
             // SAFETY: write page is valid.
             bpp = i32::from(unsafe { (*w).compatible_mode });
         } else if !((0..=2).contains(&bpp) || (7..=13).contains(&bpp) || bpp == 256 || bpp == 32) {
-            self.err(5);
+            self.err(code::ILLEGAL_FUNCTION_CALL);
             return 0;
         }
         let i = self.imgnew(x, y, bpp);
@@ -344,14 +345,14 @@ impl Display {
         };
         let ok = matches!(f, 8 | 9 | 14 | 15 | 16 | 17) || (f >= 32 && self.font.get(f as usize).is_some_and(|&h| h != 0));
         if !ok {
-            self.err(258);
+            self.err(code::INVALID_HANDLE);
             return;
         }
         let p = im(idx);
         // SAFETY: valid surface.
         unsafe {
             if (*p).text != 0 && self.fontflags[f as usize] & 16 == 0 {
-                self.err(5);
+                self.err(code::ILLEGAL_FUNCTION_CALL);
                 return;
             }
             if (*p).text != 0 && (*p).flags & IMG_SCREEN != 0 {
@@ -369,7 +370,7 @@ impl Display {
     /// `func__loadfont(file$, size, requirements$, passed)`
     pub(crate) fn loadfont(&mut self, file: &[u8], size: i32, req: &[u8], passed: i32) -> i32 {
         if size < 1 {
-            self.err(5);
+            self.err(code::ILLEGAL_FUNCTION_CALL);
             return 0;
         }
         if size > 2048 || file.is_empty() {
@@ -405,14 +406,14 @@ impl Display {
                     "MONOSPACE" => 4,
                     "UNICODE" => 5,
                     _ => {
-                        self.err(5);
+                        self.err(code::ILLEGAL_FUNCTION_CALL);
                         return 0;
                     }
                 };
                 r[k] = r[k].saturating_add(1);
             }
             if r.iter().any(|&c| c > 1) {
-                self.err(5);
+                self.err(code::ILLEGAL_FUNCTION_CALL);
                 return 0;
             }
         }
@@ -449,13 +450,13 @@ impl Display {
         }
         if passed != 0 {
             if bpp != 32 && bpp != 256 {
-                self.err(5);
+                self.err(code::ILLEGAL_FUNCTION_CALL);
                 return 0;
             }
         } else {
             // SAFETY: valid write page.
             if unsafe { (*self.wp()).text } != 0 {
-                self.err(5);
+                self.err(code::ILLEGAL_FUNCTION_CALL);
                 return 0;
             }
             bpp = -1;
@@ -502,7 +503,7 @@ impl Display {
     /// `sub__freefont`
     pub(crate) fn freefont(&mut self, f: i32) {
         if f < 32 || self.font.get(f as usize).is_none_or(|&h| h == 0) {
-            self.err(258);
+            self.err(code::INVALID_HANDLE);
             return;
         }
         // SAFETY: registry reads.
@@ -510,7 +511,7 @@ impl Display {
             for k in 1..nextimg() {
                 let p = &*im(k as u32);
                 if p.valid != 0 && p.font == f as u32 {
-                    self.err(5);
+                    self.err(code::ILLEGAL_FUNCTION_CALL);
                     return;
                 }
             }
@@ -679,7 +680,7 @@ impl Display {
     fn font_metric(&mut self, f: i32, height: bool) -> i32 {
         let ok = matches!(f, 8 | 14 | 16) || (f >= 32 && self.font.get(f as usize).is_some_and(|&h| h != 0));
         if !ok {
-            self.err(258);
+            self.err(code::INVALID_HANDLE);
             return 0;
         }
         if height { self.fontheight[f as usize] } else { self.fontwidth[f as usize] }
@@ -779,7 +780,7 @@ impl Display {
     pub(crate) fn freeimage(&mut self, i: i32, passed: i32) {
         let idx = if passed != 0 {
             if i >= 0 {
-                self.err(5);
+                self.err(code::ILLEGAL_FUNCTION_CALL);
                 return;
             }
             match self.resolve(i) {
@@ -791,7 +792,7 @@ impl Display {
         };
         // SAFETY: valid surface.
         if unsafe { (*im(idx)).flags } & IMG_SCREEN != 0 {
-            self.err(5);
+            self.err(code::ILLEGAL_FUNCTION_CALL);
             return;
         }
         if self.write_index == idx {
@@ -815,7 +816,7 @@ impl Display {
         unsafe {
             let s = &*im(ix);
             if s.text != 0 {
-                self.err(5);
+                self.err(code::ILLEGAL_FUNCTION_CALL);
                 return None;
             }
             let n = usize::from(s.width) * usize::from(s.height);
@@ -836,7 +837,7 @@ impl Display {
         // software images here (as _LOADIMAGE(f$, 33))
         let mode = if passed & 1 != 0 && mode == 33 && s.compatible_mode == 32 { 32 } else { mode };
         if passed & 1 != 0 && mode != i32::from(s.compatible_mode) {
-            self.err(5);
+            self.err(code::ILLEGAL_FUNCTION_CALL);
             return -1;
         }
         let mut e = 0;
@@ -878,11 +879,11 @@ impl Display {
 
     pub(crate) fn pcopy(&mut self, src: i32, dst: i32) {
         let Some(s) = self.resolve(src) else {
-            self.err(5);
+            self.err(code::ILLEGAL_FUNCTION_CALL);
             return;
         };
         let Some(d) = self.resolve(dst) else {
-            self.err(5);
+            self.err(code::ILLEGAL_FUNCTION_CALL);
             return;
         };
         // SAFETY: both surfaces valid.
@@ -905,7 +906,7 @@ impl Display {
                 let i3 = mode.checked_neg().unwrap_or(i32::MAX);
                 // SAFETY: registry read.
                 if i3 >= nextimg() || unsafe { (*im(i3 as u32)).valid } == 0 {
-                    self.err(258);
+                    self.err(code::INVALID_HANDLE);
                     return;
                 }
                 if i3 != i2 {
@@ -913,7 +914,7 @@ impl Display {
                 }
             } else {
                 if gfx::screen::qb_gfx_screen_mode_valid(mode) == 0 {
-                    self.err(5);
+                    self.err(code::ILLEGAL_FUNCTION_CALL);
                     return;
                 }
                 if i2 != 0 {
@@ -931,7 +932,7 @@ impl Display {
         }
         if passed & 4 != 0 {
             if !(0..=MAX_PAGE).contains(&active_page) {
-                self.err(5);
+                self.err(code::ILLEGAL_FUNCTION_CALL);
                 return;
             }
             if passed & 8 == 0 {
@@ -948,7 +949,7 @@ impl Display {
         }
         if passed & 8 != 0 {
             if !(0..=MAX_PAGE).contains(&visual_page) {
-                self.err(5);
+                self.err(code::ILLEGAL_FUNCTION_CALL);
                 return;
             }
             if i & 1 == 0 {
@@ -1195,7 +1196,7 @@ impl Display {
             if option == 2 && passed == 1 && (1..=255).contains(&value1) {
                 return;
             }
-            self.err(5);
+            self.err(code::ILLEGAL_FUNCTION_CALL);
             return;
         }
         self.width8050switch = false;
@@ -1211,7 +1212,7 @@ impl Display {
                 return;
             }
             if passed & 3 == 0 {
-                self.err(5);
+                self.err(code::ILLEGAL_FUNCTION_CALL);
                 return;
             }
             let mode = i32::from((*w).compatible_mode);
@@ -1221,7 +1222,7 @@ impl Display {
                     width = pw;
                 } else {
                     if width <= 0 {
-                        self.err(5);
+                        self.err(code::ILLEGAL_FUNCTION_CALL);
                         return;
                     }
                     width = width.saturating_mul(self.fontwidth[font as usize].max(1));
@@ -1230,7 +1231,7 @@ impl Display {
                     height = ph;
                 } else {
                     if height <= 0 {
-                        self.err(5);
+                        self.err(code::ILLEGAL_FUNCTION_CALL);
                         return;
                     }
                     height = height.saturating_mul(self.fontheight[font as usize]);
@@ -1238,7 +1239,7 @@ impl Display {
                 // a surface side is 16 bits and its byte size fits an i32 (registry)
                 let bpp = i64::from((*self.wp()).bytes_per_pixel);
                 if !(1..=65535).contains(&width) || !(1..=65535).contains(&height) || i64::from(width) * i64::from(height) * bpp > i64::from(i32::MAX) {
-                    self.err(5);
+                    self.err(code::ILLEGAL_FUNCTION_CALL);
                     return;
                 }
                 if width == pw && height == ph {
@@ -1280,7 +1281,7 @@ impl Display {
             if passed & 1 == 0 {
                 // width omitted
                 if height <= 0 {
-                    self.err(5);
+                    self.err(code::ILLEGAL_FUNCTION_CALL);
                     return;
                 }
                 if mode == 0 {
@@ -1334,13 +1335,13 @@ impl Display {
                     self.width_screen0(cmem, -1, height, -1);
                     return;
                 }
-                self.err(5);
+                self.err(code::ILLEGAL_FUNCTION_CALL);
                 return;
             }
             if passed & 2 == 0 {
                 // height omitted
                 if width <= 0 {
-                    self.err(5);
+                    self.err(code::ILLEGAL_FUNCTION_CALL);
                     return;
                 }
                 if mode == 0 {
@@ -1368,12 +1369,12 @@ impl Display {
                     self.width_screen0(cmem, width, -1, -1);
                     return;
                 }
-                self.err(5);
+                self.err(code::ILLEGAL_FUNCTION_CALL);
                 return;
             }
             // both passed
             if width <= 0 || height <= 0 {
-                self.err(5);
+                self.err(code::ILLEGAL_FUNCTION_CALL);
                 return;
             }
             if mode == 0 {
@@ -1437,7 +1438,7 @@ impl Display {
                 self.width_screen0(cmem, width, height, f);
                 return;
             }
-            self.err(5);
+            self.err(code::ILLEGAL_FUNCTION_CALL);
         }
     }
 
@@ -1626,7 +1627,7 @@ pub(crate) fn memimage(vm: &mut dyn VmIface<'_>, handle: i32, given: bool) -> R<
     d.start(cmem, console_on, console_only);
     let idx = if given { d.resolve(handle) } else { Some(d.write_index) };
     chk(d)?;
-    let Some(idx) = idx else { return Err(Stop::Err(258)) };
+    let Some(idx) = idx else { return Err(Stop::Err(code::INVALID_HANDLE)) };
     // its pixels can now be read without a builtin call: 3D _MAPTRIANGLE draws on it at once
     qb_runtime::maptri3d::expose(idx);
     // SAFETY: a valid registry entry; the lock is created once per image and freed with it.
@@ -2208,7 +2209,7 @@ pub(crate) fn call_id(vm: &mut dyn VmIface<'_>, name: &str, id: super::ids::Id, 
                     Some((base, total)) => {
                         let elem = if a[0].p() == a[1].p() { base } else { a[0].p() };
                         if elem < base || elem + (last + 1) * size > base + total {
-                            d.err(5); // the array does not hold a value for every attribute
+                            d.err(code::ILLEGAL_FUNCTION_CALL); // the array does not hold a value for every attribute
                         } else {
                             for k in 0..=last {
                                 let at = (elem + k * size) as *const u8;
@@ -2223,7 +2224,7 @@ pub(crate) fn call_id(vm: &mut dyn VmIface<'_>, name: &str, id: super::ids::Id, 
                             }
                         }
                     }
-                    None => d.err(5),
+                    None => d.err(code::ILLEGAL_FUNCTION_CALL),
                 }
             }
             ids::SUB_GRAPHICS_GET | ids::SUB_GRAPHICS_PUT => {
@@ -2233,7 +2234,7 @@ pub(crate) fn call_id(vm: &mut dyn VmIface<'_>, name: &str, id: super::ids::Id, 
                 let (base, total) = match ext {
                     Some(x) => x,
                     None => {
-                        d.err(5);
+                        d.err(code::ILLEGAL_FUNCTION_CALL);
                         (0, 0)
                     }
                 };

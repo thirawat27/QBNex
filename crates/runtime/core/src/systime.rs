@@ -3,6 +3,7 @@
 //! A monotonic millisecond tick count, the wall clock and the local time of
 //! day, and the program clock that `TIME$ =` and `DATE$ =` move.
 
+use crate::error::code;
 use chrono::{NaiveDate, NaiveDateTime, NaiveTime, TimeDelta};
 use std::sync::atomic::{AtomicI64, Ordering};
 #[cfg(not(target_arch = "wasm32"))]
@@ -121,8 +122,6 @@ static ORIGIN: OnceLock<Instant> = OnceLock::new();
 /// TIME$, DATE$ and TIMER read the wall clock plus this offset.
 static CLOCK_OFFSET_MS: AtomicI64 = AtomicI64::new(0);
 
-/// QBasic error for a badly formed `TIME$ =` / `DATE$ =` value.
-const ERR_ILLEGAL_CALL: i32 = 5;
 
 /// The offset (milliseconds) the program clock is ahead of the wall clock.
 pub fn clock_offset_ms() -> i64 {
@@ -202,14 +201,14 @@ pub fn parse_date(s: &[u8]) -> Option<NaiveDate> {
 
 /// `TIME$ = s`: the program clock reads `s` on today's (program) date from now on.
 pub fn set_time(s: &[u8]) -> Result<(), i32> {
-    let t = parse_time(s).ok_or(ERR_ILLEGAL_CALL)?;
+    let t = parse_time(s).ok_or(code::ILLEGAL_FUNCTION_CALL)?;
     set_program_clock(program_now().date().and_time(t));
     Ok(())
 }
 
 /// `DATE$ = s`: the program clock reads date `s` at the current (program) time of day.
 pub fn set_date(s: &[u8]) -> Result<(), i32> {
-    let d = parse_date(s).ok_or(ERR_ILLEGAL_CALL)?;
+    let d = parse_date(s).ok_or(code::ILLEGAL_FUNCTION_CALL)?;
     set_program_clock(d.and_time(program_now().time()));
     Ok(())
 }
