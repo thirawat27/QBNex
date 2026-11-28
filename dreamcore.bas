@@ -49,7 +49,7 @@ DIM SHARED subOn, subS$, subFull$, subAl, subGl$, glTick, glLine
 
 ' ---- scenes ----------------------------------------------------------------------
 ' each scene: place, camera shot, scare event
-DIM SHARED scEnv(49), scCam(49), evList(49)
+DIM SHARED scEnv(49), scCam(49), evList(49), scEye(49)
 DIM SHARED tNow, horror, act, wCur, wNext
 DIM SHARED glitchAmt, staticAmt, voiceEnv, evType, evPh, evTxt$
 
@@ -71,10 +71,11 @@ DIM SHARED enL$(50), phL$(50), lineAt(50), lineStart(50), lineDur(50)
 DIM SHARED sinTab(4095), melody(63), chordN(7, 3)
 DIM SHARED pPh(7), pInc(7), pLp(7), lastStep AS LONG
 DIM SHARED mbP, mbP2, mbI, mbE, bsP, bsI, hbP, hbI, hbE
-DIM SHARED stE, stF, stP, stingW, fgP, rmb, wowP, mLpL, mLpR
+DIM SHARED stE, stF, stPh, stingW, sting2W, fgP, rmb, mLpL
+DIM SHARED jsE, jsF, jsP, jsA, jsB, jsC
 DIM SHARED rvBuf(24575), rvOff(11) AS LONG, rvLen(11) AS LONG, rvIdx(11) AS LONG, rvLp(7)
 DIM SHARED gWind, gWater, gHum, gTick, gCrick, gDrone, gHiss, mCut
-DIM SHARED wLp, wLp2, hum1, drpE, drpP, drpI, tickE, crP, drP1, drP2, crk, musPos
+DIM SHARED wLp, wLp2, hum1, drpE, drpP, drpI, tickE, crP, drP1, drP2, crk, musPos, kyP, kyE, revW, brE
 
 DIM t0 AS DOUBLE, tn AS DOUBLE, prevT AS DOUBLE, dayAdd AS DOUBLE
 
@@ -96,6 +97,11 @@ IF _GPU3D = 0 THEN
     SLEEP
     SYSTEM
 END IF
+' the first start after a new build has the graphics driver compile the
+' shader, which can take a while: say so instead of showing a black screen
+IF INSTR(cmd$, "/W") = 0 THEN _FULLSCREEN _SQUAREPIXELS
+LoadFonts
+ShowLoading
 IF InitGPU = 0 THEN
     COLOR _RGB32(255, 200, 200)
     _FONT 16
@@ -105,16 +111,11 @@ IF InitGPU = 0 THEN
     SLEEP
     SYSTEM
 END IF
-IF INSTR(cmd$, "/W") = 0 THEN _FULLSCREEN _SQUAREPIXELS
 _PRINTMODE _KEEPBACKGROUND
 
 InitData
-LoadFonts
 InitAudio
-
-_DEST scr
-CLS
-_DISPLAY
+ShowLoading
 
 ' /T=seconds starts the tour later (for example /T=630 starts at minute 10.5)
 startAt = 0
@@ -125,6 +126,14 @@ DO WHILE nextLine <= 50
     IF lineAt(nextLine) >= startAt THEN EXIT DO
     nextLine = nextLine + 1
 LOOP
+
+' warm-up: the first 3D frame is when the graphics driver builds the shader
+' (up to a minute after a new build), so draw one frame behind the loading
+' screen and start the clock only when it is done; otherwise the first world
+' would be over before anything is seen
+UpdateWorld startAt
+DrawScene startAt
+_DISPLAY
 
 t0 = TIMER(.001) - startAt: prevT = TIMER(.001): dayAdd = 0
 lastEl = startAt: fpsT = startAt
@@ -140,17 +149,7 @@ DO
 
     UpdateWorld el
     AudioPump el
-    ' a cube around the camera: every pixel of the screen runs the shader once
-    _CAMERA (camX, camY, camZ) TO (camX + cfX * 5, camY + cfY * 5, camZ + cfZ * 5), 60
-    _SHADERPARAM tracer, 0, camX: _SHADERPARAM tracer, 1, camY
-    _SHADERPARAM tracer, 2, camZ: _SHADERPARAM tracer, 3, el
-    _SHADERPARAM tracer, 4, wCur: _SHADERPARAM tracer, 5, wNext
-    _SHADERPARAM tracer, 8, camRoll: _SHADERPARAM tracer, 9, voiceEnv
-    _SHADERPARAM tracer, 10, evType + evPh * .999: _SHADERPARAM tracer, 11, glitchAmt
-    _SHADERPARAM tracer, 12, camYaw: _SHADERPARAM tracer, 13, camPitch
-    _SHADERPARAM tracer, 14, staticAmt: _SHADERPARAM tracer, 15, gpuQ
-    _CLEAR3D 0
-    _DRAW3D dome, camX, camY, camZ, 0, 0, 0, 20, 20, 20
+    DrawScene el
     ' the 3D layer covers the screen page, so text and HUD go on a
     ' transparent overlay drawn in 3D right in front of the camera; it is
     ' redrawn only when what it shows changes
@@ -165,14 +164,30 @@ DO
 
     k$ = INKEY$
     IF k$ = CHR$(27) THEN SYSTEM
+    ' Enter skips to the start of the next world (or to the farewell)
+    IF k$ = CHR$(13) THEN
+        nt = (INT(el / WLEN) + 1) * WLEN + .05
+        IF nt > 900 THEN nt = 900
+        IF nt > el THEN
+            t0 = t0 - (nt - el)
+            lastEl = nt: fpsT = nt: fcount = 0
+            genS = CLNG(nt * sr)
+            segIdx = segN
+            DO WHILE nextLine <= 50
+                IF lineAt(nextLine) >= nt THEN EXIT DO
+                nextLine = nextLine + 1
+            LOOP
+        END IF
+    END IF
 
     ' keep the frame rate up: fewer or more raymarch steps per pixel, judged
     ' on the frame time averaged over a few frames
     ftAvg = ftAvg * .85 + dt * .15
-    IF ftAvg > 1 / 30 THEN
+    ' dynamic quality, as games do: aim for about 55 frames a second
+    IF ftAvg > 1 / 48 THEN
         gpuQ = gpuQ - 2
-        IF gpuQ < 60 THEN gpuQ = 60
-    ELSEIF ftAvg < 1 / 45 THEN
+        IF gpuQ < 48 THEN gpuQ = 48
+    ELSEIF ftAvg < 1 / 62 THEN
         gpuQ = gpuQ + 1
         IF gpuQ > 180 THEN gpuQ = 180
     END IF
@@ -186,7 +201,8 @@ SYSTEM
 ' 4 bedroom, 5 mall, 6 walkway over the clouds, 7 classroom, 8 street,
 ' 9 mirror water, 10 void), camera shot (0 walk, 1 glide, 2 curve around,
 ' 3 crane down, 4 creep, 5 stand and stare), scare event (0 none, 1 blinks,
-' 2 blackout, 3 look back, 4 a figure, 5 lunge). The places, skies and
+' 2 blackout, 3 look back, 4 a figure, 5 lunge; 6, the jump scare of the
+' five worlds in ScareWorld, is set in EventAt). The places, skies and
 ' doorways are in the shader's sceneBase table, in the same order.
 Scenes:
 DATA 0,2,0, 1,0,1, 2,1,0, 4,4,4, 0,3,1, 5,3,2, 1,2,0, 2,0,3, 7,4,1, 0,5,4
@@ -250,17 +266,23 @@ DATA "Let it all melt away.","L EH1 T / IH T / AO1 L / M EH1 L T / AH W EY1 ."
 DATA "It is time to wake up.","IH T / IH Z / T AY1 M / T UW / W EY1 K / AH1 P ."
 DATA "Goodbye. See you again in the dream.","G UH D B AY1 . S IY1 / Y UW / AH G EH1 N / IH N / DH AH / D R IY1 M ."
 
-' the lullaby: 8 bars of eighth notes (MIDI note, 0 = rest)
+' the theme: 8 bars of eighth notes (MIDI note, 0 = rest), slow and floating
 Melody:
-DATA 76,0,79,0,84,0,83,81, 79,0,0,0,76,0,0,0
-DATA 77,0,81,0,86,0,84,83, 84,0,0,0,79,0,0,0
-DATA 81,0,79,0,76,0,74,0, 72,0,76,0,79,0,0,0
-DATA 77,0,76,0,74,0,67,0, 72,0,0,0,0,0,0,0
-' one chord per bar: C, Em, Dm, C, Am, C, G7, C
+DATA 72,0,76,0,79,77,76,0, 74,0,0,0,71,0,0,0
+DATA 72,0,76,0,79,77,76,0, 79,0,0,0,83,0,81,0
+DATA 81,0,77,0,76,0,74,0, 76,0,0,0,71,0,74,0
+DATA 72,0,0,0,69,0,72,0, 71,0,0,0,0,0,0,0
+' one chord per bar: Fmaj7, Em7, Am7, Cmaj7, Dm7, Em7, Fmaj7, G6
 Harmony:
-DATA 48,52,55,59, 52,55,59,62, 50,53,57,60, 48,52,55,60
-DATA 45,48,52,55, 48,52,55,59, 43,47,50,53, 48,52,55,59
-
+DATA 41,45,48,52, 40,43,47,50, 45,48,52,55, 48,52,55,59
+DATA 50,53,57,60, 40,43,47,50, 41,45,48,52, 43,47,50,52
+' where the watcher is in each scene (as the shader's table): 0 nowhere,
+' 1 ahead beside the path, 2 waits at a set place, 3 in the sky, 4 at the
+' end of the hall, 5 behind you
+EyeModes:
+DATA 1,2,1,2,1,2,1,4,2,3, 4,1,5,4,4,1,2,4,5,3
+DATA 2,4,1,1,4,3,5,4,1,2, 1,3,4,2,1,1,5,4,1,3
+DATA 1,1,4,3,1,2,1,5,1,0
 GpuShader:
 ' the GPU raymarcher in WGSL, one source line per DATA string ('~' ends it)
 DATA "// DREAMCORE v2 raymarcher. Each of the 50 scenes is a composed place in its"
@@ -292,7 +314,6 @@ DATA "var<private> tb2: vec3f;"
 DATA "var<private> sat1: f32;"
 DATA "var<private> sat2: f32;"
 DATA "var<private> fogC: vec3f;"
-DATA "var<private> fogD: f32;"
 DATA "var<private> gMat: i32;"
 DATA "var<private> gEyeD: f32;"
 DATA "var<private> gLoc: vec3f;"
@@ -414,18 +435,18 @@ DATA "    return s;"
 DATA "}"
 DATA ""
 DATA "fn fogOf(sky: i32) -> vec3f {"
-DATA "    var c = vec3f(225.0, 190.0, 235.0);"
+DATA "    var c = vec3f(238.0, 180.0, 232.0);"
 DATA "    switch sky {"
 DATA "        case 1: { c = vec3f(150.0, 115.0, 170.0); }"
 DATA "        case 2: { c = vec3f(45.0, 4.0, 14.0); }"
 DATA "        case 3: { c = vec3f(255.0, 255.0, 255.0); }"
 DATA "        case 4: { c = vec3f(40.0, 40.0, 82.0); }"
-DATA "        case 5: { c = vec3f(240.0, 160.0, 150.0); }"
-DATA "        case 6: { c = vec3f(195.0, 230.0, 230.0); }"
+DATA "        case 5: { c = vec3f(252.0, 150.0, 145.0); }"
+DATA "        case 6: { c = vec3f(165.0, 228.0, 232.0); }"
 DATA "        case 7: { c = vec3f(215.0, 200.0, 240.0); }"
 DATA "        case 8: { c = vec3f(225.0, 200.0, 180.0); }"
 DATA "        case 9: { c = vec3f(55.0, 32.0, 85.0); }"
-DATA "        case 10: { c = vec3f(205.0, 225.0, 245.0); }"
+DATA "        case 10: { c = vec3f(170.0, 205.0, 248.0); }"
 DATA "        default: { }"
 DATA "    }"
 DATA "    return c;"
@@ -1015,7 +1036,11 @@ DATA "var<private> wd: f32;"
 DATA "var<private> wm: i32;"
 DATA "var<private> wl: vec3f;"
 DATA "var<private> wc: vec3f;"
+DATA "// true when a piece with this bounding radius around q could be the nearest"
+DATA "fn nearB(q: vec3f, r: f32) -> bool { return length(q) - r < wd; }"
+DATA ""
 DATA "fn put(d: f32) {"
+DATA "    if (oMat == 3 || oMat == 26 || oMat == 30 || oMat == 38) { emD = min(emD, d); }"
 DATA "    if (d < wd) { wd = d; wm = oMat; wl = oLoc; }"
 DATA "}"
 DATA ""
@@ -1027,12 +1052,40 @@ DATA "    return h + 3.0 * smoothstep(14.0, 45.0, abs(x)) * (0.6 + 0.4 * sin(z *
 DATA "}"
 DATA ""
 DATA "fn envMeadow(p: vec3f, v: i32) {"
-DATA "    wd = (p.y - mh(p.x, p.z)) * 0.7; wm = 10; wl = p;"
+DATA "    wd = (p.y - mh(p.x, p.z)) * 0.85; wm = 10; wl = p;"
+DATA "    // mushrooms by the path"
+DATA "    let mq = vec3f(abs(p.x) - 2.6, p.y - mh(2.6, 6.0), p.z - 8.0 * round((p.z - 6.0) / 8.0) - 6.0);"
+DATA "    if (length(mq) < 1.0) {"
+DATA "        let stem = capsule(mq, vec3f(0.0), vec3f(0.0, 0.24, 0.0), 0.05);"
+DATA "        let capd = max(length(mq - vec3f(0.0, 0.22, 0.0)) - 0.17, 0.22 - mq.y);"
+DATA "        let mu = min(stem, capd);"
+DATA "        if (mu < wd) { wd = mu; wm = 50; wl = mq - vec3f(0.0, 0.23, 0.0); }"
+DATA "    }"
+DATA "    // a water tower far off, and a little floating island with a house"
+DATA "    let wt = p - vec3f(38.0, mh(38.0, 55.0), 55.0);"
+DATA "    if (length(wt - vec3f(0.0, 12.0, 0.0)) - 16.0 < wd) {"
+DATA "        var w = max(length(wt.xz) - 3.0, abs(wt.y - 18.0) - 2.2);"
+DATA "        w = min(w, max(length(wt.xz) - 3.3 + (wt.y - 20.2) * 0.9, max(20.2 - wt.y, wt.y - 23.5)));"
+DATA "        let lq = vec3f(abs(wt.x) - 2.2, wt.y, abs(wt.z) - 2.2);"
+DATA "        w = min(w, capsule(lq, vec3f(0.0), vec3f(0.0, 16.0, 0.0), 0.2));"
+DATA "        if (w < wd) { wd = w; wm = 15; wl = wt; }"
+DATA "    }"
+DATA "    let fi = p - vec3f(-45.0, 22.0 + sin(T * 0.2), 80.0);"
+DATA "    if (length(fi) - 16.0 < wd) {"
+DATA "        var rock = max(length(fi.xz) - 9.0 + fi.y * 0.0, abs(fi.y + 0.6) - 0.6);"
+DATA "        rock = min(rock, max(length(fi.xz) - 9.0 * clamp((fi.y + 9.0) / 9.0, 0.0, 1.0), max(-fi.y - 9.0, fi.y)) * 0.6);"
+DATA "        if (rock < wd) { wd = rock; wm = select(31, 10, fi.y > -0.1); wl = fi; }"
+DATA "        put(oHouse(fi - vec3f(0.0, 3.6, 0.0), 1.0));"
+DATA "    }"
 DATA "    if (v == 0) {"
-DATA "        put(tree(p - vec3f(6.5, mh(6.5, 7.0), 7.0)));"
-DATA "        put(doorway(spinY(p - vec3f(-7.0, mh(-7.0, 11.0), 11.0), 0.5), 0));"
-DATA "        put(doorway(spinY(p - vec3f(9.0, mh(9.0, 19.0), 19.0), -0.4), 2));"
-DATA "        put(doorway(spinY(p - vec3f(-12.0, mh(-12.0, 24.0), 24.0), 0.2), 0));"
+DATA "        let t0 = p - vec3f(6.5, mh(6.5, 7.0), 7.0);"
+DATA "        if (nearB(t0 - vec3f(0.0, 2.6, 0.0), 3.0)) { put(tree(t0)); }"
+DATA "        let d0 = p - vec3f(-7.0, mh(-7.0, 11.0), 11.0);"
+DATA "        if (nearB(d0 - vec3f(0.0, 1.25, 0.0), 3.2)) { put(doorway(spinY(d0, 0.5), 0)); }"
+DATA "        let d1 = p - vec3f(9.0, mh(9.0, 19.0), 19.0);"
+DATA "        if (nearB(d1 - vec3f(0.0, 1.25, 0.0), 3.2)) { put(doorway(spinY(d1, -0.4), 2)); }"
+DATA "        let d2 = p - vec3f(-12.0, mh(-12.0, 24.0), 24.0);"
+DATA "        if (nearB(d2 - vec3f(0.0, 1.25, 0.0), 3.2)) { put(doorway(spinY(d2, 0.2), 0)); }"
 DATA "    } else if (v == 1) {"
 DATA "        put(oTV(spinY(p - vec3f(-3.8, mh(-3.8, 10.0) + 0.85, 10.0), 0.3), 1.0));"
 DATA "        put(oBed(spinY(onGround(p, 4.8, mh(4.8, 17.0), 17.0), -0.3)));"
@@ -1053,12 +1106,17 @@ DATA "            let kk = min(k + f32(n), 15.0);"
 DATA "            st = min(st, box3(sq - vec3f(0.0, 0.175 + kk * 0.35, kk * 0.7 + 0.35), vec3f(0.9, 0.175 + 0.0, 0.35)));"
 DATA "        }"
 DATA "        if (st < wd) { wd = st; wm = 22; wl = sq; }"
-DATA "        put(doorway(p - vec3f(5.5, 5.6, 17.6), 4));"
-DATA "        put(oStair(p - vec3f(-9.0, 3.5 + mh(-9.0, 20.0), 20.0), 0.3));"
+DATA "        let tq = p - vec3f(5.5, 5.6, 17.6);"
+DATA "        if (nearB(tq - vec3f(0.0, 1.25, 0.0), 3.2)) { put(doorway(tq, 4)); }"
+DATA "        let oq = p - vec3f(-9.0, 3.5 + mh(-9.0, 20.0), 20.0);"
+DATA "        if (nearB(oq, 4.4)) { put(oStair(oq, 0.3)); }"
 DATA "    } else if (v == 3) {"
-DATA "        put(oSwing(onGround(p, -7.5, mh(-7.5, 14.0), 14.0), 0.4));"
-DATA "        put(oLamp(onGround(p, -4.6, mh(-4.6, 8.0), 8.0), 1.0));"
-DATA "        put(tree(p - vec3f(8.0, mh(8.0, 20.0), 20.0)));"
+DATA "        let wq = onGround(p, -7.5, mh(-7.5, 14.0), 14.0);"
+DATA "        if (nearB(wq + vec3f(0.0, 2.0, 0.0), 3.3)) { put(oSwing(wq, 0.4)); }"
+DATA "        let lq = onGround(p, -4.6, mh(-4.6, 8.0), 8.0);"
+DATA "        if (nearB(lq + vec3f(0.0, 0.8, 0.0), 3.6)) { put(oLamp(lq, 1.0)); }"
+DATA "        let tq = p - vec3f(8.0, mh(8.0, 20.0), 20.0);"
+DATA "        if (nearB(tq - vec3f(0.0, 2.6, 0.0), 3.0)) { put(tree(tq)); }"
 DATA "    } else {"
 DATA "        // a field of doors"
 DATA "        let cx = round(p.x / 7.0);"
@@ -1066,9 +1124,10 @@ DATA "        let cz = round(p.z / 9.0);"
 DATA "        if (abs(cx) >= 1.0) {"
 DATA "            let h = hs(cx * 3.7 + cz * 1.9);"
 DATA "            let q = vec3f(p.x - cx * 7.0, p.y - mh(cx * 7.0, cz * 9.0), p.z - cz * 9.0);"
-DATA "            let dd = doorway(spinY(q, (h - 0.5) * 1.5), select(0, 5, h > 0.5));"
 DATA "            let bnd = max(min(3.5 - abs(q.x), 4.5 - abs(q.z)), 0.0) + 0.5;"
-DATA "            put(min(dd, bnd));"
+DATA "            if (nearB(q - vec3f(0.0, 1.25, 0.0), 3.2)) {"
+DATA "                put(min(doorway(spinY(q, (h - 0.5) * 1.5), select(0, 5, h > 0.5)), bnd));"
+DATA "            } else if (bnd < wd) { wd = bnd; }"
 DATA "        }"
 DATA "    }"
 DATA "}"
@@ -1076,9 +1135,27 @@ DATA ""
 DATA "// ---- 1 playground ----"
 DATA "fn envPlay(p: vec3f, v: i32) {"
 DATA "    wd = p.y; wm = 37; wl = p;"
-DATA "    put(oSwing(onGround(p, -7.5, 0.0, 9.0), 0.2));"
-DATA "    put(oSlide(spinY(onGround(p, 7.0, 0.0, 14.0), 3.14159)));"
+DATA "    // a ferris wheel far away, turning slowly"
+DATA "    let fw = p - vec3f(-48.0, 0.0, 62.0);"
+DATA "    if (length(fw - vec3f(0.0, 14.0, 0.0)) - 16.0 < wd) {"
+DATA "        let c = fw - vec3f(0.0, 14.0, 0.0);"
+DATA "        let rr = rot2(c.xy, T * 0.05);"
+DATA "        var w = length(vec2f(length(c.xy) - 12.0, c.z)) - 0.25;"
+DATA "        let an = atan2(rr.y, rr.x);"
+DATA "        let sec = 6.2831853 / 12.0;"
+DATA "        let aw = an - sec * round(an / sec);"
+DATA "        let rl = length(rr);"
+DATA "        w = min(w, max(length(vec2f(rl * sin(aw), c.z)) - 0.1, rl - 12.0));"
+DATA "        let cab = vec3f(rl * cos(aw) - 12.0, rl * sin(aw), c.z);"
+DATA "        w = min(w, box3(cab + vec3f(0.0, 0.0, 0.0), vec3f(0.7, 0.6, 0.6)));"
+DATA "        let leg = vec3f(abs(fw.x) - 3.5 + fw.y * 0.25, fw.y, fw.z);"
+DATA "        w = min(w, box3(leg - vec3f(0.0, 7.0, 0.0), vec3f(0.25, 7.0, 0.25)));"
+DATA "        if (w < wd) { wd = w; wm = 13; wl = fw; }"
+DATA "    }"
+DATA "    if (nearB(p - vec3f(-7.5, 1.6, 9.0), 3.3)) { put(oSwing(onGround(p, -7.5, 0.0, 9.0), 0.2)); }"
+DATA "    if (nearB(p - vec3f(7.0, 1.2, 14.0), 3.9)) { put(oSlide(spinY(onGround(p, 7.0, 0.0, 14.0), 3.14159))); }"
 DATA "    // merry-go-round"
+DATA "    if (nearB(p - vec3f(-6.8, 0.6, 20.0), 2.1)) {"
 DATA "    let m = spinY(p - vec3f(-6.8, 0.0, 20.0), T * 0.35);"
 DATA "    var mg = max(length(m.xz) - 1.7, abs(m.y - 0.55) - 0.06);"
 DATA "    mg = min(mg, capsule(m, vec3f(0.0, 0.0, 0.0), vec3f(0.0, 1.3, 0.0), 0.06));"
@@ -1086,19 +1163,27 @@ DATA "    let ma = vec3f(abs(m.x), m.y, abs(m.z));"
 DATA "    mg = min(mg, capsule(ma, vec3f(0.3, 1.25, 0.3), vec3f(1.2, 1.1, 1.2), 0.035));"
 DATA "    mg = min(mg, capsule(ma, vec3f(1.2, 0.6, 1.2), vec3f(1.2, 1.1, 1.2), 0.035));"
 DATA "    if (mg < wd) { wd = mg; wm = 13; wl = m; }"
+DATA "    }"
 DATA "    // seesaw"
 DATA "    let s = p - vec3f(6.8, 0.0, 23.0);"
+DATA "    if (nearB(s - vec3f(0.0, 0.6, 0.0), 2.2)) {"
 DATA "    let r = rot2(vec2f(s.z, s.y - 0.55), 0.25 * sin(T * 0.8));"
 DATA "    var ss = box3(vec3f(s.x, r.y, r.x), vec3f(0.14, 0.05, 1.9));"
 DATA "    ss = min(ss, box3(s - vec3f(0.0, 0.27, 0.0), vec3f(0.2, 0.27, 0.15)));"
 DATA "    if (ss < wd) { wd = ss; wm = 13; wl = s; }"
+DATA "    }"
 DATA "    // fence"
+DATA "    if (abs(abs(p.x) - 10.5) - 0.2 < wd) {"
 DATA "    let fz = p.z - 2.0 * round(p.z / 2.0);"
 DATA "    var fe = box3(vec3f(abs(p.x) - 10.5, p.y - 0.55, fz), vec3f(0.06, 0.55, 0.06));"
 DATA "    fe = min(fe, box3(vec3f(abs(p.x) - 10.5, p.y - 0.85, 0.0), vec3f(0.04, 0.04, 100.0)));"
 DATA "    fe = min(fe, box3(vec3f(abs(p.x) - 10.5, p.y - 0.4, 0.0), vec3f(0.04, 0.04, 100.0)));"
 DATA "    if (fe < wd) { wd = fe; wm = 15; wl = p; }"
-DATA "    if (v >= 1) { put(oLamp(onGround(p, -4.8, 0.0, 5.0), 1.0)); put(oLamp(onGround(p, 4.8, 0.0, 17.0), -1.0)); }"
+DATA "    }"
+DATA "    if (v >= 1) {"
+DATA "        if (nearB(p - vec3f(-4.8, 2.8, 5.0), 3.6)) { put(oLamp(onGround(p, -4.8, 0.0, 5.0), 1.0)); }"
+DATA "        if (nearB(p - vec3f(4.8, 2.8, 17.0), 3.6)) { put(oLamp(onGround(p, 4.8, 0.0, 17.0), -1.0)); }"
+DATA "    }"
 DATA "}"
 DATA ""
 DATA "// ---- 2 poolrooms ----"
@@ -1114,7 +1199,7 @@ DATA "    let skyl = box3(vec3f(abs(p.x) - 3.5, p.y - 6.2, p.z - 6.0 * round(p.z
 DATA "    room = min(room, max(skyl, -(p.z - 0.5)));"
 DATA "    room = min(room, box3(p - vec3f(0.0, 1.15, L), vec3f(DOOR_W, 1.15, 0.25)));"
 DATA "    room = min(room, box3(p - vec3f(0.0, 1.15, 0.0), vec3f(DOOR_W, 1.15, 0.25)));"
-DATA "    wd = -room; wm = 32; wl = p;"
+DATA "    wd = max(-room, box3(p - vec3f(0.0, 2.3, L * 0.5), vec3f(14.8, 4.1, L * 0.5 + 0.4))); wm = 32; wl = p;"
 DATA "    // walkway, pool basins and the water in them"
 DATA "    let walk = box3(p - vec3f(0.0, -0.75, L * 0.5), vec3f(1.3, 0.75, L * 0.5 + 1.0));"
 DATA "    let lip = box3(vec3f(abs(p.x) - 6.6, p.y + 0.75, p.z - L * 0.5), vec3f(0.4, 0.75, L * 0.5 + 1.0));"
@@ -1155,6 +1240,7 @@ DATA "        if (door < wd) { wd = door; wm = 15; wl = p; }"
 DATA "    }"
 DATA "    let lz = p.z - 3.0 * clamp(round((p.z - 1.5) / 3.0), 0.0, 9.0) - 1.5;"
 DATA "    let lamp = box3(vec3f(p.x, p.y - 2.79, lz), vec3f(0.55, 0.02, 0.28));"
+DATA "    emD = min(emD, lamp);"
 DATA "    if (lamp < wd) { wd = lamp; wm = 38; wl = vec3f(p.z, 0.0, 0.0); }"
 DATA "}"
 DATA ""
@@ -1164,7 +1250,7 @@ DATA "    var room = box3(p - vec3f(0.0, 1.6, L * 0.5), vec3f(4.5, 1.6, L * 0.5)
 DATA "    room = min(room, box3(p - vec3f(-4.7, 1.75, 9.0), vec3f(0.5, 0.75, 1.3)));"
 DATA "    room = min(room, box3(p - vec3f(0.0, 1.15, L), vec3f(DOOR_W, 1.15, 0.25)));"
 DATA "    room = min(room, box3(p - vec3f(0.0, 1.15, 0.0), vec3f(DOOR_W, 1.15, 0.25)));"
-DATA "    wd = -room; wm = 21; wl = p;"
+DATA "    wd = max(-room, box3(p - vec3f(0.0, 1.6, L * 0.5), vec3f(4.85, 1.95, L * 0.5 + 0.35))); wm = 21; wl = p;"
 DATA "    if (p.y < 0.02) { wm = 12; }"
 DATA "    let mul = min(box3(p - vec3f(-4.55, 1.75, 9.0), vec3f(0.05, 0.75, 0.04)), box3(p - vec3f(-4.55, 1.75, 9.0), vec3f(0.05, 0.04, 1.3)));"
 DATA "    if (mul < wd) { wd = mul; wm = 15; wl = p; }"
@@ -1172,6 +1258,7 @@ DATA "    put(oBed(onGround(p, -2.7, 0.0, 5.0)));"
 DATA "    put(box3(p - vec3f(-3.9, 0.3, 2.4), vec3f(0.4, 0.3, 0.4)));"
 DATA "    let lampq = p - vec3f(-3.9, 0.85, 2.4);"
 DATA "    let lp = length(lampq) - 0.2;"
+DATA "    emD = min(emD, lp);"
 DATA "    if (lp < wd) { wd = lp; wm = 3; wl = p; }"
 DATA "    put(box3(p - vec3f(3.9, 0.45, 9.0), vec3f(0.5, 0.45, 1.2)));"
 DATA "    put(oTV(spinY(p - vec3f(3.85, 1.45, 9.0), 0.0) * 1.8, -1.0) / 1.8);"
@@ -1184,6 +1271,7 @@ DATA "    if (ball < wd) { wd = ball; wm = 13; wl = p; }"
 DATA "    let post = box3(vec3f(abs(p.x) - 4.48, p.y - 1.8, p.z - select(4.0, 12.0, p.x > 0.0)), vec3f(0.02, 0.6, 0.45));"
 DATA "    if (post < wd) { wd = post; wm = select(42, 48, v >= 2); wl = p - vec3f(0.0, 1.8, select(4.0, 12.0, p.x > 0.0)); }"
 DATA "    let ceil = length(p - vec3f(0.0, 3.05, 7.0)) - 0.25;"
+DATA "    emD = min(emD, ceil);"
 DATA "    if (ceil < wd) { wd = ceil; wm = 3; wl = p; }"
 DATA "}"
 DATA ""
@@ -1193,7 +1281,7 @@ DATA "    var room = box3(p - vec3f(0.0, 5.0, L * 0.5), vec3f(12.0, 5.0, L * 0.5
 DATA "    room = min(room, box3(p - vec3f(0.0, 10.5, L * 0.5), vec3f(4.0, 0.8, L * 0.5 - 1.0)));"
 DATA "    room = min(room, box3(p - vec3f(0.0, 1.15, L), vec3f(DOOR_W, 1.15, 0.25)));"
 DATA "    room = min(room, box3(p - vec3f(0.0, 1.15, 0.0), vec3f(DOOR_W, 1.15, 0.25)));"
-DATA "    wd = -room; wm = 45; wl = p;"
+DATA "    wd = max(-room, box3(p - vec3f(0.0, 5.0, L * 0.5), vec3f(12.35, 5.35, L * 0.5 + 0.35))); wm = 45; wl = p;"
 DATA "    if (p.y < 0.02) { wm = 34; }"
 DATA "    if (p.y > 9.9) { wm = 32; }"
 DATA "    let bal = box3(vec3f(abs(p.x) - 10.5, p.y - 4.45, p.z - L * 0.5), vec3f(1.5, 0.15, L * 0.5));"
@@ -1231,19 +1319,35 @@ DATA ""
 DATA "// ---- 6 a walkway over the clouds ----"
 DATA "fn envWalk(p: vec3f, L: f32, v: i32) {"
 DATA "    wd = box3(p - vec3f(0.0, -0.3, L * 0.5), vec3f(1.15, 0.3, L * 0.5 + 0.8)); wm = 22; wl = p;"
+DATA "    // two huge pale planets hanging over the clouds, one with a ring"
+DATA "    let pl1 = length(p - vec3f(60.0, 25.0, 95.0)) - 18.0;"
+DATA "    if (pl1 < wd) { wd = pl1; wm = 42; wl = p * 0.05; }"
+DATA "    let q2 = p - vec3f(-85.0, 42.0, 150.0);"
+DATA "    var pl2 = length(q2) - 26.0;"
+DATA "    let rq = vec3f(q2.x, q2.y * 0.9 - q2.x * 0.25, q2.z);"
+DATA "    pl2 = min(pl2, max(abs(length(rq.xz) - 42.0) - 6.0, abs(rq.y) - 0.3));"
+DATA "    if (pl2 < wd) { wd = pl2; wm = 45; wl = q2; }"
 DATA "    let az = p.z - 7.5 * clamp(round((p.z - 5.0) / 7.5), 0.0, 2.0) - 5.0;"
 DATA "    let aq = vec3f(p.x, p.y, az);"
 DATA "    let arch = max(box3(aq - vec3f(0.0, 2.0, 0.0), vec3f(2.0, 2.6, 0.22)), -min(box3(aq - vec3f(0.0, 0.8, 0.0), vec3f(1.45, 2.2, 0.5)), length(aq.xy - vec2f(0.0, 3.0)) - 1.45));"
 DATA "    put(max(arch, -(p.y + 0.6)));"
-DATA "    put(oStair(p - vec3f(-7.5, 3.0, 9.0), 0.2));"
-DATA "    put(oStair(p - vec3f(8.5, -1.0, 18.0), 0.7));"
-DATA "    put(oStair(p - vec3f(-11.0, 1.0, 26.0), 0.5));"
-DATA "    put(oStraightStairs(p - vec3f(6.5, 4.5, 5.0), 0.3));"
-DATA "    put(oFrame(p - vec3f(9.0, 5.5, 25.0), 0.4));"
-DATA "    put(oFrame(p - vec3f(-6.0, 6.0, 3.0), 0.8));"
+DATA "    // each piece is only worked out when the point is near it"
+DATA "    let s1 = p - vec3f(-7.5, 3.0, 9.0);"
+DATA "    if (nearB(s1, 4.4)) { put(oStair(s1, 0.2)); }"
+DATA "    let s2 = p - vec3f(8.5, -1.0, 18.0);"
+DATA "    if (nearB(s2, 4.4)) { put(oStair(s2, 0.7)); }"
+DATA "    let s3 = p - vec3f(-11.0, 1.0, 26.0);"
+DATA "    if (nearB(s3, 4.4)) { put(oStair(s3, 0.5)); }"
+DATA "    let s4 = p - vec3f(6.5, 4.5, 5.0);"
+DATA "    if (nearB(s4, 4.6)) { put(oStraightStairs(s4, 0.3)); }"
+DATA "    let f1 = p - vec3f(9.0, 5.5, 25.0);"
+DATA "    if (nearB(f1, 1.9)) { put(oFrame(f1, 0.4)); }"
+DATA "    let f2 = p - vec3f(-6.0, 6.0, 3.0);"
+DATA "    if (nearB(f2, 1.9)) { put(oFrame(f2, 0.8)); }"
 DATA "    let aqd = vec3f(p.x + 18.0, p.y + 2.0, p.z - 8.8 * round(p.z / 8.8));"
-DATA "    put(oAqueduct(aqd));"
-DATA "    if (v >= 3) { put(oSpiral(p - vec3f(6.0, 2.0, 13.0), 0.3)); }"
+DATA "    if (length(aqd.xy - vec2f(0.0, -0.8)) - 2.6 < wd) { put(oAqueduct(aqd)); }"
+DATA "    let sp = p - vec3f(6.0, 2.0, 13.0);"
+DATA "    if (v >= 3 && nearB(sp, 2.9)) { put(oSpiral(sp, 0.3)); }"
 DATA "}"
 DATA ""
 DATA "// ---- 7 classroom ----"
@@ -1253,7 +1357,7 @@ DATA "    let wz = p.z - 4.0 * clamp(round((p.z - 3.0) / 4.0), 0.0, 2.0) - 3.0;"
 DATA "    room = min(room, box3(vec3f(p.x - 5.2, p.y - 1.75, wz), vec3f(0.5, 0.8, 1.2)));"
 DATA "    room = min(room, box3(p - vec3f(0.0, 1.15, L), vec3f(DOOR_W, 1.15, 0.25)));"
 DATA "    room = min(room, box3(p - vec3f(0.0, 1.15, 0.0), vec3f(DOOR_W, 1.15, 0.25)));"
-DATA "    wd = -room; wm = 21; wl = p;"
+DATA "    wd = max(-room, box3(p - vec3f(0.0, 1.6, L * 0.5), vec3f(5.35, 1.95, L * 0.5 + 0.35))); wm = 21; wl = p;"
 DATA "    if (p.y < 0.02) { wm = 46; }"
 DATA "    let mul = box3(vec3f(p.x - 5.05, p.y - 1.75, wz), vec3f(0.04, 0.8, 0.04));"
 DATA "    if (mul < wd) { wd = mul; wm = 15; wl = p; }"
@@ -1276,6 +1380,7 @@ DATA "    let clk = max(length(p.xy - vec2f(-2.6, 2.5)) - 0.32, abs(p.z - (L - 0
 DATA "    if (clk < wd) { wd = clk; wm = 49; wl = p - vec3f(-2.6, 2.5, L); }"
 DATA "    let lz = p.z - 4.0 * clamp(round((p.z - 2.0) / 4.0), 0.0, 3.0) - 2.0;"
 DATA "    let lamp = box3(vec3f(abs(p.x) - 2.2, p.y - 3.19, lz), vec3f(0.5, 0.02, 0.25));"
+DATA "    emD = min(emD, lamp);"
 DATA "    if (lamp < wd) { wd = lamp; wm = 38; wl = vec3f(p.z, 0.0, 0.0); }"
 DATA "}"
 DATA ""
@@ -1283,6 +1388,21 @@ DATA "// ---- 8 a street at night ----"
 DATA "fn envStreet(p: vec3f, v: i32) {"
 DATA "    let ax = abs(p.x);"
 DATA "    wd = p.y; wm = 25; wl = p;"
+DATA "    // a water tower and an empty billboard beyond the houses"
+DATA "    let wt = p - vec3f(-34.0, 0.0, 48.0);"
+DATA "    if (length(wt - vec3f(0.0, 12.0, 0.0)) - 16.0 < wd) {"
+DATA "        var w = max(length(wt.xz) - 3.0, abs(wt.y - 18.0) - 2.2);"
+DATA "        let lq = vec3f(abs(wt.x) - 2.2, wt.y, abs(wt.z) - 2.2);"
+DATA "        w = min(w, capsule(lq, vec3f(0.0), vec3f(0.0, 16.0, 0.0), 0.2));"
+DATA "        if (w < wd) { wd = w; wm = 15; wl = wt; }"
+DATA "    }"
+DATA "    let bb = p - vec3f(24.0, 9.0, 40.0);"
+DATA "    if (length(bb) - 9.0 < wd) {"
+DATA "        var b = box3(bb, vec3f(5.0, 2.2, 0.15));"
+DATA "        b = min(b, box3(bb + vec3f(0.0, 5.0, -0.3), vec3f(0.2, 4.0, 0.2)));"
+DATA "        emD = min(emD, b);"
+DATA "        if (b < wd) { wd = b; wm = 30; wl = bb; }"
+DATA "    }"
 DATA "    let walk = box3(vec3f(ax - 5.0, p.y, 0.0), vec3f(1.0, 0.15, 1000.0));"
 DATA "    if (walk < wd) { wd = walk; wm = 31; wl = p; }"
 DATA "    let lawn = max(p.y - 0.05, 6.0 - ax);"
@@ -1290,9 +1410,9 @@ DATA "    if (lawn < wd) { wd = lawn; wm = 10; wl = p; }"
 DATA "    let sd = sign(p.x + 0.0001);"
 DATA "    let hz = p.z - 6.0 * f32(sd > 0.0);"
 DATA "    let hq = vec3f(ax - 12.5, p.y - 3.6 - 0.05, hz - 12.0 * round(hz / 12.0));"
-DATA "    put(oHouse(vec3f(-hq.x, hq.y, hq.z), 1.0));"
+DATA "    if (nearB(hq + vec3f(0.0, 1.4, 0.0), 4.3)) { put(oHouse(vec3f(-hq.x, hq.y, hq.z), 1.0)); }"
 DATA "    let lq = vec3f(ax - 4.9, p.y - 3.6, p.z - 10.0 * round((p.z - 5.0) / 10.0) - 5.0);"
-DATA "    put(oLamp(vec3f(-lq.x, lq.y, lq.z), 1.0));"
+DATA "    if (nearB(lq + vec3f(0.0, 0.8, 0.0), 3.6)) { put(oLamp(vec3f(-lq.x, lq.y, lq.z), 1.0)); }"
 DATA "    let pz = p.z - 9.0 * round(p.z / 9.0);"
 DATA "    var pole = capsule(vec3f(p.x + 6.6, p.y, pz), vec3f(0.0, 0.0, 0.0), vec3f(0.0, 7.2, 0.0), 0.12);"
 DATA "    let sag = 0.6 * (1.0 - pz * pz / 20.25);"
@@ -1306,6 +1426,12 @@ DATA ""
 DATA "// ---- 9 mirror water ----"
 DATA "fn envMirror(p: vec3f, v: i32) {"
 DATA "    wd = p.y; wm = 47; wl = p;"
+DATA "    // a gigantic arch on the horizon"
+DATA "    let ga = p - vec3f(0.0, 0.0, 95.0);"
+DATA "    if (abs(ga.z) < 8.0) {"
+DATA "        let a = max(box3(ga - vec3f(0.0, 22.0, 0.0), vec3f(26.0, 22.0, 2.5)), -min(box3(ga - vec3f(0.0, 10.0, 0.0), vec3f(16.0, 12.0, 4.0)), length(ga.xy - vec2f(0.0, 22.0)) - 16.0));"
+DATA "        if (a < wd) { wd = a; wm = 22; wl = ga; }"
+DATA "    }"
 DATA "    if (v == 0) {"
 DATA "        let cz = p.z - 4.0 * round((p.z - 2.0) / 4.0) - 2.0;"
 DATA "        let q = vec3f(abs(p.x) - 4.2, p.y, cz);"
@@ -1316,30 +1442,39 @@ DATA "        c = min(c, box3(q - vec3f(0.0, 0.12, 0.0), vec3f(0.6, 0.12, 0.6)))
 DATA "        let beam = box3(vec3f(abs(p.x) - 4.2, p.y - 6.5, p.z), vec3f(0.5, 0.2, 1000.0));"
 DATA "        c = min(c, beam);"
 DATA "        if (c < wd) { wd = c; wm = 22; wl = p; }"
-DATA "        put(oSpiral(p - vec3f(0.0, 9.5, 16.0), 0.5));"
+DATA "        let sq = p - vec3f(0.0, 9.5, 16.0);"
+DATA "        if (nearB(sq, 2.9)) { put(oSpiral(sq, 0.5)); }"
 DATA "    } else if (v == 1) {"
 DATA "        let sx = vec3f(abs(p.x), p.y, p.z);"
 DATA "        put(oSphere(sx - vec3f(5.0, 1.6, 8.0), 0.2));"
 DATA "        put(oSphere(sx - vec3f(7.5, 2.6, 19.0), 0.7));"
-DATA "        put(oWireCubes(sx - vec3f(6.5, 3.2, 13.5), 0.4));"
-DATA "        put(oWireCubes(p - vec3f(0.0, 7.0, 22.0), 0.9));"
+DATA "        let w1 = sx - vec3f(6.5, 3.2, 13.5);"
+DATA "        if (nearB(w1, 3.6)) { put(oWireCubes(w1, 0.4)); }"
+DATA "        let w2 = p - vec3f(0.0, 7.0, 22.0);"
+DATA "        if (nearB(w2, 3.6)) { put(oWireCubes(w2, 0.9)); }"
 DATA "        put(oSphere(p - vec3f(0.0, 6.5, 9.0), 0.5));"
 DATA "    } else if (v == 2) {"
 DATA "        let tz = p.z - 9.0 * round((p.z - 5.0) / 9.0) - 5.0;"
-DATA "        put(oTower(vec3f(abs(p.x) - 8.5, p.y - 3.6, tz)));"
-DATA "        put(oPortal(spinY(vec3f(abs(p.x) - 4.6, p.y - 2.4, p.z - 11.0), 0.0), 0.3));"
-DATA "        put(oPortal(vec3f(abs(p.x) - 5.0, p.y - 2.2, p.z - 22.0), 0.7));"
+DATA "        let tq = vec3f(abs(p.x) - 8.5, p.y - 3.6, tz);"
+DATA "        if (nearB(tq, 4.4)) { put(oTower(tq)); }"
+DATA "        let p1 = vec3f(abs(p.x) - 4.6, p.y - 2.4, p.z - 11.0);"
+DATA "        if (nearB(p1, 2.2)) { put(oPortal(p1, 0.3)); }"
+DATA "        let p2 = vec3f(abs(p.x) - 5.0, p.y - 2.2, p.z - 22.0);"
+DATA "        if (nearB(p2, 2.2)) { put(oPortal(p2, 0.7)); }"
 DATA "    } else if (v == 3) {"
 DATA "        let ez = p.z - 5.0 * round((p.z - 2.5) / 5.0) - 2.5;"
-DATA "        let ep = oEyePillar(vec3f(abs(p.x) - 3.9, p.y - 3.6, ez), -1.0);"
+DATA "        let eq = vec3f(abs(p.x) - 3.9, p.y - 3.6, ez);"
+DATA "        var ep = 100.0;"
+DATA "        if (nearB(eq + vec3f(0.0, 0.35, 0.0), 3.8)) { ep = oEyePillar(eq, -1.0); }"
 DATA "        if (ep < wd) {"
 DATA "            wd = ep; wm = oMat; wl = oLoc;"
 DATA "            wc = vec3f(sign(p.x) * (3.9 + oCtr.x), 3.6 + oCtr.y, p.z - ez + oCtr.z);"
 DATA "        }"
 DATA "    } else {"
 DATA "        let gq = vec3f(abs(p.x) - 6.5, p.y - 2.2, p.z - 8.0 * round(p.z / 8.0));"
-DATA "        put(oGlitch(gq, 0.3));"
-DATA "        put(oCorridor(spinY(p - vec3f(-9.0, 2.0, 15.0), 0.3)));"
+DATA "        if (nearB(gq, 5.6)) { put(oGlitch(gq, 0.3)); }"
+DATA "        let cq = p - vec3f(-9.0, 2.0, 15.0);"
+DATA "        if (nearB(cq, 4.7)) { put(oCorridor(spinY(cq, 0.3))); }"
 DATA "    }"
 DATA "}"
 DATA ""
@@ -1370,6 +1505,7 @@ DATA "    }"
 DATA "}"
 DATA "fn envSDF(s: SC, p: vec3f) {"
 DATA "    wc = vec3f(0.0);"
+DATA "    emD = 1000.0;"
 DATA "    switch s.env {"
 DATA "        case 0: { envMeadow(p, s.v); }"
 DATA "        case 1: { envPlay(p, s.v); }"
@@ -1384,9 +1520,13 @@ DATA "        case 9: { envMirror(p, s.v); }"
 DATA "        default: { envVoid(p, s.v); }"
 DATA "    }"
 DATA "    // the doorways in and out"
-DATA "    let ex = doorway(p - vec3f(0.0, 0.0, s.L), s.door);"
-DATA "    if (ex < wd) { wd = ex; wm = oMat; wl = oLoc; }"
-DATA "    if (s.ent >= 0) {"
+DATA "    let xq = p - vec3f(0.0, 0.0, s.L);"
+DATA "    if (s.door == 4 || nearB(xq - vec3f(0.0, 1.25, 0.0), 3.2)) {"
+DATA "        let ex = doorway(xq, s.door);"
+DATA "        if (s.door == 4) { emD = min(emD, ex); }"
+DATA "        if (ex < wd) { wd = ex; wm = oMat; wl = oLoc; }"
+DATA "    }"
+DATA "    if (s.ent >= 0 && nearB(p - vec3f(0.0, 1.25, 0.0), 3.2)) {"
 DATA "        let en = doorway(p, s.ent);"
 DATA "        if (en < wd) { wd = en; wm = oMat; wl = oLoc; }"
 DATA "    }"
@@ -1460,6 +1600,14 @@ DATA "        return c;"
 DATA "    }"
 DATA "    c = skyGrad(sky, rd);"
 DATA "    if (sky == 3) { return c; }"
+DATA "    if (sky == 0 || sky == 10 || sky == 6) {"
+DATA "        let rc = normalize(vec3f(0.15, -0.22, 1.0));"
+DATA "        let band = (acos(clamp(dot(rd, rc), -1.0, 1.0)) - 0.6) / 0.08;"
+DATA "        if (band > 0.0 && band < 1.0 && rd.y > -0.05) {"
+DATA "            let rb = (0.5 + 0.5 * cos(6.2831853 * (band * 0.8 + vec3f(0.0, 0.33, 0.67)))) * 255.0;"
+DATA "            c = mix(c, rb, 0.25 * sin(band * 3.14159) * smoothstep(-0.05, 0.1, rd.y));"
+DATA "        }"
+DATA "    }"
 DATA "    if (sky == 7) {"
 DATA "        // iridescent sky: rainbow bands drifting through it"
 DATA "        let t = rd.y * 1.6 + rd.x * 0.5 + fbm(rd * 2.0 + vec3f(T * 0.02)) * 0.8;"
@@ -1477,6 +1625,7 @@ DATA "        let sc = dot(rd, sd);"
 DATA "        if (sc > 0.9975) { c = vec3f(255.0, 238.0, 215.0); }"
 DATA "        c = c + vec3f(120.0, 80.0, 50.0) * pow(max(sc, 0.0), 60.0);"
 DATA "    }"
+DATA "    let cPre = c;"
 DATA "    if (sky == 8 || skyEye) {"
 DATA "        // a giant eye in the sky, watching the camera"
 DATA "        let ed = normalize(vec3f(-0.4, 0.3, 1.0));"
@@ -1496,6 +1645,7 @@ DATA "                if (abs(sin(a2 * 9.0 + rho * 14.0)) < 0.05 + 0.1 * rho) { 
 DATA "            }"
 DATA "            if (dot(rd, ry) > (1.0 - 2.05 * lid) * sin(rad)) { c = vec3f(170.0, 120.0, 125.0); }"
 DATA "            c = mix(c, skyGrad(sky, rd), smoothstep(0.92, 1.0, rho));"
+DATA "            if (sky != 8) { c = mix(cPre, c, eyeApp); }"
 DATA "        }"
 DATA "    }"
 DATA "    let cl = fbm(rd * 2.6 + vec3f(T * 0.008, 0.0, T * 0.004));"
@@ -1579,7 +1729,7 @@ DATA "    let ay = abs(n.y);"
 DATA "    var uv = lp.xy;"
 DATA "    if (ay > 0.6) { uv = lp.xz; } else if (abs(n.x) > abs(n.z)) { uv = lp.zy; }"
 DATA "    switch mt {"
-DATA "        case 3: { s = Surf(vec3f(255.0, 250.0, 232.0), 0.0, 1.0); }"
+DATA "        case 3: { s = Surf(vec3f(255.0, 250.0, 232.0) * cueFlick(), 0.0, 1.0); }"
 DATA "        case 4: {"
 DATA "            let r = 18.0 * sin(p.x * 3.0 + T * 1.6) * sin(p.z * 2.6 - T * 1.3);"
 DATA "            s = Surf(vec3f(80.0 + r, 185.0 + r, 225.0 + r * 0.5), 0.85, 0.0);"
@@ -1612,9 +1762,29 @@ DATA "        case 9: {"
 DATA "            let fr = 1.0 - max(dot(-rd, n), 0.0);"
 DATA "            s = Surf(mix(vec3f(235.0, 205.0, 245.0), iri(fr * 1.4 + lp.y * 0.12) * 255.0, 0.55), 0.7, 0.0);"
 DATA "        }"
-DATA "        case 10: { s = Surf(vec3f(120.0, 195.0, 115.0) * (0.85 + 0.3 * vnoise(p * 2.0)), 0.0, 0.0); }"
-DATA "        case 12: { s = Surf(vec3f(175.0, 125.0, 85.0) * (0.85 + 0.15 * sin(uv.x * 30.0 + sin(uv.y * 3.0))), 0.1, 0.0); }"
-DATA "        case 13: { s = Surf(vec3f(235.0, 95.0, 120.0), 0.35, 0.0); }"
+DATA "        case 10: {"
+DATA "            var c = vec3f(80.0, 200.0, 85.0) * (0.8 + 0.35 * vnoise(p * 2.0));"
+DATA "            // little flowers in the grass"
+DATA "            let fc = floor(p.xz * 2.5);"
+DATA "            let fh = hs(fc.x * 7.3 + fc.y * 3.1);"
+DATA "            if (fh > 0.92) {"
+DATA "                let fq = fract(p.xz * 2.5) - 0.5;"
+DATA "                let fr = length(fq);"
+DATA "                if (fr < 0.14) { c = select(vec3f(255.0, 170.0, 210.0), select(vec3f(255.0, 240.0, 120.0), vec3f(170.0, 200.0, 255.0), fh > 0.975), fh > 0.95); }"
+DATA "                if (fr < 0.05) { c = vec3f(255.0, 215.0, 80.0); }"
+DATA "            }"
+DATA "            s = Surf(c, 0.0, 0.0);"
+DATA "        }"
+DATA "        case 12: { s = Surf(vec3f(195.0, 120.0, 70.0) * (0.85 + 0.15 * sin(uv.x * 30.0 + sin(uv.y * 3.0))), 0.1, 0.0); }"
+DATA "        case 13: {"
+DATA "            // playground paint and roofs: red, yellow, blue or green"
+DATA "            let k = hs(floor(p.x * 0.35) * 3.1 + floor(p.z * 0.25) * 7.3);"
+DATA "            var c = vec3f(235.0, 70.0, 90.0);"
+DATA "            if (k > 0.25) { c = vec3f(250.0, 200.0, 55.0); }"
+DATA "            if (k > 0.5) { c = vec3f(70.0, 145.0, 235.0); }"
+DATA "            if (k > 0.75) { c = vec3f(85.0, 205.0, 125.0); }"
+DATA "            s = Surf(c, 0.35, 0.0);"
+DATA "        }"
 DATA "        case 14: {"
 DATA "            var mm = 0.5 + 0.5 * sin(uv.x * 2.0 + 3.0 * sin(uv.y * 1.3 + uv.x * 0.7));"
 DATA "            mm = mm * mm * mm * mm;"
@@ -1633,7 +1803,15 @@ DATA "            var q = 1.0;"
 DATA "            if (sin(uv.x * 9.0) > 0.5) { q = 0.85; }"
 DATA "            s = Surf(vec3f(220.0, 205.0, 145.0) * q, 0.05, 0.0);"
 DATA "        }"
-DATA "        case 22: { s = Surf(vec3f(245.0, 218.0, 232.0) * (0.92 + 0.08 * vnoise(p * 3.0)), 0.15, 0.0); }"
+DATA "        case 22: {"
+DATA "            // pastel plaster: pink, lavender, mint or peach, by where it stands"
+DATA "            let k = hs(floor(p.x / 7.0) * 5.7 + floor(p.z / 7.0) * 2.3);"
+DATA "            var c = vec3f(252.0, 192.0, 222.0);"
+DATA "            if (k > 0.25) { c = vec3f(205.0, 188.0, 252.0); }"
+DATA "            if (k > 0.5) { c = vec3f(170.0, 236.0, 208.0); }"
+DATA "            if (k > 0.75) { c = vec3f(255.0, 208.0, 170.0); }"
+DATA "            s = Surf(c * (0.92 + 0.08 * vnoise(p * 3.0)), 0.15, 0.0);"
+DATA "        }"
 DATA "        case 23: { s = Surf(tile(uv, 2.5, vec3f(120.0, 205.0, 230.0), vec3f(235.0, 250.0, 255.0)), 0.35, 0.0); }"
 DATA "        case 24: { s = Surf(vec3f(110.0, 40.0, 55.0) * (0.85 + 0.2 * vnoise(p * 2.5)), 0.2, 0.0); }"
 DATA "        case 25: { s = Surf(vec3f(70.0, 70.0, 80.0) * (0.85 + 0.3 * vnoise(p * 3.0)), 0.1, 0.0); }"
@@ -1642,7 +1820,10 @@ DATA "            let st = hs(dot(floor(lp.yz * 55.0), vec2f(12.9, 78.2)) + floo
 DATA "            s = Surf(vec3f(st * 210.0, st * 215.0, st * 235.0), 0.0, 1.0);"
 DATA "        }"
 DATA "        case 27: { s = Surf(vec3f(255.0, 255.0, 255.0), 0.0, 1.0); }"
-DATA "        case 28: { s = Surf(vec3f(3.0, 2.0, 5.0), 0.0, 1.0); }"
+DATA "        case 28: {"
+DATA "            let rim = pow(1.0 - abs(dot(n, -rd)), 3.0);"
+DATA "            s = Surf(vec3f(5.0, 3.0, 9.0) + vec3f(85.0, 55.0, 135.0) * rim, 0.0, 1.0);"
+DATA "        }"
 DATA "        case 29: {"
 DATA "            let fr = 1.0 - max(dot(-rd, n), 0.0);"
 DATA "            s = Surf(mix(vec3f(200.0, 200.0, 215.0), iri(fr * 1.2 + lp.y * 0.2) * 255.0, 0.35), 0.92, 0.0);"
@@ -1653,17 +1834,20 @@ DATA "        case 32: { s = Surf(tile(uv, 3.0, vec3f(242.0, 244.0, 246.0), vec3
 DATA "        case 33: { s = Surf(vec3f(200.0, 40.0, 45.0), 0.3, 0.0); }"
 DATA "        case 34: {"
 DATA "            let ck = i32(floor(uv.x * 0.7) + floor(uv.y * 0.7));"
-DATA "            s = Surf(select(vec3f(30.0, 28.0, 34.0), vec3f(240.0, 238.0, 242.0), (ck & 1) != 0), 0.3, 0.0);"
+DATA "            var c0 = vec3f(30.0, 28.0, 34.0);"
+DATA "            var c1 = vec3f(240.0, 238.0, 242.0);"
+DATA "            if (S.env == 5) { c0 = vec3f(95.0, 200.0, 205.0); c1 = vec3f(252.0, 175.0, 205.0); }"
+DATA "            s = Surf(select(c0, c1, (ck & 1) != 0), 0.3, 0.0);"
 DATA "        }"
 DATA "        case 35: { s = Surf(vec3f(60.0, 45.0, 40.0), 0.25, 0.0); }"
 DATA "        case 36: { s = Surf(vec3f(95.0, 165.0, 90.0) * (0.75 + 0.4 * vnoise(p * 3.0)), 0.0, 0.0); }"
-DATA "        case 37: { s = Surf(vec3f(225.0, 205.0, 165.0) * (0.85 + 0.2 * vnoise(p * 5.0)), 0.0, 0.0); }"
+DATA "        case 37: { s = Surf(vec3f(245.0, 205.0, 145.0) * (0.85 + 0.2 * vnoise(p * 5.0)), 0.0, 0.0); }"
 DATA "        case 38: {"
 DATA "            // fluorescent panel; some flicker"
 DATA "            let id = floor(lp.x / 3.0);"
 DATA "            var on = 1.0;"
 DATA "            if (hs(id * 4.3) > 0.7 && hs(floor(T * 9.0) + id) > 0.6) { on = 0.25; }"
-DATA "            s = Surf(vec3f(255.0, 250.0, 225.0) * on, 0.0, 1.0);"
+DATA "            s = Surf(vec3f(255.0, 250.0, 225.0) * on * cueFlick(), 0.0, 1.0);"
 DATA "        }"
 DATA "        case 39: { s = Surf(vec3f(185.0, 165.0, 115.0) * (0.85 + 0.2 * vnoise(p * 9.0)), 0.0, 0.0); }"
 DATA "        case 41: {"
@@ -1671,8 +1855,8 @@ DATA "            let r = length(p.xz - vec2f(0.0, 7.0));"
 DATA "            s = Surf(select(vec3f(120.0, 170.0, 220.0), vec3f(240.0, 200.0, 120.0), fract(r * 1.3) > 0.5), 0.0, 0.0);"
 DATA "        }"
 DATA "        case 42: { s = Surf(iri(lp.y * 1.5 + lp.z * 0.8) * 230.0, 0.1, 0.0); }"
-DATA "        case 45: { s = Surf(vec3f(215.0, 205.0, 225.0), 0.1, 0.0); }"
-DATA "        case 46: { s = Surf(tile(uv, 1.6, vec3f(210.0, 215.0, 205.0), vec3f(170.0, 175.0, 165.0)), 0.2, 0.0); }"
+DATA "        case 45: { s = Surf(vec3f(255.0, 205.0, 190.0), 0.1, 0.0); }"
+DATA "        case 46: { s = Surf(tile(uv, 1.6, select(vec3f(150.0, 215.0, 175.0), vec3f(245.0, 228.0, 190.0), (i32(floor(uv.x * 1.6) + floor(uv.y * 1.6)) & 1) == 0), vec3f(170.0, 175.0, 165.0)), 0.2, 0.0); }"
 DATA "        case 47: { s = Surf(vec3f(175.0, 190.0, 210.0), 0.85, 0.0); }"
 DATA "        case 48: {"
 DATA "            // a poster that is an eye"
@@ -1681,6 +1865,12 @@ DATA "            var c = vec3f(235.0, 215.0, 210.0);"
 DATA "            if (rr < 0.55) { c = vec3f(110.0, 130.0, 160.0); }"
 DATA "            if (rr < 0.25) { c = vec3f(10.0); }"
 DATA "            s = Surf(c, 0.1, 0.0);"
+DATA "        }"
+DATA "        case 50: {"
+DATA "            var c = vec3f(215.0, 55.0, 60.0);"
+DATA "            if (lp.y > 0.0 && hs(dot(floor(lp * 18.0), vec3f(1.0, 7.0, 13.0))) > 0.75) { c = vec3f(250.0, 245.0, 235.0); }"
+DATA "            if (lp.y <= 0.0) { c = vec3f(240.0, 232.0, 215.0); }"
+DATA "            s = Surf(c, 0.2, 0.0);"
 DATA "        }"
 DATA "        case 49: {"
 DATA "            let a = atan2(lp.y, lp.x);"
@@ -1691,33 +1881,65 @@ DATA "        }"
 DATA "        default: { }"
 DATA "    }"
 DATA "    if (mt == 21 || mt == 39 || mt == 32 || mt == 8 || mt == 15 || mt == 12 || mt == 46 || mt == 22) { s.col = s.col * wallTint; }"
+DATA "    // the odd smiley sticker on a wall"
+DATA "    if ((mt == 21 || mt == 32 || mt == 22) && ay < 0.6) {"
+DATA "        let cv = floor(uv * 0.8);"
+DATA "        if (hs(cv.x * 13.1 + cv.y * 7.7 + 3.0) > 0.965) {"
+DATA "            let q = (fract(uv * 0.8) - 0.5) / 0.8;"
+DATA "            if (length(q) < 0.28) {"
+DATA "                var c = vec3f(255.0, 218.0, 60.0);"
+DATA "                if (length(vec2f(abs(q.x) - 0.09, q.y - 0.07)) < 0.035) { c = vec3f(35.0, 25.0, 20.0); }"
+DATA "                if (abs(length(q - vec2f(0.0, 0.03)) - 0.16) < 0.02 && q.y < -0.03) { c = vec3f(35.0, 25.0, 20.0); }"
+DATA "                s.col = c;"
+DATA "            }"
+DATA "        }"
+DATA "    }"
 DATA "    return s;"
 DATA "}"
 DATA ""
-DATA "fn softShadow(ro: vec3f, rd: vec3f, maxt: f32) -> f32 {"
-DATA "    var res = 1.0;"
-DATA "    var t = 0.06;"
-DATA "    for (var i = 0; i < 16; i++) {"
-DATA "        let h = mapd(ro + rd * t);"
-DATA "        res = min(res, 9.0 * h / t);"
-DATA "        t = t + clamp(h, 0.12, 1.6);"
-DATA "        if (res < 0.02 || t > maxt) { break; }"
-DATA "    }"
-DATA "    return clamp(res, 0.0, 1.0);"
+DATA "// the four tetrahedral directions for the normal"
+DATA "fn tapDir(i: i32) -> vec3f {"
+DATA "    return 2.0 * vec3f(f32(((i + 3) >> 1u) & 1), f32((i >> 1u) & 1), f32(i & 1)) - 1.0;"
 DATA "}"
 DATA ""
-DATA "fn ambOcc(p: vec3f, n: vec3f) -> f32 {"
-DATA "    var occ = 0.0;"
-DATA "    var sca = 1.0;"
-DATA "    for (var i = 0; i < 3; i++) {"
-DATA "        let h = 0.06 + 0.3 * f32(i);"
-DATA "        occ = occ + (h - mapd(p + n * h)) * sca;"
-DATA "        sca = sca * 0.65;"
-DATA "    }"
-DATA "    return clamp(1.0 - 1.6 * occ, 0.0, 1.0);"
+DATA "var<private> emD: f32;"
+DATA "var<private> eyeApp: f32;"
+DATA "var<private> eyeCue: f32;"
+DATA "var<private> beams: bool;"
+DATA "var<private> bubbles: bool;"
+DATA "var<private> pxJit: f32;"
+DATA "var<private> ambUp: vec3f;"
+DATA "var<private> ambDn: vec3f;"
+DATA "var<private> haloCol: vec3f;"
+DATA "var<private> haloAcc: f32;"
+DATA ""
+DATA "// lights flicker while something is about to show itself"
+DATA "fn cueFlick() -> f32 {"
+DATA "    if (eyeCue > 0.01 && hs(floor(T * 13.0)) > 0.45) { return 1.0 - 0.85 * eyeCue; }"
+DATA "    return 1.0;"
 DATA "}"
 DATA ""
-DATA "// ---- ray tracing: primary ray, sun shadow ray, one reflection bounce ----"
+DATA "// the figure: tall, thin, swaying, its outline drifting up like smoke and its"
+DATA "// feet lost in mist; it faces the camera (-z)"
+DATA "fn figure(q0: vec3f) -> f32 {"
+DATA "    var q = q0;"
+DATA "    q.x = q.x + 0.09 * sin(T * 0.7) * q.y / 3.0;"
+DATA "    let br = 1.0 + 0.04 * sin(T * 1.9);"
+DATA "    let yb = clamp((q.y - 0.95) / 1.6, 0.0, 1.0);"
+DATA "    var d = capsule(q, vec3f(0.0, 0.95, 0.0), vec3f(0.0, 2.55, 0.0), mix(0.24 * br, 0.15, yb));"
+DATA "    let qx = vec3f(abs(q.x), q.y, q.z);"
+DATA "    d = smin(d, capsule(qx, vec3f(0.11, 0.0, 0.0), vec3f(0.1, 1.05, 0.0), 0.065), 0.08);"
+DATA "    let sw = 0.08 * sin(T * 0.9 + sign(q.x) * 1.3);"
+DATA "    d = smin(d, capsule(qx, vec3f(0.27, 2.45, 0.0), vec3f(0.36, 0.95, sw), 0.045), 0.06);"
+DATA "    var hq = q - vec3f(0.0, 2.92, 0.0);"
+DATA "    let hr = rot2(hq.xy, 0.28 * sin(T * 0.37) + 0.15);"
+DATA "    hq = vec3f(hr.x, hr.y / 1.25, hq.z);"
+DATA "    d = smin(d, length(hq) - 0.2, 0.08);"
+DATA "    // smoke at the outline, rising; mist where the feet should be"
+DATA "    d = d + 0.07 * (vnoise(q * 3.5 + vec3f(0.0, -T * 0.9, 0.0)) - 0.5);"
+DATA "    d = d + max(0.45 - q.y, 0.0) * 0.6 * vnoise(q * 5.0 + vec3f(T * 0.3, 0.0, 0.0));"
+DATA "    return d * 0.7;"
+DATA "}"
 DATA ""
 DATA "// ---- the whole scene: the place, the watcher, the figure ----"
 DATA "fn mapd(p: vec3f) -> f32 {"
@@ -1734,29 +1956,32 @@ DATA "    if (eyeHere) {"
 DATA "        if (figOn) {"
 DATA "            let fz = min(cam.z + 10.0, S.L - 2.0);"
 DATA "            let fq = p - vec3f(1.15, 0.0, fz);"
-DATA "            let fx = vec3f(abs(fq.x), fq.y, fq.z);"
-DATA "            var fd = capsule(fq, vec3f(0.0, 0.95, 0.0), vec3f(0.0, 2.5, 0.0), 0.3);"
-DATA "            fd = min(fd, capsule(fx, vec3f(0.12, 0.0, 0.0), vec3f(0.12, 1.0, 0.0), 0.1));"
-DATA "            fd = min(fd, capsule(fx, vec3f(0.36, 2.4, 0.0), vec3f(0.44, 1.15, -0.05), 0.07));"
-DATA "            fd = min(fd, length(fq - vec3f(0.0, 3.0, 0.0)) - 0.26);"
-DATA "            if (fd < d) { d = fd; m = 28; }"
-DATA "            let fe = length(fx - vec3f(0.09, 3.03, -0.22)) - 0.045;"
-DATA "            if (fe < d) { d = fe; m = 27; }"
+DATA "            if (length(fq - vec3f(0.0, 1.6, 0.0)) - 2.2 < d) {"
+DATA "                var fd = figure(fq);"
+DATA "                // as it goes it comes apart"
+DATA "                if (evP > 0.7) { fd = max(fd, (smoothstep(0.7, 0.92, evP) - hash3(floor(fq * 9.0))) * 0.3); }"
+DATA "                if (fd < d) { d = fd; m = 28; }"
+DATA "                let fe = length(vec3f(abs(fq.x) - 0.08, fq.y - 2.97, fq.z + 0.19)) - 0.04;"
+DATA "                if (fe < d) { d = fe; m = 27; }"
+DATA "            }"
 DATA "        }"
 DATA "        let e = p - eyeP;"
 DATA "        let rr = length(e);"
 DATA "        gEyeD = 100.0;"
 DATA "        if (eyeOn) {"
-DATA "            gEyeD = rr - eyeR;"
-DATA "            if (rr - eyeR * 1.15 < d) {"
-DATA "                var db = rr - eyeR;"
+DATA "            let er = eyeR * (0.35 + 0.65 * eyeApp);"
+DATA "            gEyeD = rr - er;"
+DATA "            if (rr - er * 1.15 < d) {"
+DATA "                var db = rr - er;"
 DATA "                let c = dot(e, gz) / max(rr, 0.0001);"
-DATA "                if (c > 0.78) { db = db - (c - 0.78) * eyeR * 0.45; }"
+DATA "                if (c > 0.78) { db = db - (c - 0.78) * er * 0.45; }"
+DATA "                // it forms out of specks while it appears"
+DATA "                if (eyeApp < 0.999) { db = max(db, (hash3(floor(e * 16.0)) - eyeApp) * 0.25); }"
 DATA "                if (db < d) { d = db; m = 1; ctr = eyeP; }"
 DATA "            }"
-DATA "            if (rr - eyeR * 4.3 < d) {"
-DATA "                if (dot(e, gz) < -0.1 * eyeR) {"
-DATA "                    let dt = tentacles(e);"
+DATA "            if (rr - er * 4.3 < d && eyeApp > 0.5) {"
+DATA "                if (dot(e, gz) < -0.1 * er) {"
+DATA "                    let dt = tentacles(e * (eyeR / er)) * (er / eyeR);"
 DATA "                    if (dt < d) { d = dt; m = 5; }"
 DATA "                }"
 DATA "                if (sat1 > 0.0) {"
@@ -1776,14 +2001,14 @@ DATA "    gCtr = ctr;"
 DATA "    return d;"
 DATA "}"
 DATA ""
-DATA "// where the watcher waits in each kind of place"
+DATA "// where the watcher waits in each kind of place, and where it comes from"
 DATA "fn peekSpot(s: SC) -> vec3f {"
 DATA "    var q = vec3f(3.0, 2.0, s.L * 0.5);"
 DATA "    switch s.env {"
 DATA "        case 0: { q = vec3f(-7.9, 1.9 + mh(-7.9, 11.8), 11.8); }"
 DATA "        case 1: { q = vec3f(-7.5, 3.75, 9.0); }"
 DATA "        case 2: { q = vec3f(4.2, 0.05, 16.0); }"
-DATA "        case 4: { q = vec3f(-2.7, 1.18, 3.75); }"
+DATA "        case 4: { q = vec3f(3.65, 2.15, 9.0); }"
 DATA "        case 5: { q = vec3f(-5.5, 2.5, 14.0); }"
 DATA "        case 7: { q = vec3f(2.8, 1.42, 13.6); }"
 DATA "        case 8: { q = vec3f(-10.3, 1.4, 12.0); }"
@@ -1793,46 +2018,104 @@ DATA "    }"
 DATA "    return q;"
 DATA "}"
 DATA ""
+DATA "fn peekFrom(s: SC) -> vec3f {"
+DATA "    var o = vec3f(0.0, -1.0, 0.0);"
+DATA "    switch s.env {"
+DATA "        case 0: { o = vec3f(-1.0, 0.0, 0.3); }"
+DATA "        case 1: { o = vec3f(0.0, 1.5, 0.0); }"
+DATA "        case 2: { o = vec3f(0.0, -1.2, 0.0); }"
+DATA "        case 4: { o = vec3f(0.0, -0.75, 0.0); }"
+DATA "        case 5: { o = vec3f(0.0, -2.1, 0.0); }"
+DATA "        case 7: { o = vec3f(0.0, -0.7, 0.0); }"
+DATA "        case 8: { o = vec3f(-1.4, 0.0, 0.0); }"
+DATA "        case 9: { o = vec3f(0.0, 7.0, 0.0); }"
+DATA "        default: { }"
+DATA "    }"
+DATA "    return o;"
+DATA "}"
+DATA ""
+DATA "// the progress through a scene at which its watcher shows itself"
+DATA "fn revealAt(mode: i32) -> f32 {"
+DATA "    var r = 2.0;"
+DATA "    switch mode {"
+DATA "        case 1: { r = 0.1; }"
+DATA "        case 2: { r = 0.12; }"
+DATA "        case 3: { r = 0.08; }"
+DATA "        case 4: { r = 0.07; }"
+DATA "        case 5: { r = 0.0; }"
+DATA "        default: { }"
+DATA "    }"
+DATA "    return r;"
+DATA "}"
+DATA ""
+DATA "// the five worlds with a jump scare (the same list as ScareWorld in BASIC)"
+DATA "fn scareWorld(w: i32) -> bool {"
+DATA "    return w == 5 || w == 16 || w == 29 || w == 39 || w == 45;"
+DATA "}"
+DATA ""
 DATA "fn placeEye(s: SC, w: i32, f: vec3f) {"
-DATA "    eyeOn = true;"
+DATA "    let u = clamp((T - f32(w) * 18.0) / 18.0, 0.0, 1.0);"
+DATA "    let rev = revealAt(s.eye);"
+DATA "    // first the warning (lights flicker, static), then it emerges, then it"
+DATA "    // slowly opens its eye"
+DATA "    eyeApp = smoothstep(rev, rev + 0.05, u);"
+DATA "    var open = smoothstep(rev + 0.03, rev + 0.1, u);"
+DATA "    eyeCue = smoothstep(rev - 0.07, rev - 0.015, u) * (1.0 - smoothstep(rev, rev + 0.04, u));"
+DATA "    if (s.eye == 5) { eyeApp = 1.0; open = 1.0; eyeCue = 0.0; }"
 DATA "    eyeR = 0.7;"
 DATA "    skyEye = s.eye == 3;"
 DATA "    let side = select(-1.0, 1.0, (w & 1) == 1);"
 DATA "    switch s.eye {"
-DATA "        case 1: { eyeP = vec3f(side * 2.6, 2.0 + 0.25 * sin(T * 0.7), clamp(cam.z + 7.0, 3.0, s.L - 2.5)); }"
-DATA "        case 2: { eyeP = peekSpot(s); eyeR = 0.5; }"
+DATA "        case 1: { eyeP = vec3f(side * 2.6, 2.0 + 0.25 * sin(T * 0.7), clamp(cam.z + 7.0 + 14.0 * (1.0 - eyeApp), 3.0, s.L - 2.5)); }"
+DATA "        case 2: {"
+DATA "            // where a jump scare is coming, it slips back into hiding after"
+DATA "            // it has been seen, and waits there"
+DATA "            if (scareWorld(w)) { eyeApp = eyeApp * (1.0 - smoothstep(rev + 0.24, rev + 0.32, u)); }"
+DATA "            eyeP = peekSpot(s) + peekFrom(s) * (1.0 - eyeApp);"
+DATA "            eyeR = 0.5;"
+DATA "        }"
 DATA "        case 4: {"
 DATA "            eyeP = vec3f(0.0, 1.5 + 0.1 * sin(T * 1.3), min(cam.z + 9.0, s.L - 1.2));"
 DATA "            eyeR = 0.42;"
-DATA "            eyeOn = cam.z < s.L - 7.5;"
+DATA "            if (cam.z > s.L - 7.5) { eyeApp = 0.0; }"
 DATA "        }"
 DATA "        case 5: { eyeP = cam + vec3f(0.0, 0.2, -4.2); eyeR = 0.8; }"
-DATA "        default: { eyeOn = false; eyeP = cam + f * 12.0; }"
+DATA "        default: { eyeApp = 0.0; eyeP = cam + f * 12.0; }"
 DATA "    }"
 DATA "    if (act >= 3) { eyeR = eyeR * 1.15; }"
-DATA "    // the lunge: wherever it was, it comes at the camera"
 DATA "    if (evT == 5) {"
 DATA "        let k = clamp(1.0 - abs(evP - 0.3) / 0.14, 0.0, 1.0);"
 DATA "        if (k > 0.0) {"
+DATA "            if (eyeApp < 0.01) { eyeP = cam + f * 9.0; }"
 DATA "            eyeP = mix(eyeP, cam + f * 1.7, k);"
-DATA "            eyeOn = true;"
+DATA "            eyeApp = max(eyeApp, k);"
+DATA "            open = 1.0;"
 DATA "        }"
 DATA "    }"
+DATA "    if (evT == 6) {"
+DATA "        // the jump scare: it slams into the camera"
+DATA "        let k = smoothstep(0.36, 0.42, evP) * (1.0 - smoothstep(0.72, 0.9, evP));"
+DATA "        if (k > 0.0) {"
+DATA "            // out of the place where it hid"
+DATA "            if (eyeApp < 0.01 && s.eye != 2) { eyeP = cam + f * 9.0; }"
+DATA "            var jp = cam + f * 1.25 + vec3f(0.0, -0.1, 0.0);"
+DATA "            jp.z = min(jp.z, s.L - 0.5);"
+DATA "            eyeP = mix(eyeP, jp, k);"
+DATA "            eyeApp = max(eyeApp, k);"
+DATA "            open = 1.0;"
+DATA "            // wide open, no blinking"
+DATA "            lid = 0.0;"
+DATA "        }"
+DATA "        eyeCue = max(eyeCue, smoothstep(0.05, 0.3, evP) * (1.0 - smoothstep(0.36, 0.4, evP)));"
+DATA "    }"
+DATA "    eyeOn = eyeApp > 0.01;"
+DATA "    lid = max(lid, 1.0 - open);"
+DATA "    if (evT == 4 && evP < 0.12) { eyeCue = max(eyeCue, smoothstep(0.0, 0.06, evP)); }"
 DATA "}"
 DATA ""
-DATA "// fog, light and wall colours of a scene"
+DATA "// fog, light, shafts and wall colours of a scene"
 DATA "fn look(s: SC) {"
 DATA "    fogC = fogOf(s.sky);"
-DATA "    fogD = 0.012;"
-DATA "    switch s.env {"
-DATA "        case 2: { fogD = 0.016; }"
-DATA "        case 3: { fogD = 0.03; fogC = vec3f(200.0, 185.0, 120.0); }"
-DATA "        case 4, 7: { fogD = 0.02; }"
-DATA "        case 5: { fogD = 0.014; }"
-DATA "        case 8: { fogD = 0.02; }"
-DATA "        case 10: { fogD = 0.015; }"
-DATA "        default: { }"
-DATA "    }"
 DATA "    indoor = s.env == 2 || s.env == 3 || s.env == 4 || s.env == 5 || s.env == 7;"
 DATA "    sunDir = normalize(vec3f(-0.45, 0.75, 0.5));"
 DATA "    sunCol = vec3f(1.0, 0.93, 0.97) * 0.62;"
@@ -1849,9 +2132,41 @@ DATA "        case 8: { sunDir = normalize(vec3f(0.25, 0.25, 1.0)); sunCol = vec
 DATA "        case 3: { ambK = 1.0; }"
 DATA "        default: { }"
 DATA "    }"
-DATA "    if (indoor) { ambK = max(ambK, 0.5); }"
+DATA "    // indoors the sun comes in where the openings are: shafts of light"
+DATA "    beams = false;"
+DATA "    switch s.env {"
+DATA "        case 2: { sunDir = normalize(vec3f(0.25, 0.9, 0.3)); beams = true; }"
+DATA "        case 4: { sunDir = normalize(vec3f(-0.75, 0.45, 0.35)); beams = true; }"
+DATA "        case 5: { sunDir = normalize(vec3f(0.15, 0.95, 0.25)); beams = true; }"
+DATA "        case 7: { sunDir = normalize(vec3f(0.8, 0.45, 0.25)); beams = true; }"
+DATA "        default: { }"
+DATA "    }"
+DATA "    if (indoor) {"
+DATA "        ambK = max(ambK, 0.42);"
+DATA "        sunCol = sunCol * 1.1;"
+DATA "    }"
 DATA "    if (s.env == 3) { ambK = select(0.75, 0.3, s.v == 3); }"
+DATA "    // the sky lights from above, the ground bounces its own colour back"
+DATA "    ambUp = mix(vec3f(1.0), skyGrad(s.sky, vec3f(0.0, 1.0, 0.0)) / 200.0, 0.45);"
+DATA "    var g = vec3f(0.7, 0.68, 0.72);"
+DATA "    switch s.env {"
+DATA "        case 0: { g = vec3f(0.55, 0.72, 0.5); }"
+DATA "        case 1: { g = vec3f(0.85, 0.75, 0.6); }"
+DATA "        case 2: { g = vec3f(0.6, 0.78, 0.85); }"
+DATA "        case 3: { g = vec3f(0.8, 0.7, 0.5); }"
+DATA "        case 4: { g = vec3f(0.75, 0.62, 0.55); }"
+DATA "        case 6: { g = vec3f(0.9, 0.78, 0.9); }"
+DATA "        case 8: { g = vec3f(0.42, 0.42, 0.5); }"
+DATA "        case 9: { g = vec3f(0.72, 0.75, 0.85); }"
+DATA "        case 10: { g = vec3f(0.5, 0.45, 0.62); }"
+DATA "        default: { }"
+DATA "    }"
+DATA "    ambDn = g;"
+DATA "    haloCol = vec3f(255.0, 222.0, 185.0);"
+DATA "    if (s.sky == 4 || s.sky == 9) { haloCol = vec3f(255.0, 200.0, 150.0); }"
 DATA "    wallTint = vec3f(1.0);"
+DATA "    if (s.env == 2) { wallTint = vec3f(0.8, 1.0, 1.15); }"
+DATA "    if (s.env == 7) { wallTint = vec3f(0.78, 1.12, 0.9); }"
 DATA "    switch s.env {"
 DATA "        case 2: {"
 DATA "            if (s.v == 2) { wallTint = vec3f(1.15, 0.82, 0.95); }"
@@ -1865,7 +2180,7 @@ DATA "            if (s.v == 3) { wallTint = vec3f(0.55, 0.52, 0.45); }"
 DATA "            if (s.v == 4) { wallTint = vec3f(1.15, 0.5, 0.45); }"
 DATA "        }"
 DATA "        case 4: {"
-DATA "            wallTint = vec3f(0.85, 0.95, 1.15);"
+DATA "            wallTint = vec3f(0.75, 0.9, 1.25);"
 DATA "            if (s.v == 1 || s.v == 3) { wallTint = vec3f(0.45, 0.5, 0.75); }"
 DATA "            if (s.v == 2) { wallTint = vec3f(0.9, 0.7, 1.1); }"
 DATA "        }"
@@ -1875,17 +2190,45 @@ DATA "    }"
 DATA "}"
 DATA ""
 DATA "// ---- ray tracing: primary ray (through the doorway into the next scene),"
-DATA "// a soft shadow ray toward the sun, AO and one reflection bounce ----"
+DATA "// a soft shadow ray toward the sun, AO, one reflection bounce, light shafts"
+DATA "// and the haze around every light ----"
 DATA "fn march(ro: vec3f, rd: vec3f, maxs: i32, wantGlow: bool, maxT: f32) -> vec2f {"
+DATA "    // over-relaxed sphere tracing (as in Enhanced Sphere Tracing by Keinert"
+DATA "    // et al.): step further than the safe distance while the spheres along"
+DATA "    // the ray overlap, and step back once when they stop overlapping"
 DATA "    var t = 0.04;"
+DATA "    var om = 1.45;"
+DATA "    var pr = 0.0;"
+DATA "    var sl = 0.0;"
+DATA "    var ld = 1000.0;"
+DATA "    var lt = t;"
 DATA "    for (var i = 0; i < 300; i++) {"
 DATA "        if (i >= maxs) { break; }"
 DATA "        let d = mapd(ro + rd * t);"
-DATA "        if (wantGlow) { glowAcc = glowAcc + min(d, 0.5) / (1.0 + gEyeD * gEyeD * 4.0); }"
-DATA "        if (d < 0.0008 * t + 0.001) { return vec2f(t, 1.0); }"
-DATA "        t = t + d * 0.92 + 0.0015 * t;"
+DATA "        ld = d;"
+DATA "        lt = t;"
+DATA "        let r = d * 0.92;"
+DATA "        if (wantGlow) {"
+DATA "            let st = min(d, 0.5);"
+DATA "            glowAcc = glowAcc + st / (1.0 + gEyeD * gEyeD * 4.0);"
+DATA "            haloAcc = haloAcc + st * exp(-emD * 3.0);"
+DATA "        }"
+DATA "        let fail = om > 1.0 && abs(r) + pr < sl;"
+DATA "        if (fail) {"
+DATA "            sl = sl - om * sl;"
+DATA "            om = 1.0;"
+DATA "        } else {"
+DATA "            if (d < 0.0008 * t + 0.001) { return vec2f(t, 1.0); }"
+DATA "            sl = r * om + 0.0015 * t;"
+DATA "        }"
+DATA "        pr = abs(r);"
+DATA "        t = t + sl;"
 DATA "        if (t > maxT) { return vec2f(maxT, 0.0); }"
 DATA "    }"
+DATA "    // out of steps: almost always a ray grazing a surface (hills or a floor"
+DATA "    // toward the horizon), coloured cheaply (3); the empty cells of the void"
+DATA "    // show the sky"
+DATA "    if (ld < 0.05 + 0.012 * lt || (gMat != 0 && S.env != 10)) { return vec2f(lt, 3.0); }"
 DATA "    return vec2f(t, 2.0);"
 DATA "}"
 DATA ""
@@ -1895,32 +2238,76 @@ DATA "fn lightHit(p: vec3f, rd: vec3f, t: f32, primary: bool) -> Hit {"
 DATA "    let mt = gMat;"
 DATA "    let lp = gLoc;"
 DATA "    let ctr = gCtr;"
-DATA "    let ee = vec2f(1.0, -1.0) * (0.0015 + 0.0006 * t);"
-DATA "    let n = normalize(ee.xyy * mapd(p + ee.xyy) + ee.yyx * mapd(p + ee.yyx) + ee.yxy * mapd(p + ee.yxy) + ee.xxx * mapd(p + ee.xxx));"
-DATA "    var s = Surf(vec3f(0.0), 0.0, 0.0);"
+DATA "    // the normal (4 taps), ambient occlusion (3 taps) and the soft shadow"
+DATA "    // (up to 14 steps) share one loop and one call of the scene function,"
+DATA "    // in a loop the compiler cannot unroll (its start comes from a"
+DATA "    // parameter): the scene is compiled into the shader once for all of them"
+DATA "    let eps = 0.0015 + 0.0006 * t;"
+DATA "    var ns = vec3f(0.0);"
+DATA "    var n = vec3f(0.0, 1.0, 0.0);"
 DATA "    var nn = n;"
+DATA "    var s = Surf(vec3f(0.0), 0.0, 0.0);"
 DATA "    let isEye = mt == 1 || mt == 2 || mt == 18;"
-DATA "    if (isEye) {"
-DATA "        if (mt == 1) { nn = normalize(p - eyeP); }"
-DATA "        s = Surf(eyeCol(nn, ctr, rd), 0.22, 2.0);"
-DATA "    } else if (mt == 5) {"
-DATA "        s = Surf(vec3f(150.0, 55.0, 75.0) * (0.8 + 0.3 * vnoise(p * 6.0)), 0.3, 0.0);"
-DATA "    } else {"
-DATA "        s = surf(mt, p, lp, n, rd);"
+DATA "    let hall = S.env == 3;"
+DATA "    var doAo = primary && t < 18.0;"
+DATA "    var doSh = primary && !hall && t < 34.0;"
+DATA "    let shMax = select(22.0, 10.0, t > 16.0);"
+DATA "    var occ = 0.0;"
+DATA "    var sca = 1.0;"
+DATA "    var res = 1.0;"
+DATA "    var st = 0.06;"
+DATA "    for (var i = min(i32(T), 0); i < 21; i++) {"
+DATA "        var q = p;"
+DATA "        if (i < 4) {"
+DATA "            q = p + tapDir(i) * eps;"
+DATA "        } else if (i < 7) {"
+DATA "            if (!doAo) { i = 6; continue; }"
+DATA "            q = p + nn * (0.06 + 0.28 * f32(i - 4));"
+DATA "        } else {"
+DATA "            if (!doSh) { break; }"
+DATA "            q = p + nn * 0.02 + sunDir * st;"
+DATA "        }"
+DATA "        let h = mapd(q);"
+DATA "        if (i < 4) {"
+DATA "            ns = ns + tapDir(i) * h;"
+DATA "            if (i == 3) {"
+DATA "                n = normalize(ns);"
+DATA "                nn = n;"
+DATA "                if (isEye) {"
+DATA "                    if (mt == 1) { nn = normalize(p - eyeP); }"
+DATA "                    s = Surf(eyeCol(nn, ctr, rd), 0.22, 2.0);"
+DATA "                } else if (mt == 5) {"
+DATA "                    s = Surf(vec3f(150.0, 55.0, 75.0) * (0.8 + 0.3 * vnoise(p * 6.0)), 0.3, 0.0);"
+DATA "                } else {"
+DATA "                    s = surf(mt, p, lp, n, rd);"
+DATA "                }"
+DATA "                let lit = s.emis < 0.5 || s.emis > 1.5;"
+DATA "                doAo = doAo && lit;"
+DATA "                doSh = doSh && lit && (dot(nn, sunDir) > -0.25 || s.emis > 1.5);"
+DATA "            }"
+DATA "        } else if (i < 7) {"
+DATA "            occ = occ + (0.06 + 0.28 * f32(i - 4) - h) * sca;"
+DATA "            sca = sca * 0.7;"
+DATA "        } else {"
+DATA "            // a wide light: soft, long penumbrae"
+DATA "            res = min(res, 6.0 * h / st);"
+DATA "            st = st + clamp(h, 0.1, 4.0);"
+DATA "            if (res < 0.02 || st > shMax) { break; }"
+DATA "        }"
 DATA "    }"
+DATA "    let ao = select(1.0, clamp(1.0 - 1.5 * occ, 0.0, 1.0), doAo);"
+DATA "    let sh = select(1.0, smoothstep(0.0, 1.0, clamp(res, 0.0, 1.0)), doSh);"
 DATA "    var col = s.col;"
 DATA "    var refl = 0.0;"
 DATA "    if (s.emis < 0.5 || s.emis > 1.5) {"
-DATA "        var sh = 1.0;"
-DATA "        var ao = 1.0;"
-DATA "        let hall = S.env == 3;"
-DATA "        if (primary && !hall && t < 40.0) { sh = softShadow(p + nn * 0.02, sunDir, 20.0); }"
-DATA "        if (primary && t < 30.0) { ao = ambOcc(p, nn); }"
 DATA "        if (s.emis < 0.5) {"
-DATA "            var dif = max(dot(nn, sunDir), 0.0);"
+DATA "            // wrapped diffuse for soft, rounded light"
+DATA "            var dif = max((dot(nn, sunDir) + 0.25) / 1.25, 0.0);"
 DATA "            if (hall) { dif = 0.35 + 0.35 * max(nn.y, 0.0); }"
-DATA "            let hemi = mix(vec3f(0.62, 0.55, 0.66), vec3f(1.05, 0.97, 1.1), 0.5 + 0.5 * nn.y);"
+DATA "            let hemi = mix(ambDn, ambUp, 0.5 + 0.5 * nn.y);"
 DATA "            col = col * (hemi * ambK * ao + sunCol * dif * sh);"
+DATA "            // light bounced back up from the floor"
+DATA "            col = col + s.col * ambDn * 0.08 * max(-nn.y, 0.0) * ao;"
 DATA "        } else {"
 DATA "            col = col * (0.5 + 0.5 * ambK + 0.25 * sh) * (0.8 + 0.2 * ao);"
 DATA "        }"
@@ -1936,22 +2323,100 @@ DATA "    return Hit(col, refl, nn);"
 DATA "}"
 DATA ""
 DATA "fn skyMix(rd: vec3f) -> vec3f {"
-DATA "    let s = skyCol(S.sky, rd);"
-DATA "    return mix(s, fogC, 0.7 * exp(-abs(rd.y) * 5.0)) * (1.0 - 0.95 * dark);"
+DATA "    var c = skyCol(S.sky, rd);"
+DATA "    // the sun's glow"
+DATA "    if (!indoor) { c = c + sunCol * 120.0 * pow(max(dot(rd, sunDir), 0.0), 6.0); }"
+DATA "    return c * (1.0 - 0.95 * dark);"
 DATA "}"
 DATA ""
-DATA "fn hazeCol(rd: vec3f) -> vec3f {"
-DATA "    let s = skyGrad(S.sky, rd);"
-DATA "    return mix(s, fogC, 0.7 * exp(-abs(rd.y) * 5.0)) * (1.0 - 0.95 * dark);"
+DATA "// is this point in the sunlight that comes in through the room's windows or"
+DATA "// skylights? Follow the sun direction back to the plane of the openings and"
+DATA "// test the rectangle there: no marching, so shafts are almost free"
+DATA "fn sunThrough(p: vec3f) -> f32 {"
+DATA "    var v = 0.0;"
+DATA "    switch S.env {"
+DATA "        case 4: {"
+DATA "            let t = (-4.5 - p.x) / sunDir.x;"
+DATA "            let q = p + sunDir * t;"
+DATA "            if (t > 0.0 && abs(q.z - 9.0) < 1.25 && abs(q.y - 1.75) < 0.72) { v = 1.0; }"
+DATA "        }"
+DATA "        case 7: {"
+DATA "            let t = (5.0 - p.x) / sunDir.x;"
+DATA "            let q = p + sunDir * t;"
+DATA "            let wz = q.z - 4.0 * clamp(round((q.z - 3.0) / 4.0), 0.0, 2.0) - 3.0;"
+DATA "            if (t > 0.0 && abs(wz) < 1.15 && abs(q.y - 1.75) < 0.78) { v = 1.0; }"
+DATA "        }"
+DATA "        case 2: {"
+DATA "            let t = (6.0 - p.y) / sunDir.y;"
+DATA "            let q = p + sunDir * t;"
+DATA "            let sz = q.z - 6.0 * round(q.z / 6.0);"
+DATA "            if (t > 0.0 && abs(abs(q.x) - 3.5) < 1.35 && abs(sz) < 1.35 && q.z > 0.5) { v = 1.0; }"
+DATA "        }"
+DATA "        case 5: {"
+DATA "            let t = (10.0 - p.y) / sunDir.y;"
+DATA "            let q = p + sunDir * t;"
+DATA "            if (t > 0.0 && abs(q.x) < 3.9 && q.z > 1.0 && q.z < S.L - 1.0) { v = 1.0; }"
+DATA "        }"
+DATA "        default: { }"
+DATA "    }"
+DATA "    return v;"
+DATA "}"
+DATA ""
+DATA "// shafts of light through windows and skylights, and dust drifting in them"
+DATA "fn shafts(ro: vec3f, rd: vec3f, tEnd: f32) -> vec3f {"
+DATA "    if (!beams) { return vec3f(0.0); }"
+DATA "    let te = min(tEnd, 26.0);"
+DATA "    var acc = 0.0;"
+DATA "    var dust = 0.0;"
+DATA "    for (var i = 0; i < 14; i++) {"
+DATA "        let t = (f32(i) + pxJit) / 14.0 * te;"
+DATA "        let p = ro + rd * t;"
+DATA "        let v = sunThrough(p);"
+DATA "        acc = acc + v;"
+DATA "        let dp = p * 5.0 + vec3f(0.0, T * 0.05, 0.0);"
+DATA "        if (v > 0.0 && hash3(floor(dp)) > 0.97 && length(fract(dp) - 0.5) < 0.07) { dust = dust + 1.0; }"
+DATA "    }"
+DATA "    acc = acc / 14.0;"
+DATA "    let phase = 0.5 + 0.9 * pow(max(dot(rd, sunDir), 0.0), 3.0);"
+DATA "    return sunCol * 255.0 * (acc * te * 0.022 * phase + dust * 0.2);"
+DATA "}"
+DATA "// soap bubbles drifting about: thin iridescent rims and a glint"
+DATA "fn bubbleLayer(ro: vec3f, rd: vec3f, tMax: f32) -> vec3f {"
+DATA "    if (!bubbles) { return vec3f(0.0); }"
+DATA "    var add = vec3f(0.0);"
+DATA "    for (var i = 0; i < 10; i++) {"
+DATA "        let fi = f32(i);"
+DATA "        let h1 = hs(fi * 3.17 + 1.0);"
+DATA "        let h2 = hs(fi * 5.31 + 2.0);"
+DATA "        let h3 = hs(fi * 7.77 + 3.0);"
+DATA "        let cz = cam.z + 1.5 + fract((h3 * 14.0 - cam.z) / 14.0) * 14.0;"
+DATA "        let cx = (h1 - 0.5) * 9.0 + 0.3 * sin(T * 0.7 + h1 * 9.0);"
+DATA "        let cy = 0.4 + fract(h2 + T * 0.025 * (0.6 + h3)) * 5.0;"
+DATA "        let c = vec3f(cx, cy, cz);"
+DATA "        let r = 0.1 + h1 * 0.16;"
+DATA "        let oc = ro - c;"
+DATA "        let b = dot(oc, rd);"
+DATA "        let disc = b * b - (dot(oc, oc) - r * r);"
+DATA "        if (disc > 0.0) {"
+DATA "            let t = -b - sqrt(disc);"
+DATA "            if (t > 0.0 && t < tMax) {"
+DATA "                let nb = normalize(ro + rd * t - c);"
+DATA "                let fres = pow(1.0 - abs(dot(nb, rd)), 2.0);"
+DATA "                add = add + iri(fres * 2.0 + h1) * 255.0 * 0.55 * fres + vec3f(255.0) * pow(max(dot(reflect(rd, nb), sunDir), 0.0), 40.0) * 0.8;"
+DATA "            }"
+DATA "        }"
+DATA "    }"
+DATA "    return add;"
 DATA "}"
 DATA ""
 DATA "fn render(ro: vec3f, rd: vec3f) -> vec3f {"
 DATA "    glowAcc = 0.0;"
+DATA "    haloAcc = 0.0;"
 DATA "    S = SA;"
 DATA "    eyeHere = true;"
 DATA "    look(SA);"
+DATA "    let hA = haloCol;"
 DATA "    let maxs = i32(qual);"
-DATA "    // does this ray leave through the exit doorway?"
 DATA "    var tp = 1000000.0;"
 DATA "    if (rd.z > 0.0001 && ro.z < SA.L) {"
 DATA "        let t0 = (SA.L - ro.z) / rd.z;"
@@ -1959,37 +2424,63 @@ DATA "        let hp = ro + rd * t0;"
 DATA "        if (abs(hp.x) < DOOR_W && hp.y > 0.0 && hp.y < DOOR_H) { tp = t0; }"
 DATA "    }"
 DATA "    var o = ro;"
+DATA "    var d = rd;"
 DATA "    var tOff = 0.0;"
-DATA "    var m = march(o, rd, maxs, true, min(tp, FAR));"
-DATA "    if (m.y < 0.5 && tp < FAR) {"
-DATA "        // through the doorway: the rest of the ray is in the next scene"
-DATA "        o = ro + rd * tp - vec3f(0.0, 0.0, SA.L);"
-DATA "        tOff = tp;"
-DATA "        S = SB;"
-DATA "        eyeHere = false;"
-DATA "        look(SB);"
-DATA "        m = march(o, rd, maxs, false, FAR - tp);"
-DATA "    }"
+DATA "    var ms = maxs;"
+DATA "    var mg = true;"
+DATA "    var mt = min(tp, FAR);"
+DATA "    // 0 this scene, 1 the next scene through the doorway, 2 a reflection"
+DATA "    var stage = 0;"
+DATA "    var fx = vec3f(0.0);"
+DATA "    var haloA = 0.0;"
 DATA "    var col = vec3f(0.0);"
 DATA "    var thr = 1.0;"
-DATA "    var d = rd;"
-DATA "    for (var b = 0; b < 2; b++) {"
-DATA "        if (b == 1) { m = march(o, d, maxs / 4, false, 45.0); }"
-DATA "        let tt = m.x + select(0.0, tOff, b == 0);"
+DATA "    // march has a single call site in a loop the compiler cannot unroll, so"
+DATA "    // the whole scene is compiled into the shader once instead of three times"
+DATA "    for (var it = min(i32(T), 0); it < 3; it++) {"
+DATA "        let m = march(o, d, ms, mg, mt);"
+DATA "        if (stage == 0) {"
+DATA "            // light shafts and bubbles belong to this scene, up to what the ray hits"
+DATA "            let tA = select(m.x, min(tp, FAR), m.y < 0.5 && tp < FAR);"
+DATA "            fx = shafts(ro, rd, tA) + bubbleLayer(ro, rd, tA);"
+DATA "            haloA = haloAcc;"
+DATA "            if (m.y < 0.5 && tp < FAR) {"
+DATA "                o = ro + rd * tp - vec3f(0.0, 0.0, SA.L);"
+DATA "                tOff = tp;"
+DATA "                S = SB;"
+DATA "                eyeHere = false;"
+DATA "                look(SB);"
+DATA "                mg = false;"
+DATA "                mt = FAR - tp;"
+DATA "                stage = 1;"
+DATA "                continue;"
+DATA "            }"
+DATA "        }"
+DATA "        let refl = stage == 2;"
+DATA "        let tt = m.x + select(tOff, 0.0, refl);"
 DATA "        if (m.y < 0.5) {"
 DATA "            col = col + thr * skyMix(d);"
 DATA "            break;"
 DATA "        }"
-DATA "        if (m.y > 1.5) {"
-DATA "            col = col + thr * mix(hazeCol(d), skyMix(d), smoothstep(0.0, FAR, tt));"
+DATA "        let graze = m.y > 2.5;"
+DATA "        if (m.y > 1.5 && !graze) {"
+DATA "            col = col + thr * skyMix(d);"
 DATA "            break;"
 DATA "        }"
 DATA "        let p = o + d * m.x;"
-DATA "        let h = lightHit(p, d, tt, b == 0);"
-DATA "        let fogk = max(1.0 - exp(-tt * fogD), smoothstep(FAR * 0.45, FAR, tt));"
-DATA "        let hz = hazeCol(d);"
+DATA "        // a grazing ray gets no shadow, AO or traced reflection: far away it"
+DATA "        // does not show, and it keeps the frame rate up"
+DATA "        let h = lightHit(p, d, tt, !refl && !graze);"
+DATA "        // no fog: only the very edge of the view range blends into the sky,"
+DATA "        // so far things do not pop in"
+DATA "        let fogk = smoothstep(FAR * 0.88, FAR, tt);"
+DATA "        let hz = skyMix(d);"
 DATA "        let base = mix(h.col, hz, fogk);"
-DATA "        if (b == 1 || h.refl < 0.02 || tt > 45.0) {"
+DATA "        if (graze) {"
+DATA "            col = col + thr * mix(base, skyMix(reflect(d, h.n)), h.refl * (1.0 - fogk));"
+DATA "            break;"
+DATA "        }"
+DATA "        if (refl || h.refl < 0.02 || tt > 26.0) {"
 DATA "            col = col + thr * base;"
 DATA "            break;"
 DATA "        }"
@@ -2001,8 +2492,14 @@ DATA "        col = col + thr * ((1.0 - h.refl) * base + h.refl * fogk * hz);"
 DATA "        thr = thr * h.refl * (1.0 - fogk);"
 DATA "        o = p + h.n * 0.03;"
 DATA "        d = reflect(d, h.n);"
+DATA "        ms = maxs / 4;"
+DATA "        mg = false;"
+DATA "        mt = 45.0;"
+DATA "        stage = 2;"
 DATA "    }"
-DATA "    col = col + glowAcc * (20.0 + 200.0 * venv) * vec3f(1.0, 0.35 + 0.4 * (1.0 - hor), 0.6 * (1.0 - hor) + 0.15);"
+DATA "    col = col + fx * (1.0 - 0.9 * dark);"
+DATA "    col = col + hA * haloA * 0.35 * cueFlick() * (1.0 - 0.9 * dark);"
+DATA "    col = col + glowAcc * (20.0 + 200.0 * venv) * eyeApp * vec3f(1.0, 0.35 + 0.4 * (1.0 - hor), 0.6 * (1.0 - hor) + 0.15);"
 DATA "    return col;"
 DATA "}"
 DATA ""
@@ -2029,6 +2526,7 @@ DATA "    sat1 = 0.0;"
 DATA "    sat2 = 0.0;"
 DATA "    if (T >= 630.0 && T < 900.0) { sat1 = clamp((T - 630.0) / 12.0, 0.0, 1.0); }"
 DATA "    if (T >= 720.0 && T < 900.0) { sat2 = clamp((T - 720.0) / 12.0, 0.0, 1.0); }"
+DATA "    bubbles = wA < 40 && SA.env != 3 && SA.env != 8 && SA.sky != 4 && SA.sky != 9 && SA.sky != 2;"
 DATA ""
 DATA "    // events"
 DATA "    evT = i32(floor(ev + 0.0001));"
@@ -2040,11 +2538,14 @@ DATA "    if (evT == 2) {"
 DATA "        dark = smoothstep(0.03, 0.08, evP) * (1.0 - smoothstep(0.8, 0.9, evP));"
 DATA "        if (evP < 0.2 && hs(floor(T * 18.0)) > 0.5) { dark = dark * 0.3; }"
 DATA "    }"
-DATA "    figOn = evT == 4 && evP > 0.08 && evP < 0.92 && (evP < 0.7 || hs(floor(T * 15.0)) > 0.4);"
+DATA "    if (evT == 6 && evP < 0.38) {"
+DATA "        // the lights stutter before it comes"
+DATA "        dark = smoothstep(0.05, 0.3, evP) * select(0.25, 0.92, hs(floor(T * 14.0)) > 0.35);"
+DATA "    }"
+DATA "    figOn = evT == 4 && evP > 0.08 && evP < 0.92 && (evP < 0.6 || hs(floor(T * 15.0)) > 0.25);"
 DATA "    dissolve = 0.0;"
 DATA "    if (wA == 48) { dissolve = smoothstep(870.0, 880.0, T) * 0.85; }"
 DATA ""
-DATA "    // the camera: position from the BASIC code, looking along yaw and pitch"
 DATA "    let f = vec3f(cos(pitch) * sin(yaw), sin(pitch), cos(pitch) * cos(yaw));"
 DATA "    let r0 = normalize(vec3f(f.z, 0.0, -f.x));"
 DATA "    let u0 = cross(f, r0);"
@@ -2056,6 +2557,8 @@ DATA ""
 DATA "    let rd0 = normalize(i.world - cam);"
 DATA "    let uv0 = vec2f(dot(rd0, r0), dot(rd0, u0)) / max(dot(rd0, f), 0.05);"
 DATA "    let rowpx = uv0.y / max(abs(dpdy(uv0.y)), 0.000001);"
+DATA "    let colpx = uv0.x / max(abs(dpdx(uv0.x)), 0.000001);"
+DATA "    pxJit = fract(52.9829189 * fract(0.06711056 * colpx + 0.00583715 * rowpx));"
 DATA "    let tanH = 0.5773503;"
 DATA "    let aspect = 1.7777778;"
 DATA "    let sn = uv0 / vec2f(tanH * aspect, tanH);"
@@ -2075,15 +2578,21 @@ DATA "    }"
 DATA "    let rd = normalize(f + uv.x * r0 + uv.y * u0);"
 DATA "    var col = render(cam, rd);"
 DATA ""
-DATA "    // dreamy grade: lifted shadows, soft highlights, a little pink in the light"
-DATA "    col = col / (1.0 + col / 520.0) * 1.25;"
-DATA "    col = col * 0.9 + vec3f(16.0, 10.0, 18.0);"
+DATA "    // filmic curve, then the dreamy grade: lifted shadows, a little pink"
+DATA "    let x = max(col / 255.0, vec3f(0.0)) * 1.02;"
+DATA "    col = (x * (2.51 * x + 0.03)) / (x * (2.43 * x + 0.59) + 0.14) * 255.0;"
+DATA "    let lum = dot(col, vec3f(0.299, 0.587, 0.114));"
+DATA "    col = max(mix(vec3f(lum), col, 1.38), vec3f(0.0));"
+DATA "    col = col * 0.96 + vec3f(8.0, 5.0, 10.0);"
 DATA "    col = col * (1.0 - 0.28 * dot(sn * sn, vec2f(0.7, 1.0)));"
+DATA "    // warning: something is about to show itself"
+DATA "    col = col * (1.0 - 0.25 * eyeCue * dot(sn * sn, vec2f(0.5, 0.8)));"
 DATA "    col = col * smoothstep(0.0, 0.045, -bd);"
-DATA "    if (fract(rowpx / 3.0) < 0.34) { col = col * 0.92; }"
-DATA "    if (stat > 0.0) {"
+DATA "    if (fract(rowpx / 3.0) < 0.34) { col = col * 0.93; }"
+DATA "    let st2 = stat + 0.02 * eyeCue * smoothstep(0.3, 1.2, dot(sn * sn, vec2f(0.6, 1.0)));"
+DATA "    if (st2 > 0.0) {"
 DATA "        let h = hs(dot(floor(uv * 420.0), vec2f(12.9898, 78.233)) + floor(T * 30.0) * 3.7);"
-DATA "        if (h < stat) { col = vec3f(hs(h * 91.0) * 230.0); }"
+DATA "        if (h < st2) { col = vec3f(hs(h * 91.0) * 230.0); }"
 DATA "    }"
 DATA "    col = col + (hs(dot(uv, vec2f(127.1, 311.7)) * 50.0 + fract(T) * 13.0) - 0.5) * 9.0;"
 DATA "    if (hor > 0.78) { col = mix(col, vec3f(160.0, 0.0, 20.0), venv * 0.15); }"
@@ -2094,6 +2603,10 @@ DATA "        col = mix(col, vec3f(200.0, 0.0, 20.0), clamp(1.0 - abs(evP - 0.3)
 DATA "        if (evP > 0.27 && evP < 0.3) { col = vec3f(255.0) - col; }"
 DATA "    }"
 DATA "    if (evT == 3 && evP > 0.84 && evP < 0.87) { col = vec3f(255.0) - col; }"
+DATA "    if (evT == 6) {"
+DATA "        col = mix(col, vec3f(230.0, 0.0, 25.0), clamp(1.0 - abs(evP - 0.44) / 0.1, 0.0, 1.0) * 0.55);"
+DATA "        if (evP > 0.4 && evP < 0.43) { col = vec3f(255.0) - col; }"
+DATA "    }"
 DATA "    return vec4<f32>(clamp(col / 255.0, vec3f(0.0), vec3f(1.0)), 1.0);"
 DATA "}"
 DATA "~"
@@ -2104,6 +2617,8 @@ DATA "~"
 SUB InitData
     RESTORE Scenes
     FOR i = 0 TO 49: READ scEnv(i), scCam(i), evList(i): NEXT
+    RESTORE EyeModes
+    FOR i = 0 TO 49: READ scEye(i): NEXT
     RESTORE Melody
     FOR i = 0 TO 63: READ melody(i): NEXT
     RESTORE Harmony
@@ -2132,7 +2647,7 @@ SUB InitAudio
     segN = 0: segIdx = 0: segPos = 0
     FOR i = 0 TO 4095: sinTab(i) = SIN(i * 2 * PI / 4096): NEXT
     FOR i = 0 TO 7: pInc(i) = 0: pPh(i) = i * .13: pLp(i) = 0: NEXT
-    stingW = -1: lastStep = -1
+    stingW = -1: sting2W = -1: lastStep = -1: revW = -1
     ' reverb: 4 combs and 2 all-pass filters per channel (Freeverb lengths)
     o = 0
     FOR i = 0 TO 11
@@ -2177,6 +2692,49 @@ FUNCTION Sm (e0, e1, v)
     IF tt > 1 THEN tt = 1
     Sm = tt * tt * (3 - 2 * tt)
 END FUNCTION
+
+' the progress through a scene at which its watcher shows itself (as the shader)
+FUNCTION RevealAt (mode)
+    SELECT CASE mode
+        CASE 1: RevealAt = .1
+        CASE 2: RevealAt = .12
+        CASE 3: RevealAt = .08
+        CASE 4: RevealAt = .07
+        CASE 5: RevealAt = 0
+        CASE ELSE: RevealAt = 2
+    END SELECT
+END FUNCTION
+
+' the hills' height (as the shader), for where the watcher waits on them
+FUNCTION Mh (x, z)
+    h = .45 * SIN(x * .17 + 1) * SIN(z * .13) + .25 * SIN(x * .37 + z * .21)
+    h = h * Sm(1.5, 7, ABS(x))
+    Mh = h + 3 * Sm(14, 45, ABS(x)) * (.6 + .4 * SIN(z * .04 + x * .02))
+END FUNCTION
+
+' where the watcher of scene w is once it has appeared (as the shader)
+SUB EyeSpot (w, ex, ey, ez)
+    env = scEnv(w): L = EnvLen(env)
+    ex = 3: ey = 2: ez = L * .5
+    SELECT CASE scEye(w)
+        CASE 1
+            ex = 2.6: IF (w AND 1) = 0 THEN ex = -2.6
+            ey = 2: ez = camZ + 7
+        CASE 4
+            ex = 0: ey = 1.5: ez = camZ + 9
+        CASE 2
+            SELECT CASE env
+                CASE 0: ex = -7.9: ey = 1.9 + Mh(-7.9, 11.8): ez = 11.8
+                CASE 1: ex = -7.5: ey = 3.75: ez = 9
+                CASE 2: ex = 4.2: ey = .05: ez = 16
+                CASE 4: ex = 3.65: ey = 2.15: ez = 9
+                CASE 5: ex = -5.5: ey = 2.5: ez = 14
+                CASE 7: ex = 2.8: ey = 1.42: ez = 13.6
+                CASE 8: ex = -10.3: ey = 1.4: ez = 12
+                CASE 9: ex = 0: ey = 4.6: ez = L * .6
+            END SELECT
+    END SELECT
+END SUB
 
 ' the length of a place, from its entry doorway to its exit (as the shader)
 FUNCTION EnvLen (env)
@@ -2233,7 +2791,8 @@ SUB CamPose (w, u, el)
             pitch = -.05
             roll = .02 * SIN(el * 2.3) + .01 * SIN(el * 5.1)
         CASE ELSE
-            s = Sm(.33, 1, u)
+            ' step out of the doorway first, then stand and stare
+            s = .1 * Sm(0, .15, u) + .9 * Sm(.33, 1, u)
             pitch = .06 * (1 - Sm(.3, .5, u))
     END SELECT
     bi = 1 - Sm(0, .12, u)
@@ -2273,13 +2832,30 @@ SUB UpdateWorld (el)
     voiceEnv = voiceEnv + (en - voiceEnv) * .5
 
     CamPose w, u, el
-
+    ' when the watcher shows itself, the camera turns to look at it
+    mode = scEye(w): rev = RevealAt(mode)
+    IF rev < 1 AND mode <> 5 THEN
+        nb = Sm(rev, rev + .04, u) * (1 - Sm(rev + .14, rev + .22, u))
+        IF nb > 0 THEN
+            EyeSpot w, ex, ey, ez
+            dx = ex - camX: dy = ey - camY: dz = ez - camZ
+            IF mode = 3 THEN dx = -.4: dy = .3: dz = 1
+            IF dz > .5 THEN
+                ty = Atan2(dx, dz): tp = ATN(dy / SQR(dx * dx + dz * dz))
+                camYaw = camYaw + (ty - camYaw) * nb * .85
+                camPitch = camPitch + (tp - camPitch) * nb * .85
+            END IF
+        END IF
+    END IF
     ' scare events (the shader reads the same type and phase)
     EventAt el, evType, evPh
     IF evType = 3 THEN camYaw = camYaw + PI * Sm(.05, .22, evPh) * (1 - Sm(.7, .85, evPh))
     kick = 0
     IF evType = 5 THEN kick = .2 * Cl(1 - ABS(evPh - .3) / .15, 0, 1)
     IF evType = 3 THEN kick = .15 * Cl(1 - ABS(evPh - .86) / .06, 0, 1)
+    IF evType = 6 THEN kick = .3 * Cl(1 - ABS(evPh - .42) / .12, 0, 1) + .03 * Sm(.05, .3, evPh) * (1 - Sm(.38, .42, evPh))
+    ' the camera flinches the moment the watcher appears
+    IF rev < 1 AND mode <> 5 THEN kick = kick + .12 * Cl(1 - ABS(u - rev - .015) / .015, 0, 1)
     camX = camX + (RND - .5) * kick: camY = camY + (RND - .5) * kick
     camRoll = camRoll + (RND - .5) * kick * .5 + (RND - .5) * glitchAmt * .03
 
@@ -2323,6 +2899,35 @@ SUB LoadFonts
             EXIT FOR
         END IF
     NEXT
+END SUB
+
+' the scene: a cube around the camera, so every pixel of the screen runs the
+' shader once
+SUB DrawScene (el)
+    _CAMERA (camX, camY, camZ) TO (camX + cfX * 5, camY + cfY * 5, camZ + cfZ * 5), 60
+    _SHADERPARAM tracer, 0, camX: _SHADERPARAM tracer, 1, camY
+    _SHADERPARAM tracer, 2, camZ: _SHADERPARAM tracer, 3, el
+    _SHADERPARAM tracer, 4, wCur: _SHADERPARAM tracer, 5, wNext
+    _SHADERPARAM tracer, 8, camRoll: _SHADERPARAM tracer, 9, voiceEnv
+    _SHADERPARAM tracer, 10, evType + evPh * .999: _SHADERPARAM tracer, 11, glitchAmt
+    _SHADERPARAM tracer, 12, camYaw: _SHADERPARAM tracer, 13, camPitch
+    _SHADERPARAM tracer, 14, staticAmt: _SHADERPARAM tracer, 15, gpuQ
+    _CLEAR3D 0
+    _DRAW3D dome, camX, camY, camZ, 0, 0, 0, 20, 20, 20
+END SUB
+
+SUB ShowLoading
+    _DEST scr
+    CLS
+    _FONT fontBig
+    COLOR _RGB32(150, 255, 150)
+    m$ = "YOU ARE FALLING ASLEEP..."
+    _PRINTSTRING ((scrW - _PRINTWIDTH(m$)) \ 2, scrH \ 2 - _FONTHEIGHT), m$
+    _FONT fontEn
+    COLOR _RGB32(110, 170, 110)
+    m$ = "don't wake up yet."
+    _PRINTSTRING ((scrW - _PRINTWIDTH(m$)) \ 2, scrH \ 2 + _FONTHEIGHT), m$
+    _DISPLAY
 END SUB
 
 ' ============================================================================
@@ -2374,6 +2979,7 @@ SUB OverlayPrep (el)
         CASE 3: IF evPh > .22 AND evPh < .7 THEN evTxt$ = "DON'T TURN AROUND"
         CASE 4: IF evPh > .3 AND evPh < .8 THEN evTxt$ = "SOMEONE IS STANDING THERE"
         CASE 5: IF evPh > .26 AND evPh < .5 THEN evTxt$ = "FOUND YOU"
+        CASE 6: IF evPh > .4 AND evPh < .78 THEN evTxt$ = "RUN"
     END SELECT
     IF LEN(evTxt$) > 0 AND (INT(el * 10) MOD 4) = 0 THEN evTxt$ = GlitchEn$(evTxt$, .3)
     fin$ = "0"
@@ -2604,11 +3210,29 @@ SUB EventAt (t, ty, ph)
     IF t < 0 OR t >= 900 THEN EXIT SUB
     w = INT(t / WLEN)
     lt = t - w * WLEN
-    IF lt >= 8.5 AND lt < 12.5 THEN
+    IF ScareWorld(w) THEN
+        ' five times in the tour, about three minutes apart: the watcher
+        ' peeks, is seen, slips back into hiding and the world goes quiet;
+        ' then the lights stutter, the music drops out, and it comes out of
+        ' its hiding place straight at the camera before the doorway
+        IF lt >= 12.2 AND lt < 14 THEN
+            ty = 6
+            ph = (lt - 12.2) / 1.8
+        END IF
+    ELSEIF lt >= 7.5 AND lt < 11.5 THEN
         ty = evList(w)
-        ph = (lt - 8.5) / 4
+        ph = (lt - 7.5) / 4
     END IF
 END SUB
+
+' the worlds with a jump scare (the same list as scareWorld in the shader);
+' in each the watcher peeks from a hiding place (eye mode 2)
+FUNCTION ScareWorld (w)
+    SELECT CASE w
+        CASE 5, 16, 29, 39, 45: ScareWorld = 1
+        CASE ELSE: ScareWorld = 0
+    END SELECT
+END FUNCTION
 
 SUB AudioPump (el)
     DIM tg AS LONG, need AS LONG, mx2 AS LONG
@@ -2776,6 +3400,11 @@ SUB GenBlock
     EventAt bt, ety, eph
     mute = 1
     IF ety = 2 THEN mute = 1 - .92 * Sm(.03, .08, eph) * (1 - Sm(.8, .9, eph))
+    ' dead silence before the jump scare, then the sting
+    IF ety = 6 THEN mute = 1 - .95 * Sm(.05, .3, eph) * (1 - Sm(.5, .7, eph))
+    IF ety = 6 AND eph >= .4 AND sting2W <> INT(bt / WLEN) THEN sting2W = INT(bt / WLEN): jsE = 1: jsF = 120: hbE = 1: hbI = 110 / sr
+    ' while the lights stutter, a breath right behind the camera
+    IF ety = 6 AND eph >= .08 AND eph < .1 THEN brE = 1
     IF (ety = 5 AND eph >= .27) OR (ety = 3 AND eph >= .84) THEN
         IF stingW <> INT(bt / WLEN) THEN stingW = INT(bt / WLEN): stE = 1: stF = 900
     END IF
@@ -2783,6 +3412,7 @@ SUB GenBlock
     IF ety = 4 AND eph > .08 AND eph < .92 THEN figV = .03
     rumV = 0
     IF ety = 2 THEN rumV = .25 * (1 - mute)
+    IF ety = 6 AND eph < .38 THEN rumV = .12
 
     ' ---- the sound of the place ----
     wb = INT(bt / WLEN)
@@ -2825,7 +3455,20 @@ SUB GenBlock
     IF am > 4 THEN am = 4
     fin = 0
     IF bt > 896 THEN am = 0: fin = 1
-    bpm = 72 - am * 6
+    bpm = 64 - am * 5
+    ' before the watcher shows itself: the music sags like slowing tape and a
+    ' low swell rises; when it appears, a heartbeat and a breath
+    ub = Cl((bt - wb * WLEN) / WLEN, 0, 1)
+    emode = scEye(wb): rev = RevealAt(emode)
+    cueA = 0
+    IF rev < 1 AND emode <> 5 THEN
+        cueA = Sm(rev - .07, rev - .015, ub) * (1 - Sm(rev, rev + .04, ub))
+        IF ub >= rev AND revW <> wb THEN revW = wb: hbE = 1: hbI = 66 / sr: brE = 1: stE = .8: stF = 700
+    END IF
+    ' walking through a doorway: the tape stops and starts again
+    tapeK = 1
+    IF ub > .975 AND wb < 49 THEN tapeK = 1 - .8 * Sm(.975, .999, ub)
+    IF ub < .03 AND wb > 0 THEN tapeK = .2 + .8 * Sm(0, .03, ub)
     musPos = musPos + BLK / sr * bpm / 30
     stp = INT(musPos)
     IF stp <> lastStep THEN
@@ -2842,7 +3485,7 @@ SUB GenBlock
             IF am >= 2 THEN n = MinorOf(n)
             mbI = NoteInc(n)
             IF am = 3 THEN mbI = mbI * (1 + (RND - .5) * .04)
-            mbE = .9: mbP = 0: mbP2 = 0
+            mbE = .9: mbP = 0: mbP2 = 0: kyE = 1: kyP = 0
         END IF
         IF am >= 4 AND fin = 0 THEN
             IF (stp AND 1) = 0 THEN
@@ -2863,11 +3506,11 @@ SUB GenBlock
     nb = chordN(bar, 0)
     IF am >= 2 THEN nb = MinorOf(nb)
     bsI = bsI + (NoteInc(nb - 24) - bsI) * .03
-    wob = 1 + (.0025 + .003 * am) * SIN(bt * 3.46) + .0007 * SIN(bt * 44)
+    wob = (1 + (.0025 + .003 * am) * SIN(bt * 3.46) + .0007 * SIN(bt * 44)) * tapeK * (1 - .03 * cueA)
     padV = .03: mbV = .15: bsV = .07
     IF am >= 4 THEN padV = .022: mbV = .1
     IF fin THEN padV = .05
-    musG = (1 - .45 * Cl(cAmp, 0, 1)) * mute
+    musG = (1 - .45 * Cl(cAmp, 0, 1)) * mute * (1 - .6 * cueA) * (.35 + .65 * tapeK)
     IF bt > 900 THEN musG = musG * Cl((909 - bt) / 9, 0, 1)
 
     FOR k = 1 TO BLK
@@ -2907,7 +3550,15 @@ SUB GenBlock
         IF hbP >= 1 THEN hbP = hbP - 1
         hb = SinT(hbP) * hbE
         hbE = hbE * .99965: hbI = hbI * .99997
-        mus = (pad * padV + SinT(bsP) * bsV + mb * mbV + hb * .45) * musG
+        ' soft lo-fi keys: a slightly detuned triangle under the music box
+        kyP = kyP + mbI * 1.003 * wob
+        IF kyP >= 1 THEN kyP = kyP - 1
+        ky = (1 - 4 * ABS(kyP - .5)) * kyE
+        kyE = kyE * .99997
+        ' the pads breathe in with each beat
+        bfr = musPos / 2 - INT(musPos / 2)
+        pump = .7 + .3 * Mn(bfr * 4, 1)
+        mus = (pad * padV * pump + SinT(bsP) * bsV + mb * mbV * .7 + ky * .07 + hb * .45) * musG
         ' heard from another room: a low-pass that depends on the place
         mLpL = mLpL + (mus - mLpL) * mCut
 
@@ -2940,15 +3591,31 @@ SUB GenBlock
         amb = amb + (SinT(drP1) + .7 * SinT(drP2)) * gDrone * .05
         amb = amb + (RND - .5) * gHiss * .02
         amb = amb * mute
+        ' the warning swell and the breath
+        IF cueA > .001 THEN amb = amb + (SinT(drP1 * .8) * .6 + wLp * 3) * cueA * .09
+        IF brE > .001 THEN amb = amb + wLp2 * brE * 3: brE = brE * .99985
 
         ' events
         sg = 0
         IF stE > .001 THEN
-            stP = stP + stF / sr
-            IF stP >= 1 THEN stP = stP - 1
+            stPh = stPh + stF / sr
+            IF stPh >= 1 THEN stPh = stPh - 1
             stF = stF * .99993
-            sg = (SinT(stP) * .6 + (RND - .5) * 1.1) * stE * .8
+            sg = (SinT(stPh) * .6 + (RND - .5) * 1.1) * stE * .8
             stE = stE * .99986
+        END IF
+        IF jsE > .001 THEN
+            ' a boom falling from 120 Hz to 36 Hz, and a stab of three tones
+            ' a semitone and a tritone apart, slightly distorted
+            jsP = jsP + jsF / sr: IF jsP >= 1 THEN jsP = jsP - 1
+            jsF = jsF * .99992: IF jsF < 36 THEN jsF = 36
+            jsA = jsA + 233.08 / sr: IF jsA >= 1 THEN jsA = jsA - 1
+            jsB = jsB + 246.94 / sr: IF jsB >= 1 THEN jsB = jsB - 1
+            jsC = jsC + 349.23 / sr: IF jsC >= 1 THEN jsC = jsC - 1
+            stab = (2 * jsA - 1) + (2 * jsB - 1) + .8 * (2 * jsC - 1)
+            stab = stab * 1.6 / (1 + ABS(stab * 1.6))
+            sg = sg + (SinT(jsP) * 1.4 * jsE + stab * .55 * jsE * jsE)
+            jsE = jsE * .99996
         END IF
         IF figV > 0 THEN
             fgP = fgP + 1830 / sr * (1 + .01 * SIN(bt * 9))
